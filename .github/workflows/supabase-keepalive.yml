@@ -1,0 +1,30 @@
+name: Supabase Free Tier Keep-Alive
+
+on:
+  schedule:
+    # Segundas e quintas-feiras às 11:00 UTC (08:00 BRT)
+    - cron: '0 11 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase healthcheck RPC
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL || 'https://fwdvrkfootvublicetim.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ3ZHZya2Zvb3R2dWJsaWNldGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0MTM0MzgsImV4cCI6MjEwODk4OTQzOH0.WlkAKyLY0tu-t2TreehR3UqoigixGjBXRHnH0IYYpGU' }}
+        run: |
+          echo "Realizando ping healthcheck em: ${SUPABASE_URL}/rest/v1/rpc/ping_health"
+          RESPONSE=$(curl -fsS -X POST "${SUPABASE_URL}/rest/v1/rpc/ping_health" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+          echo "Resposta do Supabase: ${RESPONSE}"
+          if [ "${RESPONSE}" != '"ok"' ] && [ "${RESPONSE}" != "ok" ]; then
+            echo "Erro: Resposta inesperada do healthcheck."
+            exit 1
+          else
+            echo "Supabase ativo e saudável!"
+          fi

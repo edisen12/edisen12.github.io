@@ -1,0 +1,276 @@
+/* Tokens Semânticos do Design System Infotec Brasil */
+
+:root {
+  /* Marca e Identidade Infotec */
+  --blue: #1E4E9C;
+  --blue-hover: #163C7A;
+  --blue-dark: #163C7A;
+  --blue-soft: #E8EEF8;
+  --on-blue: #FFFFFF;
+
+  --orange: #F5A100;
+  --orange-hover: #D98E00;
+  --orange-dark: #C27D00;
+  --orange-soft: #FFF4DC;
+  --on-orange: #1B2A41;
+
+  /* Superfícies e Fundo Light */
+  --bg: #F5F7FB;
+  --surface: #FFFFFF;
+  --surface-alt: #EEF2F8;
+  --surface-elevated: #FFFFFF;
+  --line: #DCE3EE;
+  --line-strong: #B8C7DC;
+
+  /* Tipografia e Textos */
+  --ink: #1B2A41;
+  --ink-secondary: #4A5B73;
+  --ink-soft: #4A5B73;
+  --ink-muted: #6B7A90;
+  --ink-light: #94A3B8;
+
+  /* Status Semânticos Light */
+  --ok: #1F8A4C;
+  --ok-soft: #E3F4EA;
+  --ok-bg: #E3F4EA;
+  --ok-border: #A3DFBA;
+
+  --warn: #B86E00;
+  --warn-soft: #FFF0D6;
+  --warn-bg: #FFF0D6;
+  --warn-border: #FCD699;
+
+  --bad: #C62828;
+  --bad-soft: #FBE4E4;
+  --bad-bg: #FBE4E4;
+  --bad-border: #F4AAAA;
+
+  --sem: #6B7A90;
+  --sem-soft: #EEF1F5;
+  --sem-bg: #EEF1F5;
+  --sem-border: #CFD7E3;
+
+  --info: #1E4E9C;
+  --info-soft: #E8EEF8;
+  --info-bg: #E8EEF8;
+  --info-border: #B7CEF3;
+
+  /* Tipografia */
+  --f-display: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --f-body: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Raios de Borda */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Filete Assinatura Infotec */
+  --signature-stripe: 3px solid var(--orange);
+
+  /* Sombras */
+  --shadow-sm: 0 1px 3px rgba(27, 42, 65, 0.05), 0 1px 2px rgba(27, 42, 65, 0.03);
+  --shadow-md: 0 4px 12px rgba(27, 42, 65, 0.08);
+  --shadow-lg: 0 10px 25px rgba(27, 42, 65, 0.12);
+  --shadow-modal: 0 16px 36px rgba(14, 21, 34, 0.28);
+  --shadow-drawer: -6px 0 24px rgba(14, 21, 34, 0.18);
+
+  /* Transições */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Dimensões Globais */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 68px;
+  --header-height: 54px;
+
+  color-scheme: light;
+}
+
+/* Modo Escuro Automático */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --blue: #7AA6EC;
+    --blue-hover: #9BBDF3;
+    --blue-dark: #5D8DD8;
+    --blue-soft: #1A2A45;
+    --on-blue: #0E1522;
+
+    --orange: #F5A100;
+    --orange-hover: #FFB733;
+    --orange-dark: #D98E00;
+    --orange-soft: #3A2A0D;
+    --on-orange: #1B2A41;
+
+    --bg: #0E1522;
+    --surface: #151F30;
+    --surface-alt: #1B2840;
+    --surface-elevated: #1F2D47;
+    --line: #26344B;
+    --line-strong: #374864;
+
+    --ink: #E6ECF5;
+    --ink-secondary: #BDC8DA;
+    --ink-soft: #BDC8DA;
+    --ink-muted: #93A1B8;
+    --ink-light: #6A7B95;
+
+    --ok: #5CCB8A;
+    --ok-soft: #17321F;
+    --ok-bg: #17321F;
+    --ok-border: #235431;
+
+    --warn: #F2B04A;
+    --warn-soft: #3A2C10;
+    --warn-bg: #3A2C10;
+    --warn-border: #5B4416;
+
+    --bad: #FF7A7A;
+    --bad-soft: #3D1A1A;
+    --bad-bg: #3D1A1A;
+    --bad-border: #642525;
+
+    --sem: #93A1B8;
+    --sem-soft: #1E2A3D;
+    --sem-bg: #1E2A3D;
+    --sem-border: #2F3E57;
+
+    --info: #7AA6EC;
+    --info-soft: #1A2A45;
+    --info-bg: #1A2A45;
+    --info-border: #284473;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.45);
+    --shadow-modal: 0 16px 36px rgba(0, 0, 0, 0.6);
+    --shadow-drawer: -6px 0 24px rgba(0, 0, 0, 0.5);
+
+    color-scheme: dark;
+  }
+}
+
+/* Modo Escuro Forçado por data-theme="dark" */
+:root[data-theme="dark"] {
+  --blue: #7AA6EC;
+  --blue-hover: #9BBDF3;
+  --blue-dark: #5D8DD8;
+  --blue-soft: #1A2A45;
+  --on-blue: #0E1522;
+
+  --orange: #F5A100;
+  --orange-hover: #FFB733;
+  --orange-dark: #D98E00;
+  --orange-soft: #3A2A0D;
+  --on-orange: #1B2A41;
+
+  --bg: #0E1522;
+  --surface: #151F30;
+  --surface-alt: #1B2840;
+  --surface-elevated: #1F2D47;
+  --line: #26344B;
+  --line-strong: #374864;
+
+  --ink: #E6ECF5;
+  --ink-secondary: #BDC8DA;
+  --ink-soft: #BDC8DA;
+  --ink-muted: #93A1B8;
+  --ink-light: #6A7B95;
+
+  --ok: #5CCB8A;
+  --ok-soft: #17321F;
+  --ok-bg: #17321F;
+  --ok-border: #235431;
+
+  --warn: #F2B04A;
+  --warn-soft: #3A2C10;
+  --warn-bg: #3A2C10;
+  --warn-border: #5B4416;
+
+  --bad: #FF7A7A;
+  --bad-soft: #3D1A1A;
+  --bad-bg: #3D1A1A;
+  --bad-border: #642525;
+
+  --sem: #93A1B8;
+  --sem-soft: #1E2A3D;
+  --sem-bg: #1E2A3D;
+  --sem-border: #2F3E57;
+
+  --info: #7AA6EC;
+  --info-soft: #1A2A45;
+  --info-bg: #1A2A45;
+  --info-border: #284473;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 16px 36px rgba(0, 0, 0, 0.6);
+  --shadow-drawer: -6px 0 24px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+/* Modo Claro Forçado por data-theme="light" */
+:root[data-theme="light"] {
+  --blue: #1E4E9C;
+  --blue-hover: #163C7A;
+  --blue-dark: #163C7A;
+  --blue-soft: #E8EEF8;
+  --on-blue: #FFFFFF;
+
+  --orange: #F5A100;
+  --orange-hover: #D98E00;
+  --orange-dark: #C27D00;
+  --orange-soft: #FFF4DC;
+  --on-orange: #1B2A41;
+
+  --bg: #F5F7FB;
+  --surface: #FFFFFF;
+  --surface-alt: #EEF2F8;
+  --surface-elevated: #FFFFFF;
+  --line: #DCE3EE;
+  --line-strong: #B8C7DC;
+
+  --ink: #1B2A41;
+  --ink-secondary: #4A5B73;
+  --ink-soft: #4A5B73;
+  --ink-muted: #6B7A90;
+  --ink-light: #94A3B8;
+
+  --ok: #1F8A4C;
+  --ok-soft: #E3F4EA;
+  --ok-bg: #E3F4EA;
+  --ok-border: #A3DFBA;
+
+  --warn: #B86E00;
+  --warn-soft: #FFF0D6;
+  --warn-bg: #FFF0D6;
+  --warn-border: #FCD699;
+
+  --bad: #C62828;
+  --bad-soft: #FBE4E4;
+  --bad-bg: #FBE4E4;
+  --bad-border: #F4AAAA;
+
+  --sem: #6B7A90;
+  --sem-soft: #EEF1F5;
+  --sem-bg: #EEF1F5;
+  --sem-border: #CFD7E3;
+
+  --info: #1E4E9C;
+  --info-soft: #E8EEF8;
+  --info-bg: #E8EEF8;
+  --info-border: #B7CEF3;
+
+  --shadow-sm: 0 1px 3px rgba(27, 42, 65, 0.05), 0 1px 2px rgba(27, 42, 65, 0.03);
+  --shadow-md: 0 4px 12px rgba(27, 42, 65, 0.08);
+  --shadow-lg: 0 10px 25px rgba(27, 42, 65, 0.12);
+  --shadow-modal: 0 16px 36px rgba(14, 21, 34, 0.28);
+  --shadow-drawer: -6px 0 24px rgba(14, 21, 34, 0.18);
+
+  color-scheme: light;
+}

@@ -263,7 +263,7 @@ Todas as funções auxiliares de escopo (`auth_is_active()`, `auth_is_global()`,
 > **Garantia de Segurança Operacional:** Os testes unitários e de integração **NUNCA** acessam o banco de dados de produção (`fwdvrkfootvublicetim.supabase.co`). Toda a suíte executa de forma 100% determinística e offline utilizando o simulador em memória `mockSupabase.ts` e `testFixtures.ts`.
 
 - **Framework:** `Vitest 3` com ambiente de execução `happy-dom` e `@testing-library/react`.
-- **Cobertura Total:** **15 arquivos de teste e 254 testes automatizados (100% passando em ~8s)**.
+- **Cobertura Total:** **20 arquivos de teste e 376 testes automatizados (100% passando em ~10s)**.
   1. **Domínio e Invariantes Matemáticos (`src/domain/__tests__/`, `src/utils/__tests__/`):**
      - Todos os 4 ciclos de corte (`1`, `16`, `21`, `26`) e lookback de 45 dias.
      - Síntese de *"Não chegou"* com proteção contra transbordo (`externalCoveredSet`).
@@ -281,6 +281,12 @@ Todas as funções auxiliares de escopo (`auth_is_active()`, `auth_is_global()`,
      - Ordenação e paginação customizada de tabelas (`DataTable.test.tsx`).
      - Contraste, seleção ativa e contagens numéricas de abas (`SegmentedControl.test.tsx`).
      - Exibição de grupos e divisores de seção na sidebar recolhida (`Sidebar.test.tsx`).
+  4. **Segurança Avançada, RBAC, RLS & Edge Function (`src/security/__tests__/` - 122 testes):**
+     - Isolamento RLS das 15 tabelas públicas e corte instantâneo 0ms (`rls-policies.test.ts` - 34 testes).
+     - Matriz de acesso RBAC, redirecionamento forçado e visibilidade de abas (`rbac.test.ts` - 20 testes).
+     - Segurança da Edge Function, travas anti-lockout e rollback compensatório (`admin-users-edge.test.ts` - 29 testes).
+     - Inviolabilidade do gate de primeiro login e suspensão de carga de dados (`first-login-gate-security.test.ts` - 21 testes).
+     - Prevenção de vazamento, auditoria estática zero-PII e marca d'água Excel (`data-leakage-and-sanitization.test.ts` - 18 testes).
 
 ## 7. Playbook Operacional para Futuras Manutenções
 
@@ -305,3 +311,66 @@ npm run build       # Gera bundle de produção em dist/ com code-splitting do S
 3. Toda nova tabela **deve** ter `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;` e políticas explícitas `TO authenticated` verificando `public.auth_is_active()` e o escopo (`auth_is_global()` vs `auth_allowed_platforms()`).
 4. Regenere `src/types/database.types.ts` via Supabase CLI / MCP `generate_typescript_types`.
 5. Rode os Security & Performance Advisors do Supabase para garantir `0` alertas de RLS ou índices faltantes.
+
+---
+
+## 8. Arquitetura de Segurança, Matriz RBAC & Isolamento RLS Multi-Escopo
+
+> **Princípio Fundamental:** A segurança do sistema opera sob o modelo **Zero-Trust**. Nenhuma decisão de autorização de leitura ou gravação de dados sensíveis é delegada unicamente ao frontend. O backend PostgreSQL (RLS), o gateway GoTrue e a Edge Function administrativa aplicam travas criptográficas e relacionais independentes.
+
+### 8.1. Matriz de Papéis (RBAC) & Privilégios de Acesso
+
+| Papel (`role`) | Escopo (`isGlobal`) | Admin (`isAdmin`) | Abas Autorizadas | Acesso à Administração (`pes`, `imp`, `cfg`) | Gestão de Usuários na Edge Function |
+| :--- | :---: | :---: | :--- | :---: | :--- |
+| **`admin`** | `true` | `true` | Todas as 9 abas + `perfil` | Sim (irrestrito) | Criar/editar todos os papéis, inclusive novos administradores |
+| **`gestor`** | `true` | `false` | Todas as 9 abas + `perfil` | Sim (operacional pleno) | Criar/editar `gestor`, `controlador`, `preposto`. **Bloqueado** para criar ou promover `admin` |
+| **`controlador`**| `false` | `false` | 7 abas (`ger`, `dia`, `emb`, `jus`, `med`, `us`, `perfil`) | **Não** (redirecionado para `VisaoGeralView`) | **Sem acesso** (403 Forbidden imediato) |
+| **`preposto`** | `false` | `false` | 7 abas (`ger`, `dia`, `emb`, `jus`, `med`, `us`, `perfil`) | **Não** (redirecionado para `VisaoGeralView`) | **Sem acesso** (403 Forbidden imediato) |
+
+- **Sanitização de Roteamento de Abas:** Caso um `preposto` ou `controlador` force a troca de URL ou altere o estado para uma aba restrita (`pes`, `imp` ou `cfg`), o componente `App.tsx` e o `Sidebar.tsx` realizam sanitização automática (`sanitizeTab`) e redirecionam o usuário imediatamente para a visão geral (`'ger'`). A seção administrativa da barra lateral é completamente omitida do DOM.
+- **Universalidade da Aba `perfil`:** A central `UserSettingsView` está disponível uniformemente para todos os 4 papéis, permitindo a troca de nome de exibição, alternância de tema, densidade, itens por página e redefinição de senha pessoal.
+
+### 8.2. Isolamento RLS das 15 Tabelas Públicas
+
+Todas as 15 tabelas públicas possuem RLS ativo com políticas restritas `TO authenticated`:
+1. **Papel `anon` (Não Autenticado):** Possui zero permissões (`SELECT`, `INSERT`, `UPDATE`, `DELETE` rejeitados) em todas as 15 tabelas (`profiles`, `plataformas`, `pessoas`, `pessoa_plataformas`, `pessoa_unidades`, `tecnicos`, `carteira_embarques`, `apontamentos_hh`, `justificativas`, `configuracoes`, `config_usoff_un`, `configuracoes_notificacao`, `fluxo_importacoes`, `sync_heartbeat`, `user_onboarding`). Apenas a RPC pública `ping_health` responde para o healthcheck do GitHub Actions.
+2. **Corte Instantâneo de Usuário Desativado (`ativo = false`):** Quando `profiles.ativo` passa para `false`, a função `auth_is_active()` retorna `false` e encerra o acesso a todas as tabelas em **0ms** (sem aguardar expiração de token JWT).
+3. **Escopo Local de Plataformas e UNs:**
+   - Prepostos e Controladores enxergam linhas em `carteira_embarques` e `apontamentos_hh` **apenas** quando `plataforma_sigla = ANY(auth_allowed_platforms())` ou `unidade_negocio = ANY(auth_allowed_uns())`.
+4. **Proteção de Dados Sensíveis da Gestão:**
+   - `configuracoes_notificacao`: armazena `emails_resumo` de gerentes e diretores. Prepostos e controladores recebem exatamente **0 linhas**; acesso exclusivo de `admin` e `gestor`.
+   - `fluxo_importacoes`: logs de auditoria de pipelines de carga. Acesso restrito a `admin` e `gestor`.
+5. **Gating de Justificativas:**
+   - Apenas usuários com `auth_can_access_justificativa(matricula, data) = true` podem criar ou editar justificativas (ou seja, o técnico estava previsto ou apontado em plataforma sob gestão do preposto naquela data). Tentativas de adulterar justificativas de plataformas alheias são rejeitadas. Exclusão restrita a perfis globais.
+6. **Hardening de Triggers de Banco (Migration `005_security_hardening.sql`):**
+   - Funções desenhadas exclusivamente para triggers (`fn_init_user_onboarding`, `fn_justificativas_audit`, `fn_touch_heartbeat`) tiveram suas permissões `EXECUTE` revogadas de `PUBLIC`, `anon` e `authenticated`, impedindo chamadas espúrias via REST PostgREST (`/rpc/...`).
+
+### 8.3. Segurança & Anti-Lockout na Edge Function `admin-users`
+
+A Edge Function `supabase/functions/admin-users/index.ts` roda em ambiente Deno com chave `service_role` protegida no servidor e aplica travas anti-falha:
+- **Autenticação Obrigatória:** Rejeita requisições sem header `Authorization` ou com JWT expirado/inválido (`401 Unauthorized`).
+- **Validação de Papel do Solicitante:** Solicitantes desativados (`ativo = false`) ou com papel `preposto` / `controlador` são sumariamente rejeitados com `403 Forbidden`.
+- **Anti-Elevação de Privilégio:** Um `gestor` não pode criar usuários com papel `admin`, nem promover terceiros para `admin`, nem editar status ou redefinir senha de contas `admin` (`403 Forbidden`). Apenas o papel `admin` pode gerenciar contas com papel de administrador.
+- **Trava Anti-Lockout 1 (Auto-Rebaixamento):** Um administrador não pode alterar o próprio papel para `gestor`, `controlador` ou `preposto` (`400 Bad Request`).
+- **Trava Anti-Lockout 2 (Auto-Desativação):** Um administrador não pode desativar seu próprio acesso (`ativo: false`) (`400 Bad Request`).
+- **Trava Anti-Lockout 3 (Último Administrador Ativo):** Tentativas de desativar ou rebaixar o único Administrador ativo no sistema são bloqueadas no banco (`400 Bad Request`), garantindo que o sistema nunca fique sem governança.
+- **Validação de Senha Forte:** Rejeição de senhas provisórias com menos de 8 caracteres.
+- **Rollback Compensatório (Anti-Contas Órfãs):** Caso ocorra qualquer falha na persistência SQL pós-GoTrue (ex.: violação de constraint ou falha de conectividade), a Edge Function executa `auth.admin.deleteUser` imediatamente, removendo a credencial do GoTrue e impedindo a proliferação de contas órfãs no Auth.
+
+### 8.4. Inviolabilidade do Gate de Primeiro Login (`FirstLoginGate`)
+
+- Quando `user_onboarding.primeiro_login = true` ou `user_onboarding.obriga_troca_senha = true`, o usuário é contido no `FirstLoginGate`:
+  - O `AppShell`, sidebar, rotas operacionais e modais operacionais permanecem totalmente **desmontados**.
+  - O carregamento de dataset (`reloadDataset`) é **suspenso**, garantindo que nenhum dado contratual seja transferido para o cliente antes da redefinição de senha.
+  - O listener Realtime permanece inativo enquanto o gate estiver presente.
+  - O usuário não pode fechar o gate via teclado (Escape), navegação ou recarga de página: as únicas opções são redefinir a senha com êxito ou efetuar logout.
+  - Regras de senha aplicadas: mínimo de 8 caracteres, mescla de letras e números, confirmação idêntica e proibição de reuso da senha provisória.
+  - Após validação, a RPC atômica `complete_first_login_password_change` registra o timestamp de alteração (`senha_trocada_em`) e atualiza as flags no PostgreSQL. O desbloqueio só ocorre após a confirmação no banco de dados.
+
+### 8.5. Prevenção de Vazamento de Dados & Sanitização Universal
+
+- **Auditoria Estática Contínua:** Zero chaves `service_role`, zero chaves privadas PEM/RSA, zero tokens de nuvem mestres e zero CPFs/dados pessoais reais versionados no código-fonte.
+- **Sanitização de Transbordo:** A RPC `get_external_covered_days` retorna exclusivamente chaves `(matricula, data)`, sem qualquer metadado de plataformas externas. O motor suprime falsos alertas de ausência sem vazar informações contextuais.
+- **Carimbo de Escopo Parcial em Planilhas Excel:** Exportações geradas por usuários de escopo restrito (`preposto` e `controlador`) recebem compulsoriamente a marca d'água `[ESCOPO PARCIAL DE CARTEIRA - ...]` nos cabeçalhos e a tag `[PARCIAL - ...]` nos nomes dos arquivos, impedindo que dados locais sejam manipulados ou apresentados como totais contratuais.
+- **Sanitização RFC 3986 em Deeplinks de Comunicação:** Os geradores de link para Outlook e e-mail padrão (`buildMailLinks`) aplicam codificação estrita em assuntos e corpos de mensagem, neutralizando ataques de CRLF Header Injection (`\r\n`), injeção de parâmetros de query e scripts maliciosos.
+

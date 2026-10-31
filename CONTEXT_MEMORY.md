@@ -242,17 +242,45 @@ Todas as funções auxiliares de escopo (`auth_is_active()`, `auth_is_global()`,
 │   │   ├── tokens.css              # Design Tokens Infotec Brasil (Light & Dark)
 │   │   ├── layout.css              # Shell responsivo (Sidebar colapsável, TopHeader, StickyFilterBar, Grids)
 │   │   └── components.css          # Tabelas densas, cards KPI, badges, barras de meta, modais e drawers
+│   ├── test/                       # Infraestrutura de Teste e Banco Mock Isolado (Zero Network)
+│   │   ├── setup.ts                # Configuração global Vitest e ambiente happy-dom
+│   │   ├── testFixtures.ts         # Fixtures determinísticas sem PII (usuários, perfis, plataformas, carteira)
+│   │   └── mockSupabase.ts         # Simulador em memória do cliente Supabase (auth, PostgREST fluente, RPCs)
 │   ├── ui/
 │   │   ├── state/AppContext.tsx    # Estado global autenticado, filtros, período ativo, dataset e mutações
-│   │   ├── components/             # Primitivos reutilizáveis (AppShell, Sidebar, TopHeader, StickyFilterBar, DataTable, KpiCard, Sparkline120, ScopeBanner, Modal, Drawer, etc.)
+│   │   ├── components/             # Primitivos reutilizáveis e suíte de testes (__tests__/)
 │   │   ├── modals/                 # JustificativaModal, FichaTecnicoDrawer, EmailComposerModal, ManualEntryModals
-│   │   └── views/                  # LoginView + as 9 views do sistema (VisaoGeral, PainelDia, EmbarqueAtual, Justificativas, MedicaoRelatorios, MedicaoUsoff, PessoasPlataformas, ImportarDados, Configuracoes)
+│   │   └── views/                  # LoginView, FirstLoginGate, UserSettingsView + as 9 views operacionais (__tests__/)
 │   ├── App.tsx                     # Orquestrador raiz (Gate de Autenticação + Roteamento de Abas e Modais Globais)
 │   └── main.tsx                    # Bootstrap React 19 + importação da cascata CSS
 └── CONTEXT_MEMORY.md               # Este documento
 ```
 
 ---
+
+## 7. Arquitetura de Testes e Ambiente de Desenvolvimento Isolado
+
+> **Garantia de Segurança Operacional:** Os testes unitários e de integração **NUNCA** acessam o banco de dados de produção (`fwdvrkfootvublicetim.supabase.co`). Toda a suíte executa de forma 100% determinística e offline utilizando o simulador em memória `mockSupabase.ts` e `testFixtures.ts`.
+
+- **Framework:** `Vitest 3` com ambiente de execução `happy-dom` e `@testing-library/react`.
+- **Cobertura Total:** **15 arquivos de teste e 254 testes automatizados (100% passando em ~8s)**.
+  1. **Domínio e Invariantes Matemáticos (`src/domain/__tests__/`, `src/utils/__tests__/`):**
+     - Todos os 4 ciclos de corte (`1`, `16`, `21`, `26`) e lookback de 45 dias.
+     - Síntese de *"Não chegou"* com proteção contra transbordo (`externalCoveredSet`).
+     - Dedução de Gangway desconectada (`pAj`).
+     - Fórmula USOFF com cascata de 3 níveis de pesos e trava de integridade `falta = true`.
+     - SLA de justificativas (no prazo vs vencidas e tempo médio).
+     - Datas sem drift de fuso horário UTC vs local.
+  2. **Serviços & Banco Mock Dev (`src/services/__tests__/`):**
+     - Autenticação e primeiro login obrigatório (`auth.service.test.ts`).
+     - Paginação de mais de 1.000 linhas via `.range(from, to)` e batch upsert em chunks de 500 linhas (`data.service.test.ts`).
+     - Parsing tolerante a formatos e geração de planilhas XLSX com disclaimer de escopo parcial (`excel.service.test.ts`).
+  3. **Interface e Fluxos do Usuário (`src/ui/**/__tests__/`):**
+     - Bloqueio total no primeiro login e validação progressiva de senha (`FirstLoginGate.test.tsx`).
+     - Persistência e aplicação de preferências de tema, densidade e paginação (`UserSettingsView.test.tsx`).
+     - Ordenação e paginação customizada de tabelas (`DataTable.test.tsx`).
+     - Contraste, seleção ativa e contagens numéricas de abas (`SegmentedControl.test.tsx`).
+     - Exibição de grupos e divisores de seção na sidebar recolhida (`Sidebar.test.tsx`).
 
 ## 7. Playbook Operacional para Futuras Manutenções
 

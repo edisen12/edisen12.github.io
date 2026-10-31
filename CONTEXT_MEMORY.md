@@ -374,3 +374,43 @@ A Edge Function `supabase/functions/admin-users/index.ts` roda em ambiente Deno 
 - **Carimbo de Escopo Parcial em Planilhas Excel:** Exportações geradas por usuários de escopo restrito (`preposto` e `controlador`) recebem compulsoriamente a marca d'água `[ESCOPO PARCIAL DE CARTEIRA - ...]` nos cabeçalhos e a tag `[PARCIAL - ...]` nos nomes dos arquivos, impedindo que dados locais sejam manipulados ou apresentados como totais contratuais.
 - **Sanitização RFC 3986 em Deeplinks de Comunicação:** Os geradores de link para Outlook e e-mail padrão (`buildMailLinks`) aplicam codificação estrita em assuntos e corpos de mensagem, neutralizando ataques de CRLF Header Injection (`\r\n`), injeção de parâmetros de query e scripts maliciosos.
 
+### 8.6. Auditoria de Segurança & Hardening no Supabase de Produção (`fwdvrkfootvublicetim`)
+
+Em complemento aos testes em ambiente mock de desenvolvimento, realizou-se a auditoria e validação de segurança diretamente na instância de produção do Supabase:
+
+1. **Varredura com Supabase Security Advisors:**
+   - Executada inspeção automatizada (`get_advisors`) sobre o banco de dados `fwdvrkfootvublicetim`.
+   - **Diagnóstico das Funções `SECURITY DEFINER`:** 10 alertas relativos a funções executáveis pelo papel `authenticated`. Todas as 10 funções foram auditadas: possuem obrigatoriamente `SET search_path = public` imutável, validação de `auth.uid()` e corte estrito via `auth_is_active()`.
+     - 6 funções são helpers internos do RLS (`auth_is_active`, `auth_is_global`, `auth_is_admin`, `auth_allowed_platforms`, `auth_allowed_uns`, `auth_can_access_justificativa`).
+     - 4 funções são RPCs negociais intencionais (`get_watermark_status`, `get_external_covered_days`, `complete_first_login_password_change`, `touch_sync_heartbeat`).
+     - Triggers internos tiveram permissões `EXECUTE` revogadas de `PUBLIC` (Migration `005`).
+
+2. **Auditoria de Row Level Security (RLS) nas 15 Tabelas Públicas:**
+   - Consulta direta ao catálogo `pg_tables` confirmou que **100% das 15 tabelas públicas** possuem `rowsecurity = true`:
+     `apontamentos_hh`, `carteira_embarques`, `config_usoff_un`, `configuracoes`, `configuracoes_notificacao`, `fluxo_importacoes`, `justificativas`, `pessoa_plataformas`, `pessoa_unidades`, `pessoas`, `plataformas`, `profiles`, `sync_heartbeat`, `tecnicos`, `user_onboarding`.
+
+3. **Hardening de Privilégios DML do Papel `anon` (Migration `006_revoke_anon_table_privileges.sql`):**
+   - No modelo padrão do Supabase, o papel `anon` possui permissões SQL DML (`SELECT`, `INSERT`, etc.) concedidas por padrão, dependendo exclusivamente das políticas RLS para retornar 0 linhas.
+   - Para aplicar **Defesa em Profundidade (Defense-in-Depth)** física, executou-se e registrou-se a migration `006`:
+     ```sql
+     REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+     REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+     ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+     ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon;
+     ```
+   - Verificação pós-execução via `information_schema.role_table_grants`: o número de permissões concedidas a `anon` caiu de 105 para **exatamente 0**. Qualquer requisição anônima tentando tocar tabelas é barrada imediatamente na camada de privilégios (`insufficient_privilege`), antes mesmo de alcançar a árvore de avaliação de políticas RLS.
+   - A função RPC `ping_health()` (rotina para o keepalive do GitHub Actions) permaneceu acessível para `anon` por ser uma rotina independente de tabelas.
+
+4. **Testes Transacionais ao Vivo no PostgreSQL (Emulação de Roles via `SET LOCAL ROLE`):**
+   - **Anon Leak Test:** Sob `SET LOCAL ROLE anon`, `SELECT * FROM profiles` retornou `0` registros e `INSERT` em `profiles` foi rejeitado.
+   - **Inactive Account Test:** Criado temporariamente usuário com `ativo = false` em `auth.users` e `profiles`. Sob `SET LOCAL ROLE authenticated` com `auth.uid()` apontando para o usuário inativo:
+     - `auth_is_active()` retornou `false`.
+     - Queries em `carteira_embarques` e `apontamentos_hh` retornaram `0` registros. Registros de teste foram devidamente removidos.
+   - **Preposto Scope Test:** Criado usuário temporário com papel `preposto`. Acesso a `configuracoes_notificacao` (e-mails executivos) e `fluxo_importacoes` (auditoria) retornou `0` registros.
+   - **Justificativa Gate Test:** Criado preposto alocado apenas à plataforma `P50`. `auth_can_access_justificativa` retornou `true` para técnico na `P50` e `false` para técnico na `P25`.
+   - **Keepalive Healthcheck Test:** Sob `SET LOCAL ROLE anon`, chamada `SELECT ping_health()` retornou `ok` com sucesso.
+
+5. **Auditoria da Edge Function `admin-users` em Produção:**
+   - Inspecionada via API do Supabase: estado `ACTIVE`, versão 2, e verificação de JWT do Gateway ativa (`verify_jwt: true`), assegurando que chamadas sem assinatura criptográfica válida nunca atingem o runtime Deno.
+
+

@@ -15,7 +15,7 @@ const ALLOWED_ORIGINS = [
 
 function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') || '';
-  const isAllowed = ALLOWED_ORIGINS.includes(origin) || origin.startsWith('http://localhost:');
+  const isAllowed = ALLOWED_ORIGINS.includes(origin);
   const allowOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
 
   return {
@@ -311,7 +311,7 @@ Deno.serve(async (req: Request) => {
         // Rollback compensatório para evitar usuários órfãos
         await supabaseAdmin.auth.admin.deleteUser(newUserId);
         return new Response(
-          JSON.stringify({ ok: false, message: `Erro ao vincular dados do usuário: ${sqlError.message || sqlError}` }),
+          JSON.stringify({ ok: false, message: 'Erro ao vincular dados do usuário no banco de dados.' }),
           { status: 500, headers: corsHeaders }
         );
       }
@@ -535,7 +535,7 @@ Deno.serve(async (req: Request) => {
   } catch (error: any) {
     console.error('Erro não tratado na Edge Function admin-users:', error);
     return new Response(
-      JSON.stringify({ ok: false, message: error.message || 'Erro inesperado no servidor.' }),
+      JSON.stringify({ ok: false, message: 'Ocorreu um erro interno ao processar a solicitação administrativa.' }),
       { status: 500, headers: corsHeaders }
     );
   }

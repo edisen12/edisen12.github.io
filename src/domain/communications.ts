@@ -370,9 +370,12 @@ export const buildMailLinks = (
   const toStr = Array.isArray(to) ? to.join('; ') : to;
   const su = encodeURIComponent(subject);
   const bo = encodeURIComponent(body);
+
+  // Sanitiza cada endereço de e-mail contra Header/Query Injection (?, &, #, ", quebras de linha)
   const toClean = toStr
     .split(/[;,\s]+/)
-    .filter(Boolean)
+    .map(email => email.split(/[?&#]/)[0].replace(/[^\w.@+-]/g, '').trim())
+    .filter(email => email.length > 0 && email.includes('@'))
     .join(',');
 
   return {

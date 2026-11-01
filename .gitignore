@@ -8,8 +8,8 @@ dist-ssr/
 
 # Environment variables & local secrets (CRITICAL: zero sensitive data in public repo)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

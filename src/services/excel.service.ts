@@ -123,8 +123,24 @@ const r1 = (v?: number | null): number | string =>
 const rp = (v?: number | null): number | string =>
   v == null || isNaN(v) ? '' : Math.round(v * 10) / 1000;
 
+/**
+ * Sanitiza células de texto contra Injeção de Fórmulas / DDE (OWASP CWE-1236).
+ * Se o valor textual começar com '=', '+', '-', '@', '\t' ou '\r', adiciona o prefixo seguro de texto (').
+ */
+export function sanitizeSpreadsheetCell(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (/^[=+\-@\t\r]/.test(trimmed)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
 function createSheet(XLSX: any, rows: any[][], widths?: number[]) {
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const safeRows = rows.map(row =>
+    Array.isArray(row) ? row.map(sanitizeSpreadsheetCell) : row
+  );
+  const ws = XLSX.utils.aoa_to_sheet(safeRows);
   if (widths && widths.length > 0) {
     ws['!cols'] = widths.map(w => ({ wch: w }));
   }
@@ -360,9 +376,14 @@ export async function parseSpreadsheetFile(
   file: File,
   forcedKind?: ImportKind
 ): Promise<ParsedPreviewState> {
+  // Limitação de tamanho de arquivo (máximo 15 MB) contra ataques de exaustão de memória/ReDoS
+  if (file.size > 15 * 1024 * 1024) {
+    throw new Error('O arquivo excede o limite máximo permitido de 15 MB.');
+  }
+
   const XLSX = await import('xlsx');
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true, WTF: false });
 
   let bestMatch: {
     sheetName: string;

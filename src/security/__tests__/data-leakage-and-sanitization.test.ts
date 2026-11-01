@@ -5,7 +5,9 @@ import * as XLSX from 'xlsx';
 import {
   exportPeriodoXlsx,
   exportUsoffXlsx,
-  exportTecnicoXlsx
+  exportTecnicoXlsx,
+  sanitizeSpreadsheetCell,
+  parseSpreadsheetFile
 } from '../../services/excel.service';
 import { buildMailLinks } from '../../domain/communications';
 import { resolveRecord } from '../../domain/calculations';
@@ -534,6 +536,51 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
 
       // Valida resultado da busca literal com parênteses
       expect(safeSearch(items, 'P50 (Petrobras)')).toEqual(['P50 (Petrobras)']);
+    });
+
+    it('sanitizeSpreadsheetCell sanitiza fórmulas Excel / DDE (OWASP CWE-1236)', () => {
+      // Vetores de Formula Injection
+      expect(sanitizeSpreadsheetCell('=cmd|"/C calc"!A0')).toBe('\'=cmd|"/C calc"!A0');
+      expect(sanitizeSpreadsheetCell('+12345')).toBe('\'+12345');
+      expect(sanitizeSpreadsheetCell('-1000')).toBe('\'-1000');
+      expect(sanitizeSpreadsheetCell('@SUM(A1:A10)')).toBe('\'@SUM(A1:A10)');
+      expect(sanitizeSpreadsheetCell('\t=HYPERLINK("http://evil.com")')).toBe('\'\t=HYPERLINK("http://evil.com")');
+      expect(sanitizeSpreadsheetCell('\r=2+2')).toBe('\'\r=2+2');
+
+      // Valores seguros não devem ser modificados
+      expect(sanitizeSpreadsheetCell('Técnico Normal')).toBe('Técnico Normal');
+      expect(sanitizeSpreadsheetCell('P-58')).toBe('P-58');
+      expect(sanitizeSpreadsheetCell(10.5)).toBe(10.5);
+      expect(sanitizeSpreadsheetCell(null)).toBe(null);
+      expect(sanitizeSpreadsheetCell(undefined)).toBe(undefined);
+    });
+
+    it('buildMailLinks sanitiza endereços de e-mail contra injeção de parâmetros de query (? e &)', () => {
+      const maliciousEmails = [
+        'preposto@infotecbrasil.com.br?cc=spy@external.com',
+        'gestor@infotecbrasil.com.br&bcc=leak@evil.com'
+      ];
+      const { mailtoUrl, outlookWebUrl } = buildMailLinks(maliciousEmails, 'Assunto', 'Corpo');
+
+      expect(mailtoUrl).not.toContain('?cc=');
+      expect(mailtoUrl).not.toContain('&bcc=');
+      expect(mailtoUrl).toContain('mailto:preposto@infotecbrasil.com.br,gestor@infotecbrasil.com.br?');
+      expect(outlookWebUrl).not.toContain('%3Fcc%3D');
+      expect(outlookWebUrl).not.toContain('%26bcc%3D');
+      expect(outlookWebUrl).toContain('to=preposto%40infotecbrasil.com.br%2Cgestor%40infotecbrasil.com.br');
+    });
+
+    it('parseSpreadsheetFile rejeita arquivos maiores que 15 MB para evitar DoS de memória', async () => {
+      // Mock de arquivo simulado com 16 MB
+      const bigFile = {
+        name: 'huge.xlsx',
+        size: 16 * 1024 * 1024,
+        arrayBuffer: vi.fn()
+      } as unknown as File;
+
+      await expect(parseSpreadsheetFile(bigFile)).rejects.toThrow(
+        'O arquivo excede o limite máximo permitido de 15 MB.'
+      );
     });
   });
 });

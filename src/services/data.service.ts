@@ -661,13 +661,13 @@ export async function batchImportHH(
     }
   });
 
-  const tecList = Array.from(tecMap.values());
+  const tecList = Array.from(tecMap.values()).sort((a, b) => a.matricula.localeCompare(b.matricula));
   for (let i = 0; i < tecList.length; i += CHUNK_SIZE) {
     const chunk = tecList.slice(i, i + CHUNK_SIZE);
     await supabase.from('tecnicos').upsert(chunk, { onConflict: 'matricula' });
   }
 
-  // 3. Grava apontamentos em chunks de 500 linhas
+  // 3. Grava apontamentos em chunks de 500 linhas com ordenação determinística (anti-deadlock 40P01)
   const hhPayload = preparedRows.map(r => ({
     matricula: r.matricula,
     data: r.data,
@@ -675,7 +675,10 @@ export async function batchImportHH(
     unidade_negocio: r.unidade_negocio,
     horas_executadas: r.horas_executadas,
     updated_at: new Date().toISOString()
-  }));
+  })).sort((a, b) => {
+    const cmp = a.matricula.localeCompare(b.matricula);
+    return cmp !== 0 ? cmp : a.data.localeCompare(b.data);
+  });
 
   const total = hhPayload.length;
   for (let i = 0; i < total; i += CHUNK_SIZE) {
@@ -771,13 +774,13 @@ export async function batchImportCarteira(
     }
   });
 
-  const tecList = Array.from(tecMap.values());
+  const tecList = Array.from(tecMap.values()).sort((a, b) => a.matricula.localeCompare(b.matricula));
   for (let i = 0; i < tecList.length; i += CHUNK_SIZE) {
     const chunk = tecList.slice(i, i + CHUNK_SIZE);
     await supabase.from('tecnicos').upsert(chunk, { onConflict: 'matricula' });
   }
 
-  // 3. Grava carteira em chunks de 500 linhas
+  // 3. Grava carteira em chunks de 500 linhas com ordenação determinística (anti-deadlock 40P01)
   const cartPayload = preparedRows.map(r => ({
     matricula: r.matricula,
     plataforma_sigla: r.plataforma_sigla,
@@ -790,7 +793,10 @@ export async function batchImportCarteira(
     ex: r.ex,
     fonte: 'carteira',
     updated_at: new Date().toISOString()
-  }));
+  })).sort((a, b) => {
+    const cmp = a.matricula.localeCompare(b.matricula);
+    return cmp !== 0 ? cmp : a.data_inicio.localeCompare(b.data_inicio);
+  });
 
   const total = cartPayload.length;
   for (let i = 0; i < total; i += CHUNK_SIZE) {

@@ -413,4 +413,33 @@ Em complemento aos testes em ambiente mock de desenvolvimento, realizou-se a aud
 5. **Auditoria da Edge Function `admin-users` em Produção:**
    - Inspecionada via API do Supabase: estado `ACTIVE`, versão 2, e verificação de JWT do Gateway ativa (`verify_jwt: true`), assegurando que chamadas sem assinatura criptográfica válida nunca atingem o runtime Deno.
 
+### 8.7. Avaliação Global de Pentest & Cybersecurity (Red Team / Blue Team)
+
+Em rodada exaustiva de avaliação de segurança ofensiva e defensiva cobrindo todas as camadas (Frontend, Banco de Dados, APIs/Edge Functions, CI/CD e Supply Chain), foram implementadas as seguintes blindagens:
+
+1. **Prevenção de Formula Injection / DDE em Planilhas Excel (OWASP CWE-1236):**
+   - Implementada a função `sanitizeSpreadsheetCell` em `src/services/excel.service.ts`. Toda célula de texto iniciada com caracteres de fórmula (`=`, `+`, `-`, `@`, `\t`, `\r`) recebe o prefixo seguro de texto (`'`), neutralizando vetores de execução arbitrária de comandos ou exfiltração de dados via DDE/WEBSERVICE quando relatórios são abertos no Microsoft Excel ou LibreOffice Calc.
+   - Limitado o tamanho máximo de upload de planilhas para 15 MB para proteção contra ataques de exaustão de memória/ReDoS (CWE-400).
+
+2. **Hardening RLS & Imutabilidade de Auditoria (Migration `007_security_audit_hardening.sql`):**
+   - **Prevenção de Forjamento de Autoria e SLA:** A função de trigger `fn_justificativas_audit` agora impõe `NEW.criado_por := auth.uid()` e `NEW.criado_em := now()` de forma incondicional no `INSERT` (eliminando o `COALESCE` explorável via API) e garante imutabilidade dessas colunas no `UPDATE`.
+   - **Bloqueio de Bypass do FirstLoginGate via PostgREST:** A política de `UPDATE` em `public.user_onboarding` foi blindada para impedir que usuários comuns alterem diretamente `obriga_troca_senha` ou `primeiro_login` via DML; apenas administradores ou a RPC atômica `complete_first_login_password_change` podem realizar essa mutação.
+   - **Helper `public.auth_is_unlocked()`:** Nova função `SECURITY DEFINER` que valida se a conta está ativa e sem pendência de troca de senha inicial.
+   - **Tabela de Auditoria `public.justificativas_audit_log`:** Criada com RLS ativo e acionada por trigger `fn_log_justificativa_change()` para rastrear todas as atualizações e exclusões de justificativas contratuais.
+   - **Revogação de Privilégio `CREATE` no Schema `public`:** Revogado de `anon, authenticated, PUBLIC` para blindar a integridade estrutural do banco.
+
+3. **Prevenção de Deadlocks (`40P01`) em Batch Ingestion:**
+   - Em `src/services/data.service.ts`, os arrays de apontamentos (`apontamentos_hh`), carteira de embarques (`carteira_embarques`) e técnicos (`tecnicos`) são ordenados deterministicamente por suas chaves naturais (`matricula, data`) antes do envio em blocos, prevenindo ciclos de concorrência e deadlocks no PostgreSQL durante importações paralelas.
+
+4. **Sanitização de Comunicações & Query Injection:**
+   - Em `src/domain/communications.ts`, a função `buildMailLinks` agora sanitiza a lista de destinatários com `email.split(/[?&#]/)[0]`, impedindo injeção de parâmetros maliciosos (`?cc=`, `&bcc=`, `&body=`) no protocolo `mailto:` ou no deeplink do Outlook Web.
+
+5. **Content Security Policy (CSP) & Anti-Clickjacking:**
+   - No `index.html`, foram adicionadas a meta tag de Content Security Policy estrita (`connect-src` restrito ao Supabase e origens corporativas, `object-src 'none'`), `referrer` com `strict-origin-when-cross-origin` e script de frame-busting contra ataques de Clickjacking.
+
+6. **Hardening de SecOps & CI/CD:**
+   - Na Edge Function `admin-users`, as respostas de erro 500 foram sanitizadas para nunca expor stack traces ou mensagens cruas de erro SQL do PostgreSQL (CWE-209), e as origens de CORS foram restritas estritamente aos domínios e portas de desenvolvimento autorizados.
+   - No workflow `.github/workflows/supabase-keepalive.yml`, aplicou-se `permissions: {}` estrito no token de CI/CD.
+   - No `.gitignore`, blindou-se o prefixo `.env.*` para garantir que nenhuma variação de credenciais de ambiente seja comitada.
+
 

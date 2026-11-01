@@ -455,12 +455,12 @@ export const PessoasPlataformasView: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={{ width: '130px' }}>Papel</th>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th style={{ width: '150px' }}>Conta de login</th>
+                <th style={{ width: '130px', minWidth: '130px' }}>Papel</th>
+                <th style={{ width: '220px', minWidth: '200px' }}>Nome</th>
+                <th style={{ width: '220px', minWidth: '200px' }}>E-mail</th>
+                <th style={{ width: '160px', minWidth: '150px' }}>Conta de login</th>
                 <th>Carteira de responsabilidade</th>
-                <th style={{ width: '280px', textAlign: 'right' }}>Ações</th>
+                <th style={{ width: '160px', minWidth: '150px', textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -488,7 +488,7 @@ export const PessoasPlataformasView: React.FC = () => {
                           {PAPEIS_LABEL[p.papel] || 'Preposto'}
                         </span>
                       </td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <b>{p.nome}</b>
                       </td>
                       <td>

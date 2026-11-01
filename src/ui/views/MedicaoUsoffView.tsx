@@ -99,7 +99,8 @@ export function MedicaoUsoffView() {
     {
       key: 'name',
       header: label,
-      render: r => <b>{r.name}</b>
+      width: '240px',
+      render: r => <b style={{ whiteSpace: 'nowrap' }}>{r.name}</b>
     },
     {
       key: 'n',
@@ -169,6 +170,7 @@ export function MedicaoUsoffView() {
     {
       key: 'op',
       header: 'Operação',
+      width: '180px',
       render: r => (
         <div>
           {r.op ? (
@@ -205,10 +207,11 @@ export function MedicaoUsoffView() {
     {
       key: 'mats',
       header: 'Técnico',
+      width: '220px',
       render: r => {
         const mats = Array.from(r.mats);
         return (
-          <div>
+          <div style={{ minWidth: '200px' }}>
             {mats.slice(0, 2).map(m => {
               const nome = dataset.tecnicos[m]?.nome || `Mat. ${m}`;
               return (
@@ -217,7 +220,7 @@ export function MedicaoUsoffView() {
                     type="button"
                     className="btn-link"
                     onClick={() => openFichaDrawer(m)}
-                    style={{ fontSize: '0.82rem', color: 'var(--blue)' }}
+                    style={{ fontSize: '0.82rem', color: 'var(--blue)', whiteSpace: 'nowrap' }}
                   >
                     {nome}
                   </button>
@@ -236,6 +239,7 @@ export function MedicaoUsoffView() {
     {
       key: 'plats',
       header: 'Plataforma',
+      width: '180px',
       render: r => (
         <div>
           <b>{Array.from(r.plats).join(', ')}</b>

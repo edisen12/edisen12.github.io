@@ -51,6 +51,7 @@ button {
   border: none;
   cursor: pointer;
   padding: 0;
+  text-align: inherit;
 }
 
 button:disabled {

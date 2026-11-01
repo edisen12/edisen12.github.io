@@ -458,4 +458,25 @@ Em rodada exaustiva de avaliação de segurança ofensiva e defensiva cobrindo t
    - Em [PessoasPlataformasView.tsx](file:///c:/Users/diogo/Downloads/edisen12.github.io-main/edisen12.github.io-main/src/ui/views/PessoasPlataformasView.tsx), a barra de ações de cada linha de pessoa foi refatorada: os 4 botões de texto extensos foram substituídos por um grupo compacto de botões com ícones da biblioteca `lucide-react` (`SlidersHorizontal`, `KeyRound`, `LayoutDashboard`, `Trash2`), dotados de tooltips explicativos (`title` e `aria-label`), além de feedback visual de confirmação em vermelho no caso de exclusão.
    - Os botões principais de criação receberam ícones destacados (`UserPlus`, `ShieldCheck` e `Plus`).
 
+### 8.9. Padronização Global de Tabelas & Nova Arquitetura de Configurações Contratuais
+
+1. **Eliminação de Quebra e Desalinhamento de Nomes em Tabelas:**
+   - **Causa Raiz Identificada:** Em resoluções comuns de tela ou janelas compactadas, colunas de identificação em tabelas de 9 a 11 colunas (como a tabela "Por responsável" em `VisaoGeralView.tsx`) sofriam compressão pelo algoritmo de layout de tabelas HTML. Nomes com mais de duas palavras (como "José Luiz Horácio" ou "Marco Lessa") quebravam em duas linhas, enquanto nomes curtos ("Valeska") ficavam em uma só linha. Além disso, elementos `<button>` possuíam `text-align: center` herdado dos estilos de agente do navegador, fazendo com que cada linha do nome ficasse centralizada no meio em vez de alinhada à esquerda, gerando descontinuidade visual em relação às demais células com `vertical-align: middle`.
+   - **Correções Aplicadas:**
+     - Em `reset.css`, definido `button { text-align: inherit; }`.
+     - Em `components.css`, a classe `.btn-link` e botões de células (`.tb td button:not(.btn)`, `.table-wrap td button:not(.btn)`) foram parametrizados com `text-align: left`, `white-space: nowrap` e comportamento nativo de link corporativo.
+     - Em `DataTable.tsx`, as propriedades `width` e `minWidth` especificadas em `DataTableColumn` passaram a ser rigorosamente repassadas para as tags `<th>` e `<td>`, combinadas com `verticalAlign: 'middle'` e `textAlign: col.align || 'left'`.
+     - Em `VisaoGeralView.tsx` (tabelas de Responsáveis, Plataformas, Unidades e Armadores), `PainelDiaView.tsx`, `MedicaoRelatoriosView.tsx`, `EmbarqueAtualView.tsx`, `MedicaoUsoffView.tsx` e `PessoasPlataformasView.tsx`, todas as colunas de nomes, matrículas e plataformas foram blindadas com largura explícita (`width: '240px' / '260px'`, `minWidth: '220px' / '240px'`) e `whiteSpace: 'nowrap'`, assegurando altura uniforme de linha e alinhamento milimétrico em todas as resoluções.
+
+2. **Refatoração Profissional da Central de Configurações (`ConfiguracoesView.tsx`):**
+   - **Estruturação por Abas (SegmentedControl):** O leiaute desordenado de 2 colunas foi transformado em um centro executivo com 5 seções bem delineadas:
+     1. *Geral & Metas de HH:* Carga horária base com sufixo (`h/dia`), meta contratual (`%`), faixa de atenção (`%`), escala padrão e prazo de justificativa, com **régua visual dinâmica** que ilustra em tempo real as zonas Crítica (Vermelho), Atenção (Amarelo) e Meta Atingida (Verde).
+     2. *Ciclo de Medição & Apuração:* Cartões de seleção interativos para os dias de corte (`21`, `1`, `16`, `26`) e critérios de cálculo (`enc` - Embarques Encerrados vs `dias` - Dias Trabalhados).
+     3. *Ponderações USOFF (PE & EX):* Fatores globais de fallback, banner com hierarquia de resolução e tabela moderna de Unidades de Negócio com badges de status ("Personalizado" vs "Herdado do Global") e botão de exclusão.
+     4. *Comunicação & Notificações:* Slogan institucional com pré-visualização no cabeçalho em tempo real e **gerenciador interativo de e-mails executivos em chips**, com adição por teclado (Enter), validação imediata, remoção com um clique e suporte a colagem em massa.
+     5. *Memorial de Cálculo & Fórmulas:* Grade de 6 cards informativos com detalhamento das fórmulas matemáticas de HH, USOFF, Acumulado, Compensação e Gangway.
+   - **Rastreamento de Modificações (Dirty State Tracking):** Implementada barra flutuante de ação que alerta quando houver modificações pendentes no contrato, permitindo "Descartar alterações" ou "Salvar configurações" com feedback visual de carregamento e toasts de confirmação.
+   - **Suíte de Testes:** Criada suíte dedicada em `src/ui/views/__tests__/ConfiguracoesView.test.tsx` com 8 testes cobrindo todas as abas, controle de acesso restrito, dirty state, gerenciamento de e-mails e persistência. Total da suíte: **387 testes passando com 100% de sucesso**.
+
+
 

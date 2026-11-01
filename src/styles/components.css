@@ -276,6 +276,7 @@ table tbody tr.worst {
 table td {
   padding: 8px 12px;
   vertical-align: middle;
+  text-align: left;
 }
 
 /* Alinhamentos e Classes Utilitárias de Células */
@@ -1073,8 +1074,31 @@ table th.center {
   animation: spin 1s linear infinite;
 }
 
-/* Garante alinhamento à esquerda para links/botões de nomes em células de tabela */
+/* Garante alinhamento à esquerda, tipografia e comportamento de link para botões em tabelas */
+.btn-link,
 .data-table td button:not(.btn),
-.table-base td button:not(.btn) {
+.table-base td button:not(.btn),
+.tb td button:not(.btn),
+.table-wrap td button:not(.btn),
+table td button:not(.btn) {
   text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--blue);
+  text-decoration: none;
+  display: inline-block;
+  transition: color var(--transition-fast);
+}
+
+.btn-link:hover,
+.data-table td button:not(.btn):hover,
+.table-base td button:not(.btn):hover,
+.tb td button:not(.btn):hover,
+.table-wrap td button:not(.btn):hover,
+table td button:not(.btn):hover {
+  text-decoration: underline;
+  color: var(--blue-dark, #0284c7);
 }

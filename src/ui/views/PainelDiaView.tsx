@@ -147,22 +147,24 @@ export function PainelDiaView() {
     {
       key: 'st',
       header: 'Situação',
+      width: '120px',
       render: r => <StatusPill status={r.st} />
     },
     {
       key: 'tecnico',
       header: 'Técnico',
+      width: '240px',
       render: r => (
-        <div>
+        <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
             type="button"
             className="btn-link"
             onClick={() => openFichaDrawer(r.mat)}
-            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left' }}
+            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left', whiteSpace: 'nowrap', display: 'block' }}
           >
             {r.nome}
           </button>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             Mat. {r.mat}
           </div>
         </div>
@@ -171,10 +173,11 @@ export function PainelDiaView() {
     {
       key: 'plat',
       header: 'Plataforma',
+      width: '160px',
       render: r => (
-        <div>
+        <div style={{ whiteSpace: 'nowrap' }}>
           <b>{r.p}</b>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             {r.r}
           </div>
         </div>
@@ -183,6 +186,7 @@ export function PainelDiaView() {
     {
       key: 'emb',
       header: 'Embarque',
+      width: '150px',
       render: r => (
         r.emb ? (
           <div>
@@ -201,6 +205,7 @@ export function PainelDiaView() {
       key: 'disp',
       header: 'Disponível',
       align: 'right',
+      width: '100px',
       sortValue: r => r.d,
       render: r => formatHours(r.d)
     },
@@ -208,6 +213,7 @@ export function PainelDiaView() {
       key: 'exec',
       header: 'Executado',
       align: 'right',
+      width: '110px',
       sortValue: r => (r.sem ? 0 : r.e),
       render: r => (
         r.sem ? (
@@ -223,6 +229,7 @@ export function PainelDiaView() {
     {
       key: 'pc',
       header: '% do dia',
+      width: '100px',
       sortValue: r => r.pc ?? -1,
       render: r => (
         <span style={{ fontWeight: 600 }}>
@@ -233,6 +240,7 @@ export function PainelDiaView() {
     {
       key: 'acc',
       header: 'Acumulado do embarque',
+      width: '160px',
       render: r => (
         r.acc ? (
           <div>
@@ -256,6 +264,7 @@ export function PainelDiaView() {
     {
       key: 'just',
       header: 'Justificativa',
+      width: '220px',
       render: r => {
         const isBelow = r.e < r.d - 0.001;
         if (!isBelow) {

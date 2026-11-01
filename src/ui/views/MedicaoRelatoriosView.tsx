@@ -143,22 +143,24 @@ export function MedicaoRelatoriosView() {
     {
       key: 'st',
       header: 'Situação',
+      width: '120px',
       render: t => <StatusPill status={t.st} />
     },
     {
       key: 'nome',
       header: 'Técnico',
+      width: '240px',
       render: t => (
-        <div>
+        <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
             type="button"
             className="btn-link"
             onClick={() => openFichaDrawer(t.mat)}
-            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left' }}
+            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left', whiteSpace: 'nowrap', display: 'block' }}
           >
             {t.nome}
           </button>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             Mat. {t.mat}
           </div>
         </div>
@@ -167,14 +169,15 @@ export function MedicaoRelatoriosView() {
     {
       key: 'plat',
       header: 'Plataforma',
+      width: '180px',
       render: t => (
-        <div>
+        <div style={{ whiteSpace: 'nowrap' }}>
           <b>{Array.from(t.plats).join(', ')}</b>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             {Array.from(t.regs).join(', ')}
           </div>
           {t.embs && (
-            <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+            <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
               Embarque {t.embs}
             </div>
           )}
@@ -185,6 +188,7 @@ export function MedicaoRelatoriosView() {
       key: 'cartDias',
       header: isEnc ? 'Dias de embarque' : 'Dias na carteira',
       align: 'right',
+      width: '120px',
       sortValue: t => t.cartDias,
       render: t => t.cartDias
     },
@@ -192,6 +196,7 @@ export function MedicaoRelatoriosView() {
       key: 'prog',
       header: 'HH programado',
       align: 'right',
+      width: '110px',
       sortValue: t => t.prog,
       render: t => formatHours(t.prog)
     },
@@ -199,6 +204,7 @@ export function MedicaoRelatoriosView() {
       key: 'dias',
       header: 'Dias com executado',
       align: 'right',
+      width: '130px',
       sortValue: t => t.dias,
       render: t => t.dias
     },
@@ -206,6 +212,7 @@ export function MedicaoRelatoriosView() {
       key: 'disp',
       header: 'Disponível',
       align: 'right',
+      width: '100px',
       sortValue: t => t.d,
       render: t => formatHours(t.d)
     },
@@ -213,12 +220,14 @@ export function MedicaoRelatoriosView() {
       key: 'exec',
       header: 'Executado',
       align: 'right',
+      width: '100px',
       sortValue: t => t.e,
       render: t => formatHours(t.e)
     },
     {
       key: 'p',
       header: '% do disponível',
+      width: '120px',
       sortValue: t => t.p ?? -1,
       render: t => (
         <span style={{ fontWeight: 600 }}>
@@ -229,6 +238,7 @@ export function MedicaoRelatoriosView() {
     {
       key: 'pProg',
       header: '% do programado',
+      width: '130px',
       sortValue: t => t.pProg ?? -1,
       render: t => (
         <span style={{ fontWeight: 600 }}>
@@ -240,12 +250,14 @@ export function MedicaoRelatoriosView() {
       key: 'gw',
       header: 'Gangway',
       align: 'right',
+      width: '100px',
       sortValue: t => t.gw,
       render: t => (t.gw > 0 ? formatHours(t.gw) : '—')
     },
     {
       key: 'pAj',
       header: '% sem gangway',
+      width: '120px',
       sortValue: t => t.pAj ?? -1,
       render: t => (t.gw > 0 ? formatPct(t.pAj) : '—')
     },
@@ -253,12 +265,14 @@ export function MedicaoRelatoriosView() {
       key: 'pend',
       header: 'Pendentes',
       align: 'right',
+      width: '100px',
       sortValue: t => t.pend,
       render: t => (t.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700 }}>{t.pend}</span> : '—')
     },
     {
       key: 'meta',
       header: 'Atingiu a meta?',
+      width: '130px',
       render: t => (
         t.p != null ? (
           t.p >= metaMin ? (

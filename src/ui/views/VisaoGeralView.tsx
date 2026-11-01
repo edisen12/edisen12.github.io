@@ -269,22 +269,24 @@ export function VisaoGeralView() {
       {
         key: 'st',
         header: 'Acumulado',
+        width: '120px',
         render: r => <StatusPill status={r.a.n > 0 ? r.a.st : 'sem'} />
       },
       {
         key: 'nome',
         header: 'Técnico',
+        width: '240px',
         render: r => (
-          <div>
+          <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <button
               type="button"
               className="btn-link"
               onClick={() => openFichaDrawer(r.mat)}
-              style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left' }}
+              style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left', whiteSpace: 'nowrap', display: 'block' }}
             >
               {r.nome}
             </button>
-            <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+            <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
               Mat. {r.mat}
             </div>
           </div>
@@ -293,6 +295,7 @@ export function VisaoGeralView() {
       {
         key: 'sit',
         header: 'Situação',
+        width: '150px',
         render: r => (
           <div>
             <StatusPill status={r.sit.c} text={r.sit.t} />
@@ -306,6 +309,7 @@ export function VisaoGeralView() {
         key: 'dias',
         header: 'Dias no período',
         align: 'right',
+        width: '120px',
         sortValue: r => r.a.n,
         render: r => (
           <div>
@@ -322,6 +326,7 @@ export function VisaoGeralView() {
         key: 'disp',
         header: 'Disponível',
         align: 'right',
+        width: '100px',
         sortValue: r => r.a.d,
         render: r => formatHours(r.a.d)
       },
@@ -329,12 +334,14 @@ export function VisaoGeralView() {
         key: 'exec',
         header: 'Executado',
         align: 'right',
+        width: '100px',
         sortValue: r => r.a.e,
         render: r => formatHours(r.a.e)
       },
       {
         key: 'pct',
         header: '% no período',
+        width: '140px',
         sortValue: r => r.a.p ?? -1,
         render: r => (r.a.n > 0 ? <MeterBar pct={r.a.p} status={r.a.st} /> : <span className="sub">—</span>)
       },
@@ -342,6 +349,7 @@ export function VisaoGeralView() {
         key: 'saldo',
         header: 'Saldo',
         align: 'right',
+        width: '100px',
         sortValue: r => r.a.saldo,
         render: r => (
           <span style={{ color: r.a.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -353,12 +361,14 @@ export function VisaoGeralView() {
         key: 'inf',
         header: 'Dias com problema',
         align: 'right',
+        width: '120px',
         sortValue: r => r.a.inf,
         render: r => (r.a.inf > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.a.inf}</span> : '—')
       },
       {
         key: 'meta',
         header: 'Atingiu a meta?',
+        width: '130px',
         render: r => (
           r.a.n > 0 ? (
             r.a.p !== null && r.a.p >= metaMin ? (
@@ -375,12 +385,14 @@ export function VisaoGeralView() {
         key: 'pend',
         header: 'Pendentes',
         align: 'right',
+        width: '100px',
         sortValue: r => r.a.pend,
         render: r => (r.a.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.a.pend}</span> : '—')
       },
       {
         key: 'ld',
         header: 'Último dia',
+        width: '130px',
         render: r => (
           r.ld ? (
             <span>
@@ -495,12 +507,13 @@ export function VisaoGeralView() {
         {
           key: 'plat',
           header: 'Plataforma',
+          width: '160px',
           render: r => (
             <button
               type="button"
               className="btn-link"
               onClick={() => updateFilter('fPlat', r.p)}
-              style={{ fontWeight: 700, color: 'var(--blue)' }}
+              style={{ fontWeight: 700, color: 'var(--blue)', whiteSpace: 'nowrap' }}
             >
               {r.p}
             </button>
@@ -509,10 +522,11 @@ export function VisaoGeralView() {
         {
           key: 'un',
           header: 'Unidade',
+          width: '160px',
           render: r => {
             const arm = armadorOf(pidx, r.p);
             return (
-              <div className="sub" style={{ fontSize: '0.82rem', color: 'var(--ink-muted)' }}>
+              <div className="sub" style={{ fontSize: '0.82rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
                 {r.u}
                 {arm && <div>Armador {arm}</div>}
               </div>
@@ -523,30 +537,35 @@ export function VisaoGeralView() {
           key: 'tec',
           header: 'Técnicos',
           align: 'right',
+          width: '90px',
           sortValue: r => r.A.tec,
           render: r => r.A.tec
         },
         {
           key: 'dia',
           header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
+          width: '130px',
           render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
         },
         {
           key: 'abDia',
           header: 'Abaixo no dia',
           align: 'right',
+          width: '110px',
           sortValue: r => r.Ad.inf,
           render: r => (r.Ad.inf > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.Ad.inf}</span> : '—')
         },
         {
           key: 'acc',
           header: 'Acumulado do período',
+          width: '130px',
           render: r => <MeterBar pct={r.A.p} status={r.A.st} />
         },
         {
           key: 'saldo',
           header: 'Saldo',
           align: 'right',
+          width: '100px',
           sortValue: r => r.A.saldo,
           render: r => (
             <span style={{ color: r.A.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -558,6 +577,7 @@ export function VisaoGeralView() {
           key: 'inf',
           header: 'Dias com problema',
           align: 'right',
+          width: '120px',
           sortValue: r => r.A.inf,
           render: r => r.A.inf
         },
@@ -565,6 +585,7 @@ export function VisaoGeralView() {
           key: 'abAcc',
           header: 'Abaixo no acumulado',
           align: 'right',
+          width: '120px',
           sortValue: r => r.A.abAcc,
           render: r => (r.A.abAcc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.abAcc}</span> : '—')
         },
@@ -572,12 +593,14 @@ export function VisaoGeralView() {
           key: 'pend',
           header: 'Pendentes',
           align: 'right',
+          width: '100px',
           sortValue: r => r.A.pend,
           render: r => (r.A.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.pend}</span> : '—')
         },
         {
           key: 'acoes',
           header: 'Ações',
+          width: '130px',
           render: r => (
             <div style={{ display: 'flex', gap: '4px' }}>
               <button
@@ -1002,23 +1025,30 @@ export function VisaoGeralView() {
                   {
                     key: 'nome',
                     header: 'Responsável',
+                    width: '260px',
                     render: r => (
-                      <div>
+                      <div style={{ minWidth: '240px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                         <button
                           type="button"
                           className="btn-link"
                           onClick={() => updateFilter('fResp', r.p.id)}
-                          style={{ fontWeight: 700, color: 'var(--blue)' }}
+                          style={{
+                            fontWeight: 700,
+                            color: 'var(--blue)',
+                            textAlign: 'left',
+                            whiteSpace: 'nowrap',
+                            display: 'block'
+                          }}
                         >
                           {r.p.nome}
                         </button>
                         {r === worstR && r.A.st !== 'ok' && (
-                          <div style={{ color: 'var(--bad)', fontSize: '0.75rem', fontWeight: 700 }}>
+                          <div style={{ color: 'var(--bad)', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
                             maior problema
                           </div>
                         )}
                         {!r.A.n && (
-                          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
                             {r.nPl || r.p.uns?.length ? 'sem técnicos no período' : 'nenhuma plataforma associada'}
                           </div>
                         )}
@@ -1029,6 +1059,7 @@ export function VisaoGeralView() {
                     key: 'plats',
                     header: 'Plataformas com técnicos',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.plats.size,
                     render: r => r.A.plats.size
                   },
@@ -1036,30 +1067,35 @@ export function VisaoGeralView() {
                     key: 'tec',
                     header: 'Técnicos',
                     align: 'right',
+                    width: '90px',
                     sortValue: r => r.A.tec,
                     render: r => r.A.tec
                   },
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
+                    width: '130px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'abDia',
                     header: 'Abaixo no dia',
                     align: 'right',
+                    width: '110px',
                     sortValue: r => r.Ad.inf,
                     render: r => (r.Ad.inf > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.Ad.inf}</span> : '—')
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
+                    width: '130px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
                     key: 'saldo',
                     header: 'Saldo',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.saldo,
                     render: r => (
                       <span style={{ color: r.A.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -1071,6 +1107,7 @@ export function VisaoGeralView() {
                     key: 'inf',
                     header: 'Dias com problema',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.inf,
                     render: r => (
                       <div>
@@ -1085,6 +1122,7 @@ export function VisaoGeralView() {
                     key: 'abAcc',
                     header: 'Abaixo no acumulado',
                     align: 'right',
+                    width: '130px',
                     sortValue: r => r.A.abAcc,
                     render: r => (r.A.abAcc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.abAcc} de {r.A.tec}</span> : '—')
                   },
@@ -1092,6 +1130,7 @@ export function VisaoGeralView() {
                     key: 'pend',
                     header: 'Pendentes',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.pend,
                     render: r => (
                       <div>
@@ -1107,6 +1146,7 @@ export function VisaoGeralView() {
                   {
                     key: 'acoes',
                     header: '',
+                    width: '80px',
                     render: r => (
                       <button
                         type="button"
@@ -1148,12 +1188,13 @@ export function VisaoGeralView() {
                   {
                     key: 'un',
                     header: 'Unidade',
+                    width: '200px',
                     render: r => (
                       <button
                         type="button"
                         className="btn-link"
                         onClick={() => updateFilter('fReg', r.u)}
-                        style={{ fontWeight: 700, color: 'var(--blue)' }}
+                        style={{ fontWeight: 700, color: 'var(--blue)', whiteSpace: 'nowrap' }}
                       >
                         {r.u}
                       </button>
@@ -1163,6 +1204,7 @@ export function VisaoGeralView() {
                     key: 'plats',
                     header: 'Plataformas',
                     align: 'right',
+                    width: '110px',
                     sortValue: r => r.A.plats.size,
                     render: r => r.A.plats.size
                   },
@@ -1170,23 +1212,27 @@ export function VisaoGeralView() {
                     key: 'tec',
                     header: 'Técnicos',
                     align: 'right',
+                    width: '90px',
                     sortValue: r => r.A.tec,
                     render: r => r.A.tec
                   },
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
+                    width: '130px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
+                    width: '130px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
                     key: 'saldo',
                     header: 'Saldo',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.saldo,
                     render: r => (
                       <span style={{ color: r.A.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -1198,6 +1244,7 @@ export function VisaoGeralView() {
                     key: 'inf',
                     header: 'Dias com problema',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.inf,
                     render: r => (
                       <div>
@@ -1212,6 +1259,7 @@ export function VisaoGeralView() {
                     key: 'abAcc',
                     header: 'Abaixo no acumulado',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.abAcc,
                     render: r => (r.A.abAcc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.abAcc} de {r.A.tec}</span> : '—')
                   },
@@ -1219,12 +1267,14 @@ export function VisaoGeralView() {
                     key: 'pend',
                     header: 'Pendentes',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.pend,
                     render: r => (r.A.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.pend}</span> : '—')
                   },
                   {
                     key: 'prepostos',
                     header: 'Prepostos',
+                    width: '160px',
                     render: r => {
                       const pr = Object.values(dataset.pessoas).filter(
                         p => p.papel !== 'controlador' && isPersonResponsible(p, { p: '', r: r.u })
@@ -1239,6 +1289,7 @@ export function VisaoGeralView() {
                   {
                     key: 'acoes',
                     header: '',
+                    width: '80px',
                     render: r => (
                       <button
                         type="button"
@@ -1263,12 +1314,13 @@ export function VisaoGeralView() {
                   {
                     key: 'plat',
                     header: 'Plataforma',
+                    width: '160px',
                     render: r => (
                       <button
                         type="button"
                         className="btn-link"
                         onClick={() => updateFilter('fPlat', r.p)}
-                        style={{ fontWeight: 700, color: 'var(--blue)' }}
+                        style={{ fontWeight: 700, color: 'var(--blue)', whiteSpace: 'nowrap' }}
                       >
                         {r.p}
                       </button>
@@ -1277,10 +1329,11 @@ export function VisaoGeralView() {
                   {
                     key: 'un',
                     header: 'Unidade',
+                    width: '160px',
                     render: r => {
                       const arm = armadorOf(pidx, r.p);
                       return (
-                        <div className="sub" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
+                        <div className="sub" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
                           {r.u}
                           {arm && <div>Armador {arm}</div>}
                         </div>
@@ -1291,30 +1344,35 @@ export function VisaoGeralView() {
                     key: 'tec',
                     header: 'Técnicos',
                     align: 'right',
+                    width: '90px',
                     sortValue: r => r.A.tec,
                     render: r => r.A.tec
                   },
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
+                    width: '130px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'abDia',
                     header: 'Abaixo no dia',
                     align: 'right',
+                    width: '110px',
                     sortValue: r => r.Ad.inf,
                     render: r => (r.Ad.inf > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.Ad.inf}</span> : '—')
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
+                    width: '130px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
                     key: 'saldo',
                     header: 'Saldo',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.saldo,
                     render: r => (
                       <span style={{ color: r.A.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -1326,6 +1384,7 @@ export function VisaoGeralView() {
                     key: 'inf',
                     header: 'Dias com problema',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.inf,
                     render: r => r.A.inf
                   },
@@ -1333,6 +1392,7 @@ export function VisaoGeralView() {
                     key: 'abAcc',
                     header: 'Abaixo no acumulado',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.abAcc,
                     render: r => (r.A.abAcc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.abAcc} de {r.A.tec}</span> : '—')
                   },
@@ -1340,12 +1400,14 @@ export function VisaoGeralView() {
                     key: 'pend',
                     header: 'Pendentes',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.pend,
                     render: r => (r.A.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.pend}</span> : '—')
                   },
                   {
                     key: 'responsaveis',
                     header: 'Responsáveis',
+                    width: '180px',
                     render: r => {
                       const rs = Object.values(dataset.pessoas).filter(p =>
                         isPersonResponsible(p, { p: r.p, r: r.u })
@@ -1360,6 +1422,7 @@ export function VisaoGeralView() {
                   {
                     key: 'acoes',
                     header: '',
+                    width: '130px',
                     render: r => (
                       <div style={{ display: 'flex', gap: '4px' }}>
                         <button
@@ -1398,8 +1461,9 @@ export function VisaoGeralView() {
                   {
                     key: 'armador',
                     header: 'Armador',
+                    width: '220px',
                     render: r => (
-                      <div>
+                      <div style={{ minWidth: '200px', whiteSpace: 'nowrap' }}>
                         <b>{r.k}</b>
                         <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
                           {Array.from(r.A.plats).slice(0, 4).join(', ')}
@@ -1412,6 +1476,7 @@ export function VisaoGeralView() {
                     key: 'plats',
                     header: 'Embarcações',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.plats.size,
                     render: r => r.A.plats.size
                   },
@@ -1419,23 +1484,27 @@ export function VisaoGeralView() {
                     key: 'tec',
                     header: 'Técnicos',
                     align: 'right',
+                    width: '90px',
                     sortValue: r => r.A.tec,
                     render: r => r.A.tec
                   },
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
+                    width: '130px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
+                    width: '130px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
                     key: 'saldo',
                     header: 'Saldo',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.saldo,
                     render: r => (
                       <span style={{ color: r.A.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 600 }}>
@@ -1447,6 +1516,7 @@ export function VisaoGeralView() {
                     key: 'inf',
                     header: 'Dias com problema',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.inf,
                     render: r => r.A.inf
                   },
@@ -1454,6 +1524,7 @@ export function VisaoGeralView() {
                     key: 'abAcc',
                     header: 'Abaixo no acumulado',
                     align: 'right',
+                    width: '120px',
                     sortValue: r => r.A.abAcc,
                     render: r => (r.A.abAcc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.abAcc} de {r.A.tec}</span> : '—')
                   },
@@ -1461,6 +1532,7 @@ export function VisaoGeralView() {
                     key: 'pend',
                     header: 'Pendentes',
                     align: 'right',
+                    width: '100px',
                     sortValue: r => r.A.pend,
                     render: r => (r.A.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.A.pend}</span> : '—')
                   }

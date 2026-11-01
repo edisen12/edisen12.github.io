@@ -126,22 +126,24 @@ export function EmbarqueAtualView() {
     {
       key: 'st',
       header: 'Acumulado',
+      width: '120px',
       render: r => <StatusPill status={statusOf(r.acc.p, dataset.config)} />
     },
     {
       key: 'tecnico',
       header: 'Técnico',
+      width: '240px',
       render: r => (
-        <div>
+        <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
             type="button"
             className="btn-link"
             onClick={() => openFichaDrawer(r.mat)}
-            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left' }}
+            style={{ fontWeight: 600, color: 'var(--blue)', textAlign: 'left', whiteSpace: 'nowrap', display: 'block' }}
           >
             {r.nome}
           </button>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             Mat. {r.mat}
           </div>
         </div>
@@ -150,10 +152,11 @@ export function EmbarqueAtualView() {
     {
       key: 'plat',
       header: 'Plataforma',
+      width: '160px',
       render: r => (
-        <div>
+        <div style={{ whiteSpace: 'nowrap' }}>
           <b>{r.p}</b>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
             {r.r}
           </div>
         </div>
@@ -162,6 +165,7 @@ export function EmbarqueAtualView() {
     {
       key: 'emb',
       header: 'Embarque',
+      width: '160px',
       render: r => (
         <div>
           <div>{formatBrShort(r.emb.ini)} a {formatBrShort(r.emb.fim)}</div>
@@ -176,6 +180,7 @@ export function EmbarqueAtualView() {
       key: 'prog',
       header: 'HH programado',
       align: 'right',
+      width: '120px',
       sortValue: r => r.acc.prog,
       render: r => (
         <div>
@@ -192,6 +197,7 @@ export function EmbarqueAtualView() {
       key: 'progAte',
       header: 'Programado até agora',
       align: 'right',
+      width: '140px',
       sortValue: r => r.acc.progAte,
       render: r => formatHours(r.acc.progAte)
     },
@@ -199,6 +205,7 @@ export function EmbarqueAtualView() {
       key: 'disp',
       header: 'Disponível até agora',
       align: 'right',
+      width: '130px',
       sortValue: r => r.acc.d,
       render: r => formatHours(r.acc.d)
     },
@@ -206,12 +213,14 @@ export function EmbarqueAtualView() {
       key: 'exec',
       header: 'Executado',
       align: 'right',
+      width: '100px',
       sortValue: r => r.acc.e,
       render: r => formatHours(r.acc.e)
     },
     {
       key: 'pctD',
       header: '% do disponível',
+      width: '120px',
       sortValue: r => r.acc.p ?? -1,
       render: r => (
         <span style={{ fontWeight: 600 }}>
@@ -222,6 +231,7 @@ export function EmbarqueAtualView() {
     {
       key: 'pctP',
       header: '% do programado',
+      width: '130px',
       sortValue: r => calcPct(r.acc.e, r.acc.progAte) ?? -1,
       render: r => (
         <span style={{ fontWeight: 600 }}>
@@ -233,6 +243,7 @@ export function EmbarqueAtualView() {
       key: 'saldo',
       header: 'Saldo',
       align: 'right',
+      width: '100px',
       sortValue: r => r.acc.saldo,
       render: r => (
         <span style={{ color: r.acc.saldo >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight: 700 }}>
@@ -244,6 +255,7 @@ export function EmbarqueAtualView() {
       key: 'gw',
       header: 'Gangway',
       align: 'right',
+      width: '100px',
       sortValue: r => r.acc.gw,
       render: r => (r.acc.gw > 0 ? formatHours(r.acc.gw) : '—')
     }

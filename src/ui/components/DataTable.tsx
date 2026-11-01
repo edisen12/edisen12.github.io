@@ -209,7 +209,12 @@ export function DataTable<T>({
                   <th
                     key={col.key}
                     className={`${alignClass} ${col.className || ''}`.trim()}
-                    style={{ width: col.width, cursor: isSortable ? 'pointer' : 'default', userSelect: 'none' }}
+                    style={{
+                      width: col.width,
+                      minWidth: col.width,
+                      cursor: isSortable ? 'pointer' : 'default',
+                      userSelect: 'none'
+                    }}
                     onClick={() => isSortable && handleSort(col.key)}
                   >
                     <div
@@ -254,7 +259,16 @@ export function DataTable<T>({
                     {columns.map(col => {
                       const alignClass = col.align === 'right' ? 'num' : col.align === 'center' ? 'center' : '';
                       return (
-                        <td key={col.key} className={`${alignClass} ${col.className || ''}`.trim()}>
+                        <td
+                          key={col.key}
+                          className={`${alignClass} ${col.className || ''}`.trim()}
+                          style={{
+                            width: col.width,
+                            minWidth: col.width,
+                            verticalAlign: 'middle',
+                            textAlign: col.align === 'right' ? 'right' : col.align === 'center' ? 'center' : 'left'
+                          }}
+                        >
                           {col.render ? col.render(row, rowIdx) : (row as Record<string, unknown>)[col.key] as React.ReactNode}
                         </td>
                       );

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { UserCheck } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
-import { MOTIVOS_JUSTIFICATIVA } from '../../config/constants';
+import { MOTIVOS_JUSTIFICATIVA, ROLES_LABEL } from '../../config/constants';
 import {
   accumulateEmbarkation,
   inferEmbarkation,
@@ -61,7 +62,6 @@ export function JustificativaModal() {
   // Estados do formulário
   const [motivo, setMotivo] = useState<string>(MOTIVOS_JUSTIFICATIVA[0]);
   const [horasGw, setHorasGw] = useState<string>('');
-  const [responsavel, setResponsavel] = useState<string>('');
   const [descricao, setDescricao] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -73,16 +73,14 @@ export function JustificativaModal() {
       if (existingJust) {
         setMotivo(existingJust.motivo || MOTIVOS_JUSTIFICATIVA[0]);
         setHorasGw(existingJust.horas_gangway ? String(existingJust.horas_gangway) : '');
-        setResponsavel(existingJust.responsavel_nome || userProfile?.nome || '');
         setDescricao(existingJust.descricao || '');
       } else {
         setMotivo(MOTIVOS_JUSTIFICATIVA[0]);
         setHorasGw(String(faltaHoras));
-        setResponsavel(userProfile?.nome || '');
         setDescricao('');
       }
     }
-  }, [justModal, mat, dateIso, existingJust, faltaHoras, userProfile]);
+  }, [justModal, mat, dateIso, existingJust, faltaHoras]);
 
   if (!justModal || !mat || !dateIso) return null;
 
@@ -117,7 +115,7 @@ export function JustificativaModal() {
         motivo,
         horas_gangway: gwVal,
         descricao: descricao.trim(),
-        responsavel_nome: responsavel.trim() || userProfile?.nome || 'Gestão do contrato'
+        responsavel_nome: userProfile?.nome || existingJust?.responsavel_nome || 'Gestão do contrato'
       });
 
       showToast('Justificativa salva com sucesso!', 'success');
@@ -244,17 +242,25 @@ export function JustificativaModal() {
             </div>
           )}
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-              Responsável pela justificativa
-            </label>
-            <input
-              type="text"
-              value={responsavel}
-              onChange={e => setResponsavel(e.target.value)}
-              placeholder="Nome do preposto ou responsável"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
-            />
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 14px',
+              background: 'var(--surface-alt)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--line)'
+            }}
+          >
+            <UserCheck size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
+            <div style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>
+              <span style={{ color: 'var(--ink-muted)' }}>Responsável pelo registro: </span>
+              <strong style={{ color: 'var(--ink)' }}>{userProfile?.nome || 'Usuário Atual'}</strong>
+              <span style={{ color: 'var(--ink-muted)', fontSize: '0.78rem' }}>
+                {' '}· {ROLES_LABEL[userProfile?.role || 'preposto'] || userProfile?.role}
+              </span>
+            </div>
           </div>
 
           <div>

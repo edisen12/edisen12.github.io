@@ -442,4 +442,20 @@ Em rodada exaustiva de avaliação de segurança ofensiva e defensiva cobrindo t
    - No workflow `.github/workflows/supabase-keepalive.yml`, aplicou-se `permissions: {}` estrito no token de CI/CD.
    - No `.gitignore`, blindou-se o prefixo `.env.*` para garantir que nenhuma variação de credenciais de ambiente seja comitada.
 
+### 8.8. Auditoria de Tráfego de Rede, Otimização de Inputs & Refinamento UI/UX
+
+1. **Auditoria de Tráfego e Neutralização de Oráculo Booleano (Migration `008_traffic_and_payload_hardening.sql`):**
+   - **Vetor de Enumeração de Projetos:** A RPC `get_shared_ops(p_ops)` foi blindada com verificação relacional via subquery `EXISTS` em `carteira_embarques` do próprio usuário. Se um usuário de escopo restrito (`preposto` ou `controlador`) submeter códigos de projetos externos arbitrários, o PostgreSQL retorna vazio, eliminando a possibilidade de enumeração de operações confidenciais via oráculo de tráfego.
+   - **Proteção contra DoS de Armazenamento:** A RPC `update_own_profile` agora rejeita nomes com mais de 120 caracteres e payloads de preferências (`p_preferencias`) que excedam 32 KB, além de preservar as flags de `user_onboarding` intactas.
+   - **Validação de Papel na Edge Function:** A ação `update-role` da Edge Function `admin-users` agora valida estritamente a lista de papéis válidos (`admin`, `gestor`, `controlador`, `preposto`).
+   - **Higienização de Payloads PostgREST:** O método `saveJustificativa` aplica cast e sanitização estrita em todos os campos antes do envio, impedindo injeção de propriedades inesperadas.
+
+2. **Auditoria de Formulários e Eliminação de Inputs Redundantes:**
+   - **Remoção de Input Manual de Responsável:** No modal [JustificativaModal.tsx](file:///c:/Users/diogo/Downloads/edisen12.github.io-main/edisen12.github.io-main/src/ui/modals/JustificativaModal.tsx), o campo de texto onde o usuário digitava manualmente seu próprio nome foi removido. Em seu lugar, foi inserido um badge informativo institucional que exibe o nome e o papel da sessão ativa (`userProfile.nome` e `userProfile.role`), enviando o valor autenticado automaticamente e eliminando retrabalho ou digitação divergente.
+   - **Auto-Preenchimento em Modais Operacionais:** Em [ManualEntryModals.tsx](file:///c:/Users/diogo/Downloads/edisen12.github.io-main/edisen12.github.io-main/src/ui/modals/ManualEntryModals.tsx), a seleção de matrícula auto-preenche o nome do técnico e a plataforma ativa na data do apontamento.
+
+3. **Modernização Visual de Ações (IconButtons com Tooltips):**
+   - Em [PessoasPlataformasView.tsx](file:///c:/Users/diogo/Downloads/edisen12.github.io-main/edisen12.github.io-main/src/ui/views/PessoasPlataformasView.tsx), a barra de ações de cada linha de pessoa foi refatorada: os 4 botões de texto extensos foram substituídos por um grupo compacto de botões com ícones da biblioteca `lucide-react` (`SlidersHorizontal`, `KeyRound`, `LayoutDashboard`, `Trash2`), dotados de tooltips explicativos (`title` e `aria-label`), além de feedback visual de confirmação em vermelho no caso de exclusão.
+   - Os botões principais de criação receberam ícones destacados (`UserPlus`, `ShieldCheck` e `Plus`).
+
 

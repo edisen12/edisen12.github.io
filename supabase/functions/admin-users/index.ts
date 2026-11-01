@@ -330,6 +330,14 @@ Deno.serve(async (req: Request) => {
         );
       }
 
+      const validRoles = ['admin', 'gestor', 'controlador', 'preposto'];
+      if (!validRoles.includes(role)) {
+        return new Response(
+          JSON.stringify({ ok: false, message: `Papel inválido: ${role}` }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
       const targetProfile = await getTargetProfile(userId);
       if (!targetProfile) {
         return new Response(

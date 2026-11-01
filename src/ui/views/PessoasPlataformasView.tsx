@@ -1,4 +1,15 @@
 import React, { useState, useMemo, useRef } from 'react';
+import {
+  UserPlus,
+  ShieldCheck,
+  SlidersHorizontal,
+  KeyRound,
+  LayoutDashboard,
+  Trash2,
+  Edit3,
+  Plus,
+  AlertTriangle
+} from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { adminManageUser } from '../../services/auth.service';
@@ -250,13 +261,15 @@ export const PessoasPlataformasView: React.FC = () => {
       render: p => (
         <button
           type="button"
-          className="btn btn-sm btn-ghost"
+          className="btn btn-sm btn-icon btn-ghost"
+          title="Editar plataforma"
+          aria-label="Editar plataforma"
           onClick={() => {
             setEditingPlat(p);
             setPlatModalOpen(true);
           }}
         >
-          Editar
+          <Edit3 size={15} />
         </button>
       )
     }
@@ -394,7 +407,7 @@ export const PessoasPlataformasView: React.FC = () => {
                   setPesModalOpen(true);
                 }}
               >
-                + Nova pessoa
+                <UserPlus size={16} /> Nova pessoa
               </button>
               {isAdmin && (
                 <button
@@ -402,7 +415,7 @@ export const PessoasPlataformasView: React.FC = () => {
                   className="btn btn-accent"
                   onClick={() => setAdminModalOpen(true)}
                 >
-                  + Novo administrador
+                  <ShieldCheck size={16} /> Novo administrador
                 </button>
               )}
             </div>
@@ -536,41 +549,57 @@ export const PessoasPlataformasView: React.FC = () => {
                         )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', justifyContent: 'flex-end' }}>
                           <button
                             type="button"
-                            className="btn btn-sm btn-ghost"
+                            className="btn btn-sm btn-icon btn-ghost"
+                            title="Editar carteira de plataformas e unidades"
+                            aria-label="Editar carteira de plataformas e unidades"
                             onClick={() => {
                               setEditingPes(p);
                               setPesModalOpen(true);
                             }}
                           >
-                            Editar carteira
+                            <SlidersHorizontal size={16} />
                           </button>
                           <button
                             type="button"
-                            className="btn btn-sm btn-ghost"
+                            className="btn btn-sm btn-icon btn-ghost"
+                            title={prof ? `Gerenciar credenciais e login (${prof.email})` : 'Criar credencial de acesso ao sistema'}
+                            aria-label={prof ? 'Gerenciar credenciais e login' : 'Criar credencial de acesso'}
+                            style={{ color: prof ? 'var(--blue)' : 'var(--ink-muted)' }}
                             onClick={() => {
                               setTargetPesForLogin(p);
                               setLoginModalOpen(true);
                             }}
                           >
-                            {prof ? 'Gerenciar login' : 'Criar login'}
+                            <KeyRound size={16} />
                           </button>
                           <button
                             type="button"
-                            className="btn btn-sm btn-ghost"
+                            className="btn btn-sm btn-icon btn-ghost"
+                            title="Filtrar visão geral por esta pessoa"
+                            aria-label="Filtrar visão geral por esta pessoa"
                             onClick={() => handleVerPainel(p.id)}
                           >
-                            Ver painel
+                            <LayoutDashboard size={16} />
                           </button>
                           <button
                             type="button"
-                            className="btn btn-sm btn-ghost"
-                            style={{ color: delPesId === p.id ? 'var(--bad)' : undefined, fontWeight: delPesId === p.id ? 700 : 400 }}
+                            className={`btn btn-sm ${delPesId === p.id ? 'btn-danger' : 'btn-icon btn-ghost'}`}
+                            title={delPesId === p.id ? 'Clique novamente para confirmar a exclusão' : 'Excluir pessoa do cadastro'}
+                            aria-label={delPesId === p.id ? 'Confirmar exclusão' : 'Excluir pessoa'}
+                            style={{
+                              color: delPesId === p.id ? 'var(--white)' : 'var(--ink-muted)',
+                              background: delPesId === p.id ? 'var(--bad)' : undefined
+                            }}
                             onClick={() => handleDeletePes(p.id)}
                           >
-                            {delPesId === p.id ? 'Confirmar?' : 'Excluir'}
+                            {delPesId === p.id ? (
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0 4px' }}>Confirmar?</span>
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
                           </button>
                         </div>
                       </td>
@@ -697,7 +726,7 @@ export const PessoasPlataformasView: React.FC = () => {
                     setPlatModalOpen(true);
                   }}
                 >
-                  + Nova plataforma
+                  <Plus size={16} /> Nova plataforma
                 </button>
               </div>
             </div>

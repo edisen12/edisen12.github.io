@@ -397,12 +397,12 @@ export async function loadAppDataset(
 export async function saveJustificativa(just: Omit<Justificativa, 'id'>): Promise<void> {
   const { error } = await supabase.from('justificativas').upsert(
     {
-      matricula: just.matricula,
-      data: just.data,
-      motivo: just.motivo,
-      horas_gangway: just.horas_gangway || 0,
-      descricao: just.descricao || '',
-      responsavel_nome: just.responsavel_nome || ''
+      matricula: String(just.matricula).trim(),
+      data: String(just.data).trim(),
+      motivo: String(just.motivo).trim(),
+      horas_gangway: Math.max(0, Number(just.horas_gangway || 0)),
+      descricao: String(just.descricao || '').trim(),
+      responsavel_nome: String(just.responsavel_nome || '').trim()
     },
     { onConflict: 'matricula,data' }
   );

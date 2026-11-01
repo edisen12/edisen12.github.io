@@ -14,6 +14,7 @@ import type {
   PapelOperacional,
   Pessoa,
   Plataforma,
+  SystemAuditLog,
   Tecnico,
   UserOnboarding,
   UserProfile,
@@ -913,4 +914,146 @@ export function exportJsonSnapshot(dataset: AppDataset): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Consulta a trilha de auditoria do sistema com filtros opcionais.
+ */
+export async function fetchSystemAuditLogs(filters?: {
+  category?: string;
+  search?: string;
+  limit?: number;
+}): Promise<SystemAuditLog[]> {
+  try {
+    let query = supabase
+      .from('system_audit_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filters?.category && filters.category !== 'all') {
+      query = query.eq('category', filters.category);
+    }
+
+    const maxLimit = filters?.limit && filters.limit > 0 ? filters.limit : 100;
+    query = query.limit(maxLimit);
+
+    const { data, error } = await query;
+    if (error) {
+      console.warn('Erro ao consultar system_audit_logs:', error.message);
+      return [];
+    }
+
+    let rows: SystemAuditLog[] = (data || []).map((row: any) => ({
+      id: row.id,
+      actor_id: row.actor_id ?? null,
+      actor_nome: row.actor_nome ?? null,
+      actor_email: row.actor_email ?? null,
+      actor_role: row.actor_role ?? null,
+      action: row.action,
+      category: row.category,
+      target_id: row.target_id ?? null,
+      target_label: row.target_label ?? null,
+      details: row.details && typeof row.details === 'object' ? row.details : {},
+      ip_address: row.ip_address ?? null,
+      created_at: row.created_at
+    }));
+
+    if (filters?.search && filters.search.trim()) {
+      const term = filters.search.trim().toLowerCase();
+      rows = rows.filter(r =>
+        (r.action && r.action.toLowerCase().includes(term)) ||
+        (r.actor_nome && r.actor_nome.toLowerCase().includes(term)) ||
+        (r.actor_email && r.actor_email.toLowerCase().includes(term)) ||
+        (r.target_label && r.target_label.toLowerCase().includes(term)) ||
+        (r.category && r.category.toLowerCase().includes(term))
+      );
+    }
+
+    return rows;
+  } catch (err) {
+    console.warn('Falha inesperada ao buscar logs de auditoria:', err);
+    return [];
+  }
+}
+
+/**
+ * Solicita a exclusão definitiva da conta de um usuário através da Edge Function admin-users.
+ */
+export async function deleteUserAccount(
+  userId: string
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    const { data, error } = await supabase.functions.invoke('admin-users', {
+      body: { action: 'delete-user', userId }
+    });
+
+    if (error) {
+      let friendlyMsg = error.message;
+      if (friendlyMsg.includes('Failed to send a request') || friendlyMsg.includes('FunctionsFetchError')) {
+        friendlyMsg = 'Não foi possível conectar à Edge Function administrativa. Verifique sua rede.';
+      }
+      return { ok: false, message: friendlyMsg };
+    }
+
+    if (!data || data.ok === false) {
+      return {
+        ok: false,
+        message: data?.message || 'Falha ao processar a exclusão da conta.'
+      };
+    }
+
+    return {
+      ok: true,
+      message: data.message || 'Conta de usuário excluída com sucesso.'
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      message: err.message || 'Erro inesperado ao excluir conta de usuário.'
+    };
+  }
+}
+
+/**
+ * Registra um evento de auditoria no sistema.
+ */
+export async function logSystemEvent(
+  event: Partial<SystemAuditLog>
+): Promise<void> {
+  try {
+    let actorId = event.actor_id;
+    let actorNome = event.actor_nome;
+    let actorEmail = event.actor_email;
+    let actorRole = event.actor_role;
+
+    if (!actorId || !actorEmail) {
+      const { data } = await supabase.auth.getUser();
+      if (data?.user) {
+        actorId = actorId || data.user.id;
+        actorEmail = actorEmail || data.user.email || null;
+        actorNome = actorNome || data.user.user_metadata?.nome || null;
+        actorRole = actorRole || data.user.user_metadata?.role || null;
+      }
+    }
+
+    const payload = {
+      actor_id: actorId || null,
+      actor_nome: actorNome || null,
+      actor_email: actorEmail || null,
+      actor_role: actorRole || null,
+      action: event.action || 'evento',
+      category: event.category || 'operacional',
+      target_id: event.target_id || null,
+      target_label: event.target_label || null,
+      details: event.details || {},
+      ip_address: event.ip_address || null
+    };
+
+    const { error } = await supabase.from('system_audit_logs').insert(payload);
+    if (error) {
+      console.warn('Não foi possível gravar o log de auditoria no Supabase:', error.message);
+    }
+  } catch (err) {
+    console.warn('Erro ao disparar logSystemEvent:', err);
+  }
 }

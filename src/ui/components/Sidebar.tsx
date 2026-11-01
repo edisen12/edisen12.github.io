@@ -12,7 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  X
+  X,
+  ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { NAV_TABS } from '../../config/constants';
@@ -33,6 +34,7 @@ const TAB_ICONS: Record<TabId, React.ComponentType<{ size?: number; className?: 
   pes: Users,
   imp: UploadCloud,
   cfg: Settings,
+  adm: ShieldCheck,
   perfil: Settings
 };
 
@@ -71,8 +73,13 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
     });
   };
 
-  // Filtra itens por permissão global
-  const visibleTabs = NAV_TABS.filter(tab => !tab.globalOnly || isGlobal);
+  // Filtra itens por permissão global / perfil de administrador
+  const visibleTabs = NAV_TABS.filter(tab => {
+    if (tab.id === 'adm') {
+      return isGlobal || userProfile?.role === 'admin';
+    }
+    return !tab.globalOnly || isGlobal;
+  });
 
   const visibleGroups = GROUPS_META.map(meta => ({
     ...meta,

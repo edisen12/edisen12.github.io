@@ -8,7 +8,9 @@ import {
   Trash2,
   Edit3,
   Plus,
-  AlertTriangle
+  AlertTriangle,
+  UserCheck,
+  UserX
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
@@ -18,6 +20,7 @@ import {
   deletePessoa,
   savePlataforma,
   deletePlataforma,
+  deleteUserAccount,
   batchImportPlataformas,
   batchImportPessoas
 } from '../../services/data.service';
@@ -62,6 +65,9 @@ export const PessoasPlataformasView: React.FC = () => {
   const [editingPes, setEditingPes] = useState<Pessoa | null>(null);
 
   const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminResetPwProfile, setAdminResetPwProfile] = useState<UserProfile | null>(null);
+  const [adminToggleActiveProfile, setAdminToggleActiveProfile] = useState<UserProfile | null>(null);
+  const [adminDeleteProfile, setAdminDeleteProfile] = useState<UserProfile | null>(null);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [targetPesForLogin, setTargetPesForLogin] = useState<Pessoa | null>(null);
 
@@ -122,6 +128,10 @@ export const PessoasPlataformasView: React.FC = () => {
   const adminProfiles = useMemo(() => {
     return Object.values(dataset.profiles || {}).filter(p => p.role === 'admin');
   }, [dataset.profiles]);
+
+  const activeAdminsCount = useMemo(() => {
+    return adminProfiles.filter(p => p.ativo).length;
+  }, [adminProfiles]);
 
   const semEmailCount = useMemo(() => {
     return Object.values(dataset.pessoas).filter(p => !p.email).length;
@@ -662,6 +672,63 @@ export const PessoasPlataformasView: React.FC = () => {
                         </span>
                       )}
                     </div>
+                    {/* Ações Administrativas com Salvaguardas Anti-Lockout */}
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon btn-ghost"
+                        title={`Redefinir senha de ${admProf.nome}`}
+                        aria-label="Redefinir senha"
+                        style={{ color: 'var(--blue)' }}
+                        onClick={() => setAdminResetPwProfile(admProf)}
+                      >
+                        <KeyRound size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon btn-ghost"
+                        title={
+                          isSelf
+                            ? 'Você não pode desativar seu próprio acesso (Anti-Lockout)'
+                            : admProf.ativo
+                            ? `Desativar acesso de ${admProf.nome}`
+                            : `Reativar acesso de ${admProf.nome}`
+                        }
+                        aria-label={admProf.ativo ? 'Desativar acesso' : 'Ativar acesso'}
+                        style={{
+                          color: isSelf ? 'var(--ink-muted)' : admProf.ativo ? 'var(--bad)' : 'var(--ok)',
+                          opacity: isSelf ? 0.4 : 1,
+                          cursor: isSelf ? 'not-allowed' : 'pointer'
+                        }}
+                        disabled={isSelf}
+                        onClick={() => {
+                          if (!isSelf) setAdminToggleActiveProfile(admProf);
+                        }}
+                      >
+                        {admProf.ativo ? <UserX size={16} /> : <UserCheck size={16} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-icon btn-ghost"
+                        title={
+                          isSelf
+                            ? 'Auto-exclusão bloqueada (Anti-Lockout)'
+                            : `Excluir administrador (${admProf.email})`
+                        }
+                        aria-label="Excluir administrador"
+                        style={{
+                          color: isSelf ? 'var(--ink-muted)' : 'var(--bad)',
+                          opacity: isSelf ? 0.4 : 1,
+                          cursor: isSelf ? 'not-allowed' : 'pointer'
+                        }}
+                        disabled={isSelf}
+                        onClick={() => {
+                          if (!isSelf) setAdminDeleteProfile(admProf);
+                        }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -972,6 +1039,44 @@ export const PessoasPlataformasView: React.FC = () => {
           onCreated={async () => {
             await refreshData();
             setAdminModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAIS DE GESTÃO DE ADMINISTRADORES (SALVAGUARDAS ANTI-LOCKOUT) */}
+      {/* ========================================================================= */}
+      {adminResetPwProfile && (
+        <AdminResetPasswordModal
+          user={adminResetPwProfile}
+          onClose={() => setAdminResetPwProfile(null)}
+          onSuccess={async () => {
+            await refreshData();
+            setAdminResetPwProfile(null);
+          }}
+        />
+      )}
+
+      {adminToggleActiveProfile && (
+        <AdminToggleActiveModal
+          user={adminToggleActiveProfile}
+          activeAdminsCount={activeAdminsCount}
+          onClose={() => setAdminToggleActiveProfile(null)}
+          onSuccess={async () => {
+            await refreshData();
+            setAdminToggleActiveProfile(null);
+          }}
+        />
+      )}
+
+      {adminDeleteProfile && (
+        <AdminDeleteUserModal
+          user={adminDeleteProfile}
+          activeAdminsCount={activeAdminsCount}
+          onClose={() => setAdminDeleteProfile(null)}
+          onSuccess={async () => {
+            await refreshData();
+            setAdminDeleteProfile(null);
           }}
         />
       )}
@@ -1858,6 +1963,339 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({ open, onClose, onCreate
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
       </form>
+    </Modal>
+  );
+};
+
+// ==============================================================================
+// SUB-MODAL: REDEFINIR SENHA DE ADMINISTRADOR
+// ==============================================================================
+interface AdminResetPasswordModalProps {
+  user: UserProfile;
+  onClose: () => void;
+  onSuccess: () => Promise<void>;
+}
+
+const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = ({
+  user,
+  onClose,
+  onSuccess
+}) => {
+  const { showToast } = useToast();
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleReset = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (password.length < 8) {
+      setErrorMsg('A senha provisória deve conter no mínimo 8 caracteres.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await adminManageUser({
+        action: 'reset-password',
+        userId: user.id,
+        newPassword: password,
+        forceChange: true
+      });
+
+      if (!res.ok) {
+        throw new Error(res.message || 'Falha ao redefinir senha do administrador.');
+      }
+
+      showToast(`Senha provisória de ${user.nome} redefinida com sucesso!`, 'success');
+      await onSuccess();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erro ao redefinir senha.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <KeyRound size={18} />
+          <span>Redefinir Senha · {user.nome}</span>
+        </div>
+      }
+      maxWidth="480px"
+      footer={
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => handleReset()}
+            disabled={loading || password.length < 8}
+          >
+            {loading ? 'Redefinindo…' : 'Salvar Nova Senha'}
+          </button>
+        </div>
+      }
+    >
+      <form onSubmit={handleReset} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="note note-warn" style={{ margin: 0, fontSize: '0.84rem' }}>
+          Esta é uma credencial provisória. O administrador será obrigado a definir uma nova senha no próximo login.
+        </div>
+
+        <div>
+          <span className="sub" style={{ fontSize: '0.8rem' }}>Administrador:</span>
+          <div style={{ fontWeight: 600 }}>{user.nome} &lt;{user.email}&gt;</div>
+        </div>
+
+        <label className="fld">
+          <span>Nova senha provisória (mínimo 8 caracteres)</span>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Digite a nova senha provisória"
+            autoFocus
+            required
+            disabled={loading}
+          />
+        </label>
+
+        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
+      </form>
+    </Modal>
+  );
+};
+
+// ==============================================================================
+// SUB-MODAL: ATIVAR / DESATIVAR ADMINISTRADOR (ANTI-LOCKOUT)
+// ==============================================================================
+interface AdminToggleActiveModalProps {
+  user: UserProfile;
+  activeAdminsCount: number;
+  onClose: () => void;
+  onSuccess: () => Promise<void>;
+}
+
+const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
+  user,
+  activeAdminsCount,
+  onClose,
+  onSuccess
+}) => {
+  const { showToast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const willDeactivate = user.ativo;
+  const isLastActiveAdmin = willDeactivate && activeAdminsCount <= 1;
+
+  const handleToggle = async () => {
+    if (isLastActiveAdmin) {
+      setErrorMsg('Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await adminManageUser({
+        action: 'toggle-active',
+        userId: user.id,
+        ativo: !user.ativo
+      });
+
+      if (!res.ok) {
+        throw new Error(res.message || 'Falha ao alterar status do administrador.');
+      }
+
+      showToast(`Acesso de ${user.nome} ${willDeactivate ? 'desativado' : 'ativado'} com sucesso!`, 'success');
+      await onSuccess();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erro ao processar alteração.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {willDeactivate ? <UserX size={18} color="var(--bad)" /> : <UserCheck size={18} color="var(--ok)" />}
+          <span>{willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · {user.nome}</span>
+        </div>
+      }
+      maxWidth="480px"
+      footer={
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className={`btn ${willDeactivate ? 'btn-danger' : 'btn-primary'}`}
+            onClick={handleToggle}
+            disabled={loading || isLastActiveAdmin}
+          >
+            {loading ? 'Processando…' : willDeactivate ? 'Confirmar Desativação' : 'Confirmar Reativação'}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {isLastActiveAdmin ? (
+          <div className="note note-bad" style={{ margin: 0 }}>
+            <strong>Salvaguarda Anti-Lockout Ativa:</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              Este é o único Administrador ativo no sistema. Desativá-lo bloquearia permanentemente o painel administrativo.
+            </p>
+          </div>
+        ) : willDeactivate ? (
+          <div className="note note-warn" style={{ margin: 0 }}>
+            <strong>Atenção:</strong> Ao desativar o acesso de <b>{user.nome}</b>, o token de sessão será revogado e a conta não poderá mais acessar o sistema até ser reativada.
+          </div>
+        ) : (
+          <div className="note note-info" style={{ margin: 0 }}>
+            Ao reativar o acesso, <b>{user.nome}</b> terá seus privilégios de administrador restaurados.
+          </div>
+        )}
+
+        <div>
+          <span className="sub" style={{ fontSize: '0.8rem' }}>Administrador:</span>
+          <div style={{ fontWeight: 600 }}>{user.nome}</div>
+          <div className="sub">{user.email}</div>
+        </div>
+
+        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
+      </div>
+    </Modal>
+  );
+};
+
+// ==============================================================================
+// SUB-MODAL: EXCLUIR ADMINISTRADOR (SALVAGUARDA ANTI-LOCKOUT)
+// ==============================================================================
+interface AdminDeleteUserModalProps {
+  user: UserProfile;
+  activeAdminsCount: number;
+  onClose: () => void;
+  onSuccess: () => Promise<void>;
+}
+
+const AdminDeleteUserModal: React.FC<AdminDeleteUserModalProps> = ({
+  user,
+  activeAdminsCount,
+  onClose,
+  onSuccess
+}) => {
+  const { showToast } = useToast();
+  const [confirmInput, setConfirmInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const isLastActiveAdmin = activeAdminsCount <= 1;
+  const isMatch = confirmInput.trim().toLowerCase() === user.email.toLowerCase() ||
+                  confirmInput.trim().toLowerCase() === user.nome.toLowerCase();
+
+  const handleDelete = async () => {
+    if (isLastActiveAdmin) {
+      setErrorMsg('Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.');
+      return;
+    }
+
+    if (!isMatch) {
+      setErrorMsg('A confirmação digitada não confere com o e-mail ou nome do administrador.');
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await deleteUserAccount(user.id);
+      if (!res.ok) {
+        throw new Error(res.message || 'Falha ao excluir administrador.');
+      }
+
+      showToast(`Administrador ${user.nome} excluído definitivamente.`, 'success');
+      await onSuccess();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erro ao excluir administrador.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--bad)' }}>
+          <AlertTriangle size={20} />
+          <span>Excluir Administrador Global</span>
+        </div>
+      }
+      maxWidth="500px"
+      footer={
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={handleDelete}
+            disabled={loading || isLastActiveAdmin || !isMatch}
+          >
+            {loading ? 'Excluindo…' : 'Excluir Definitivamente'}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {isLastActiveAdmin ? (
+          <div className="note note-bad" style={{ margin: 0 }}>
+            <strong>Salvaguarda Anti-Lockout Ativa:</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              Este é o único Administrador ativo no sistema. A exclusão desta conta bloquearia a governança do sistema. Cadastre outro administrador antes de prosseguir.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="note note-bad" style={{ margin: 0 }}>
+              <strong>Atenção: Ação Irreversível!</strong>
+              <p style={{ margin: '4px 0 0' }}>
+                A exclusão removerá permanentemente as credenciais e acessos do administrador <b>{user.nome}</b> ({user.email}).
+              </p>
+            </div>
+
+            <label className="fld">
+              <span>Para confirmar a exclusão, digite o e-mail do administrador:</span>
+              <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ink)' }}>
+                {user.email}
+              </div>
+              <input
+                type="text"
+                value={confirmInput}
+                onChange={e => setConfirmInput(e.target.value)}
+                placeholder="Digite o e-mail para confirmar"
+                autoFocus
+                disabled={loading}
+              />
+            </label>
+          </>
+        )}
+
+        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
+      </div>
     </Modal>
   );
 };

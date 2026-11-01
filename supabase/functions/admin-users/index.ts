@@ -150,6 +150,34 @@ Deno.serve(async (req: Request) => {
       return data;
     };
 
+    // Helper: Registrar log de auditoria corporativo em system_audit_logs
+    const recordAuditLog = async (log: {
+      action: string;
+      category: string;
+      target_id: string | null;
+      target_label: string | null;
+      details?: Record<string, any>;
+    }): Promise<void> => {
+      try {
+        const { error: auditErr } = await supabaseAdmin.from('system_audit_logs').insert({
+          actor_id: callerProfile.id,
+          actor_nome: callerProfile.nome,
+          actor_email: callerProfile.email,
+          actor_role: callerProfile.role,
+          action: log.action,
+          category: log.category,
+          target_id: log.target_id,
+          target_label: log.target_label,
+          details: log.details || {}
+        });
+        if (auditErr) {
+          console.error('Erro retornado ao inserir system_audit_logs:', auditErr);
+        }
+      } catch (err) {
+        console.error('Exceção ao registrar log de auditoria no system_audit_logs:', err);
+      }
+    };
+
     // --------------------------------------------------------------------------
     // AÇÃO: 'create'
     // --------------------------------------------------------------------------
@@ -302,6 +330,20 @@ Deno.serve(async (req: Request) => {
           }
         }
 
+        // Registro de auditoria corporativa
+        await recordAuditLog({
+          action: 'user_created',
+          category: 'usuarios',
+          target_id: newUserId,
+          target_label: `${cleanNome} (${cleanEmail})`,
+          details: {
+            role,
+            email: cleanEmail,
+            nome: cleanNome,
+            pessoaId: resolvedPessoaId || null
+          }
+        });
+
         return new Response(
           JSON.stringify({ ok: true, userId: newUserId, message: `Usuário ${cleanNome} criado com sucesso.` }),
           { status: 200, headers: corsHeaders }
@@ -345,6 +387,8 @@ Deno.serve(async (req: Request) => {
           { status: 404, headers: corsHeaders }
         );
       }
+
+      const previousRole = targetProfile.role;
 
       // Regra 3: Somente admin mexe em perfil admin ou promove para admin
       if ((targetProfile.role === 'admin' || role === 'admin') && callerProfile.role !== 'admin') {
@@ -390,6 +434,20 @@ Deno.serve(async (req: Request) => {
       if (role !== 'admin') {
         await supabaseAdmin.from('pessoas').update({ papel: role }).eq('user_id', userId);
       }
+
+      // Registro de auditoria corporativa
+      await recordAuditLog({
+        action: 'role_changed',
+        category: 'seguranca',
+        target_id: userId,
+        target_label: `${targetProfile.nome} (${targetProfile.email})`,
+        details: {
+          previousRole,
+          newRole: role,
+          targetEmail: targetProfile.email,
+          updatedNome: typeof nome === 'string' && nome.trim() ? nome.trim() : targetProfile.nome
+        }
+      });
 
       return new Response(
         JSON.stringify({ ok: true, message: `Papel do usuário atualizado para "${role}".` }),
@@ -457,6 +515,19 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      // Registro de auditoria corporativa
+      await recordAuditLog({
+        action: 'password_reset',
+        category: 'seguranca',
+        target_id: userId,
+        target_label: `${targetProfile.nome} (${targetProfile.email})`,
+        details: {
+          forceChange,
+          targetRole: targetProfile.role,
+          targetEmail: targetProfile.email
+        }
+      });
+
       return new Response(
         JSON.stringify({
           ok: true,
@@ -486,6 +557,8 @@ Deno.serve(async (req: Request) => {
           { status: 404, headers: corsHeaders }
         );
       }
+
+      const previousStatus = targetProfile.ativo;
 
       // Regra 3: Somente admin desativa outro admin
       if (targetProfile.role === 'admin' && callerProfile.role !== 'admin') {
@@ -527,10 +600,111 @@ Deno.serve(async (req: Request) => {
         ban_duration: ativo ? 'none' : '876000h'
       });
 
+      // Registro de auditoria corporativa
+      await recordAuditLog({
+        action: 'status_toggled',
+        category: 'seguranca',
+        target_id: userId,
+        target_label: `${targetProfile.nome} (${targetProfile.email})`,
+        details: {
+          previousStatus,
+          newStatus: ativo,
+          targetRole: targetProfile.role,
+          targetEmail: targetProfile.email
+        }
+      });
+
       return new Response(
         JSON.stringify({
           ok: true,
           message: `Acesso do usuário ${ativo ? 'ativado' : 'desativado'} com sucesso.`
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
+
+    // --------------------------------------------------------------------------
+    // AÇÃO: 'delete-user'
+    // --------------------------------------------------------------------------
+    if (action === 'delete-user') {
+      const { userId } = body;
+
+      if (!userId || typeof userId !== 'string' || !userId.trim()) {
+        return new Response(
+          JSON.stringify({ ok: false, message: 'Identificador do usuário (userId) é obrigatório.' }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      const targetProfile = await getTargetProfile(userId);
+      if (!targetProfile) {
+        return new Response(
+          JSON.stringify({ ok: false, message: 'Usuário alvo não encontrado.' }),
+          { status: 404, headers: corsHeaders }
+        );
+      }
+
+      // Regra 1: Anti-lockout: Bloquear auto-exclusão
+      if (callerId === userId) {
+        return new Response(
+          JSON.stringify({ ok: false, message: 'Você não pode remover sua própria conta de Administrador.' }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Regra 2: Somente admin remove outro admin
+      if (targetProfile.role === 'admin' && callerProfile.role !== 'admin') {
+        return new Response(
+          JSON.stringify({ ok: false, message: 'Apenas Administradores podem remover contas de Administrador.' }),
+          { status: 403, headers: corsHeaders }
+        );
+      }
+
+      // Regra 3: Anti-lockout: Garantir ao menos um admin ativo remanescente
+      if (targetProfile.role === 'admin') {
+        const activeAdmins = await countActiveAdmins();
+        if (activeAdmins <= 1) {
+          return new Response(
+            JSON.stringify({ ok: false, message: 'Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.' }),
+            { status: 400, headers: corsHeaders }
+          );
+        }
+      }
+
+      // 1. Excluir do GoTrue Auth
+      const { error: delAuthErr } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (delAuthErr) {
+        console.error('Erro ao excluir usuário no auth.admin:', delAuthErr);
+        return new Response(
+          JSON.stringify({ ok: false, message: delAuthErr.message || 'Erro ao excluir usuário no sistema de autenticação.' }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // 2. Excluir de public.profiles e public.user_onboarding
+      await supabaseAdmin.from('user_onboarding').delete().eq('user_id', userId);
+      await supabaseAdmin.from('profiles').delete().eq('id', userId);
+
+      // 3. Desvincular de public.pessoas
+      await supabaseAdmin.from('pessoas').update({ user_id: null }).eq('user_id', userId);
+
+      // 4. Inserir registro em public.system_audit_logs
+      await recordAuditLog({
+        action: 'user_deleted',
+        category: 'usuarios',
+        target_id: userId,
+        target_label: `${targetProfile.nome} (${targetProfile.email})`,
+        details: {
+          targetRole: targetProfile.role,
+          targetEmail: targetProfile.email,
+          reason: 'Exclusão definitiva de conta'
+        }
+      });
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          message: `Usuário ${targetProfile.nome} removido do sistema com sucesso.`
         }),
         { status: 200, headers: corsHeaders }
       );

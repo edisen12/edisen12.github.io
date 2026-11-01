@@ -480,3 +480,58 @@ Em rodada exaustiva de avaliação de segurança ofensiva e defensiva cobrindo t
 
 
 
+
+
+### 8.10. Sistema Completo de Auditoria (Audit Trail WORM), Governança Administrativa & Gestão de Contas
+
+Em atendimento à necessidade corporativa de auditoria contínua de operações sensíveis, transparência de ações de usuários e governança completa de contas de acesso (reset de senhas, remoção de usuários com salvaguarda anti-lockout e painel administrativo), foi concebida e implementada uma infraestrutura ponta a ponta:
+
+1. **Trilha de Auditoria Imutável no Banco de Dados (Migration `009_system_audit_logs.sql`):**
+   - **Tabela `public.system_audit_logs`:**
+     - Armazena: `id` (UUID PK), `actor_id` (UUID FK auth.users), `actor_nome` (TEXT), `actor_email` (TEXT), `actor_role` (TEXT), `action` (TEXT NOT NULL), `category` (TEXT NOT NULL, restrita a `'usuarios'`, `'seguranca'`, `'configuracoes'`, `'cadastros'`, `'operacional'`), `target_id` (TEXT), `target_label` (TEXT), `details` (JSONB NOT NULL), `ip_address` (TEXT) e `created_at` (TIMESTAMPTZ UTC).
+     - Índices de alto desempenho: `created_at DESC`, `category`, `action`, `actor_id` e índice composto `(category, created_at DESC)`.
+   - **Garantia de Imutabilidade WORM (Write Once, Read Many):**
+     - RLS ativado com política de leitura (`SELECT`) restrita estritamente a administradores e gestores ativos (`auth_is_active() AND auth_is_global()`).
+     - Privilégios `UPDATE` e `DELETE` revogados de todas as roles (`REVOKE UPDATE, DELETE ON public.system_audit_logs FROM authenticated, anon, public`).
+     - Trigger ativo `trg_prevent_system_audit_logs_mutation` disparado em `BEFORE UPDATE OR DELETE` que cancela a transação e lança exceção imediata (`P0001: Registros de auditoria do sistema são estritamente imutáveis (Política WORM)`), garantindo conformidade com padrões de conformidade e auditoria forense.
+   - **Triggers Automáticos de Auditoria no PostgreSQL:**
+     - `trg_audit_configuracoes`: Dispara em `AFTER UPDATE` na tabela `configuracoes` e grava evento `config_updated` na categoria `configuracoes` com diff JSONB detalhado das alterações.
+     - `trg_audit_pessoas`: Dispara em `AFTER INSERT OR UPDATE OR DELETE` na tabela `pessoas` com ações `pessoa_created`, `pessoa_updated` (com diff cadastral) e `pessoa_deleted` na categoria `cadastros`.
+     - `trg_audit_plataformas`: Dispara em `AFTER INSERT OR UPDATE` na tabela `plataformas` gravando alterações de armador, tipo e situação na categoria `cadastros`.
+     - `trg_audit_profiles`: Dispara em `AFTER UPDATE OF role, ativo` na tabela `profiles` com ações `role_changed` e `status_toggled` na categoria `seguranca`.
+   - **RPC Programática `log_system_event`:**
+     - Rotina `SECURITY DEFINER` com `search_path = public, pg_catalog` que permite ao frontend e Edge Functions registrar eventos enriquecidos com metadados do solicitante autenticado e endereço IP.
+
+2. **Hardening da Edge Function `admin-users` (Deploy v4):**
+   - **Ação `delete-user` com Salvaguardas Anti-Lockout:**
+     - Bloqueio de auto-exclusão (`callerId === userId`) impedindo que administradores excluam acidentalmente a própria conta.
+     - Bloqueio de elevação: gestores são proibidos de excluir contas de administradores (apenas administradores podem gerenciar administradores).
+     - Proteção do último administrador ativo: verifica a contagem de administradores ativos (`countActiveAdmins()`). Se restar apenas 1 administrador ativo, qualquer tentativa de exclusão é bloqueada com erro 400.
+     - Fluxo de exclusão transacional atômica: remove credenciais no GoTrue (`supabaseAdmin.auth.admin.deleteUser`), remove o perfil em `public.profiles` e `public.user_onboarding`, desvincula com segurança a pessoa operacional em `public.pessoas` (`user_id = null`), e registra evento `user_deleted` em `system_audit_logs`.
+   - **Rastreabilidade Global nas Demais Ações:**
+     - `create`: registra `user_created` (categoria `usuarios`).
+     - `update-role`: registra `role_changed` com papéis anterior e novo (categoria `seguranca`).
+     - `reset-password`: registra `password_reset` com indicador de troca obrigatória no próximo login (categoria `seguranca`).
+     - `toggle-active`: registra `status_toggled` com status anterior e novo (categoria `seguranca`).
+
+3. **Novo Painel de Governança, Contas & Auditoria (`AdminAuditView.tsx`):**
+   - Integrado ao roteamento sob a tab `'adm'` e visível na barra lateral para administradores com o ícone `ShieldCheck`.
+   - **KPIs em Tempo Real:** Cards executivos no cabeçalho exibindo Total de Eventos Rastreados, Alertas de Segurança (últimos 7 dias), Administradores Ativos e Total de Contas de Acesso.
+   - **Aba "Trilha de Auditoria (Audit Trail)":**
+     - Filtros rápidos por categoria (`Todos`, `Usuários`, `Segurança`, `Configurações`, `Cadastros`, `Operacional`).
+     - Busca textual em tempo real por ação, ator, alvo ou endereço IP.
+     - Botão de exportação auditável de registros em arquivo JSON padronizado.
+     - Modal de inspeção profunda de registros exibindo ator, papel, IP, identificadores e o payload `details` com sintaxe JSON destacada e botão de cópia com feedback visual.
+   - **Aba "Gestão Global de Administradores & Acessos":**
+     - Tabela completa de contas de acesso com papéis, e-mails, status e badges de primeiro login / troca obrigatória de senha.
+     - **Redefinição de Senha Provisória:** Modal seguro com validação de 8 caracteres mínimos, geração de senha temporária e marcação compulsória de `obriga_troca_senha: true`.
+     - **Ativação / Desativação de Acesso:** Alternância de status com diálogo explicativo e salvaguardas anti-lockout ativas.
+     - **Exclusão Definitiva de Conta:** Modal com confirmação explícita digitando o nome/e-mail do usuário alvo, bloqueio de auto-exclusão e retenção mandatória do último administrador ativo.
+   - **Gestão de Administradores em `PessoasPlataformasView.tsx`:**
+     - Atualizada a lista de Administradores Globais para permitir gerenciamento direto (Redefinir Senha, Ativar/Desativar e Excluir) com os mesmos controles e salvaguardas anti-lockout.
+
+4. **Resultados dos Testes & Qualidade de Código:**
+   - **410 testes automatizados** passando com 100% de sucesso em 22 arquivos de teste (Vitest).
+   - Suíte `admin-users-edge.test.ts` expandida para 41 testes cobrindo todas as salvaguardas anti-lockout e persistência WORM.
+   - Suíte `AdminAuditView.test.tsx` com 11 testes unitários cobrindo todos os fluxos de interface, modais, exportação e filtragem.
+   - Compilação TypeScript (`tsc --noEmit`) e bundle Vite de produção executados com sucesso (0 erros).

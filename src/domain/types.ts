@@ -5,7 +5,7 @@ export type PapelOperacional = 'preposto' | 'controlador' | 'gestor';
 export type MedCriterio = 'enc' | 'dias';
 export type DiaCorteMedicao = 1 | 16 | 21 | 26;
 export type StatusMeta = 'ok' | 'warn' | 'bad' | 'sem' | 'info';
-export type TabId = 'ger' | 'dia' | 'emb' | 'jus' | 'med' | 'us' | 'pes' | 'imp' | 'cfg' | 'perfil';
+export type TabId = 'ger' | 'dia' | 'emb' | 'jus' | 'med' | 'us' | 'pes' | 'imp' | 'cfg' | 'adm' | 'perfil';
 export type ImportKind = 'hh' | 'cart' | 'plat' | 'pes';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type TableDensity = 'comfortable' | 'compact';
@@ -31,6 +31,21 @@ export interface UserProfile {
   nome: string;
   role: SystemRole;
   ativo: boolean;
+}
+
+export interface SystemAuditLog {
+  id: string;
+  actor_id: string | null;
+  actor_nome: string | null;
+  actor_email: string | null;
+  actor_role: string | null;
+  action: string;
+  category: 'usuarios' | 'seguranca' | 'configuracoes' | 'cadastros' | 'operacional' | string;
+  target_id: string | null;
+  target_label: string | null;
+  details: Record<string, any>;
+  ip_address?: string | null;
+  created_at: string;
 }
 
 export interface Plataforma {

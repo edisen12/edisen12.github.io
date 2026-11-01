@@ -14,6 +14,7 @@ import { MedicaoUsoffView } from './ui/views/MedicaoUsoffView';
 import { PessoasPlataformasView } from './ui/views/PessoasPlataformasView';
 import { ImportarDadosView } from './ui/views/ImportarDadosView';
 import { ConfiguracoesView } from './ui/views/ConfiguracoesView';
+import { AdminAuditView } from './ui/views/AdminAuditView';
 import { JustificativaModal } from './ui/modals/JustificativaModal';
 import { FichaTecnicoDrawer } from './ui/modals/FichaTecnicoDrawer';
 import { EmailComposerModal } from './ui/modals/EmailComposerModal';
@@ -40,6 +41,8 @@ function ActiveTabRouter() {
       return isGlobal ? <ImportarDadosView /> : <VisaoGeralView />;
     case 'cfg':
       return isGlobal ? <ConfiguracoesView /> : <VisaoGeralView />;
+    case 'adm':
+      return isGlobal ? <AdminAuditView /> : <VisaoGeralView />;
     case 'perfil':
       return <UserSettingsView />;
     default:

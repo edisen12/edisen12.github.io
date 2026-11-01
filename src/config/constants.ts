@@ -89,7 +89,8 @@ export const NAV_TABS: NavSectionItem[] = [
   { id: 'us', label: 'Medição USOFF', group: 'medicao' },
   { id: 'pes', label: 'Pessoas, plataformas e acessos', group: 'admin', globalOnly: true },
   { id: 'imp', label: 'Importar dados', group: 'admin', globalOnly: true },
-  { id: 'cfg', label: 'Configurações', group: 'admin', globalOnly: true }
+  { id: 'cfg', label: 'Configurações', group: 'admin', globalOnly: true },
+  { id: 'adm', label: 'Painel do Administrador', group: 'admin', globalOnly: true }
 ];
 
 export const TAB_TITLES: Record<TabId, string> = {
@@ -102,5 +103,6 @@ export const TAB_TITLES: Record<TabId, string> = {
   pes: 'Pessoas, plataformas e acessos',
   imp: 'Importar dados',
   cfg: 'Configurações do Contrato',
+  adm: 'Painel do Administrador & Governança',
   perfil: 'Configurações do Usuário'
 };

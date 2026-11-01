@@ -289,6 +289,54 @@ export type Database = {
           },
         ]
       }
+      justificativas_audit_log: {
+        Row: {
+          audit_id: string
+          data: string
+          descricao_antiga: string | null
+          descricao_nova: string | null
+          horas_antigas: number | null
+          horas_novas: number | null
+          justificativa_id: string | null
+          matricula: string
+          modificado_em: string
+          modificado_por: string | null
+          motivo_antigo: string | null
+          motivo_novo: string | null
+          operacao: string
+        }
+        Insert: {
+          audit_id?: string
+          data: string
+          descricao_antiga?: string | null
+          descricao_nova?: string | null
+          horas_antigas?: number | null
+          horas_novas?: number | null
+          justificativa_id?: string | null
+          matricula: string
+          modificado_em?: string
+          modificado_por?: string | null
+          motivo_antigo?: string | null
+          motivo_novo?: string | null
+          operacao: string
+        }
+        Update: {
+          audit_id?: string
+          data?: string
+          descricao_antiga?: string | null
+          descricao_nova?: string | null
+          horas_antigas?: number | null
+          horas_novas?: number | null
+          justificativa_id?: string | null
+          matricula?: string
+          modificado_em?: string
+          modificado_por?: string | null
+          motivo_antigo?: string | null
+          motivo_novo?: string | null
+          operacao?: string
+        }
+        Relationships: []
+      }
       pessoa_plataformas: {
         Row: {
           pessoa_id: string
@@ -459,6 +507,51 @@ export type Database = {
         }
         Relationships: []
       }
+      system_audit_logs: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_nome: string | null
+          actor_role: string | null
+          category: string
+          created_at: string
+          details: Json | null
+          id: string
+          ip_address: string | null
+          target_id: string | null
+          target_label: string | null
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_nome?: string | null
+          actor_role?: string | null
+          category: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          target_id?: string | null
+          target_label?: string | null
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_nome?: string | null
+          actor_role?: string | null
+          category?: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          target_id?: string | null
+          target_label?: string | null
+        }
+        Relationships: []
+      }
       tecnicos: {
         Row: {
           funcao: string
@@ -524,7 +617,18 @@ export type Database = {
       auth_is_active: { Args: never; Returns: boolean }
       auth_is_admin: { Args: never; Returns: boolean }
       auth_is_global: { Args: never; Returns: boolean }
+      auth_is_unlocked: { Args: never; Returns: boolean }
       complete_first_login_password_change: { Args: never; Returns: undefined }
+      fn_get_current_actor_context: {
+        Args: never
+        Returns: {
+          actor_email: string
+          actor_id: string
+          actor_nome: string
+          actor_role: string
+          ip_address: string
+        }[]
+      }
       get_external_covered_days: {
         Args: { p_fim: string; p_ini: string }
         Returns: {
@@ -539,6 +643,16 @@ export type Database = {
           ultima_data_hh: string
           ultima_importacao_em: string
         }[]
+      }
+      log_system_event: {
+        Args: {
+          p_action: string
+          p_category: string
+          p_details?: Json
+          p_target_id?: string
+          p_target_label?: string
+        }
+        Returns: string
       }
       ping_health: { Args: never; Returns: string }
       update_own_profile: {
@@ -677,3 +791,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

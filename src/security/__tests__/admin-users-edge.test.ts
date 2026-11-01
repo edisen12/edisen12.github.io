@@ -97,9 +97,18 @@ function createFreshState(): MockAdminState {
           obriga_troca_senha: true
         }
       },
-      pessoas: {},
+      pessoas: {
+        'pes-preposto': {
+          id: 'pes-preposto',
+          nome: 'Preposto Embarque',
+          email: 'preposto@empresa.com.br',
+          papel: 'preposto',
+          user_id: 'usr-preposto'
+        }
+      },
       pessoa_plataformas: {},
-      pessoa_unidades: {}
+      pessoa_unidades: {},
+      system_audit_logs: {}
     },
     deletedUserIds: [],
     updatedUsers: {},
@@ -817,6 +826,199 @@ describe('Segurança & Anti-Lockout: Edge Function admin-users', () => {
       );
       expect(res.status).toBe(400);
       expect(res.body.message).toBe('Nome completo obrigatório.');
+    });
+  });
+
+  // ----------------------------------------------------------------------------
+  // 12. AÇÃO 'delete-user': EXCLUSÃO SEGURA, ANTI-LOCKOUT E DESVINCULAÇÃO
+  // ----------------------------------------------------------------------------
+  describe('12. Ação "delete-user": Exclusão Segura, Anti-Lockout e Desvinculação Transacional', () => {
+    it('Requisição sem parâmetro "userId" retorna 400 Bad Request', async () => {
+      const res = await callEdge({ action: 'delete-user' }, { jwt: 'jwt-admin-1' });
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toBe('Identificador do usuário (userId) é obrigatório.');
+    });
+
+    it('Requisição com userId inexistente retorna 404 Not Found', async () => {
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-fantasma-inexistente' }, { jwt: 'jwt-admin-1' });
+      expect(res.status).toBe(404);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toBe('Usuário alvo não encontrado.');
+    });
+
+    it('Trava Anti-Lockout: Administrador tentando remover sua própria conta retorna 400 Bad Request', async () => {
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-admin-1' }, { jwt: 'jwt-admin-1' });
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toBe('Você não pode remover sua própria conta de Administrador.');
+    });
+
+    it('Anti-Elevação: Gestor tentando remover usuário Administrador retorna 403 Forbidden', async () => {
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-admin-1' }, { jwt: 'jwt-gestor' });
+      expect(res.status).toBe(403);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toBe('Apenas Administradores podem remover contas de Administrador.');
+    });
+
+    it('Gestor pode remover usuário com papel operacional (preposto)', async () => {
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-preposto' }, { jwt: 'jwt-gestor' });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.message).toBe('Usuário Preposto Embarque removido do sistema com sucesso.');
+    });
+
+    it('Trava Anti-Lockout: Bloqueia exclusão de Administrador se restar apenas 1 ativo', async () => {
+      // Inativa usr-admin-2, restando apenas usr-admin-1 ativo
+      state.tables.profiles['usr-admin-2'].ativo = false;
+
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-admin-2' }, { jwt: 'jwt-admin-1' });
+      expect(res.status).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.message).toBe('Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.');
+    });
+
+    it('Administrador pode remover outro Administrador com sucesso quando há múltiplos ativos', async () => {
+      // Há 2 admins ativos no estado inicial (usr-admin-1 e usr-admin-2)
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-admin-2' }, { jwt: 'jwt-admin-1' });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.message).toBe('Usuário Admin Secundário removido do sistema com sucesso.');
+      expect(state.deletedUserIds).toContain('usr-admin-2');
+      expect(state.tables.profiles['usr-admin-2']).toBeUndefined();
+    });
+
+    it('Execução Transacional Completa: Deleta do Auth, limpa profiles/onboarding, desvincula pessoas e audita', async () => {
+      expect(state.tables.pessoas['pes-preposto'].user_id).toBe('usr-preposto');
+      expect(state.tables.user_onboarding['usr-preposto']).toBeDefined();
+      expect(state.tables.profiles['usr-preposto']).toBeDefined();
+
+      const res = await callEdge({ action: 'delete-user', userId: 'usr-preposto' }, { jwt: 'jwt-admin-1' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.message).toBe('Usuário Preposto Embarque removido do sistema com sucesso.');
+
+      // 1. Excluído do GoTrue Auth
+      expect(state.deletedUserIds).toContain('usr-preposto');
+      expect(state.users['usr-preposto']).toBeUndefined();
+
+      // 2. Excluído de public.profiles e public.user_onboarding
+      expect(state.tables.profiles['usr-preposto']).toBeUndefined();
+      expect(state.tables.user_onboarding['usr-preposto']).toBeUndefined();
+
+      // 3. Desvinculado de public.pessoas (user_id = null)
+      expect(state.tables.pessoas['pes-preposto'].user_id).toBeNull();
+
+      // 4. Auditoria registrada em public.system_audit_logs
+      const logs = Object.values(state.tables.system_audit_logs || {});
+      const delLog = logs.find(l => l.action === 'user_deleted');
+      expect(delLog).toBeDefined();
+      expect(delLog.actor_id).toBe('usr-admin-1');
+      expect(delLog.actor_nome).toBe('Admin Primário');
+      expect(delLog.actor_email).toBe('admin1@empresa.com.br');
+      expect(delLog.actor_role).toBe('admin');
+      expect(delLog.category).toBe('usuarios');
+      expect(delLog.target_id).toBe('usr-preposto');
+      expect(delLog.target_label).toBe('Preposto Embarque (preposto@empresa.com.br)');
+      expect(delLog.details.targetRole).toBe('preposto');
+      expect(delLog.details.targetEmail).toBe('preposto@empresa.com.br');
+      expect(delLog.details.reason).toBe('Exclusão definitiva de conta');
+    });
+  });
+
+  // ----------------------------------------------------------------------------
+  // 13. AUDITORIA CORPORATIVA (public.system_audit_logs) PARA TODAS AS AÇÕES
+  // ----------------------------------------------------------------------------
+  describe('13. Rastreabilidade Corporativa: Registro de Auditoria em Todas as Ações', () => {
+    it('Ação "create" registra evento de auditoria com action "user_created" e category "usuarios"', async () => {
+      const res = await callEdge(
+        {
+          action: 'create',
+          email: 'audit.novo@empresa.com.br',
+          nome: 'Usuário Auditado',
+          password: 'SenhaForte123!',
+          role: 'controlador'
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(200);
+      const createdUserId = res.body.userId;
+
+      const logs = Object.values(state.tables.system_audit_logs || {});
+      const createLog = logs.find(l => l.action === 'user_created');
+      expect(createLog).toBeDefined();
+      expect(createLog.category).toBe('usuarios');
+      expect(createLog.actor_id).toBe('usr-admin-1');
+      expect(createLog.target_id).toBe(createdUserId);
+      expect(createLog.target_label).toBe('Usuário Auditado (audit.novo@empresa.com.br)');
+      expect(createLog.details.role).toBe('controlador');
+    });
+
+    it('Ação "update-role" registra evento de auditoria com action "role_changed" e category "seguranca"', async () => {
+      const res = await callEdge(
+        {
+          action: 'update-role',
+          userId: 'usr-preposto',
+          role: 'controlador'
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(200);
+
+      const logs = Object.values(state.tables.system_audit_logs || {});
+      const roleLog = logs.find(l => l.action === 'role_changed');
+      expect(roleLog).toBeDefined();
+      expect(roleLog.category).toBe('seguranca');
+      expect(roleLog.actor_id).toBe('usr-admin-1');
+      expect(roleLog.target_id).toBe('usr-preposto');
+      expect(roleLog.details.previousRole).toBe('preposto');
+      expect(roleLog.details.newRole).toBe('controlador');
+    });
+
+    it('Ação "reset-password" registra evento de auditoria com action "password_reset" e category "seguranca"', async () => {
+      const res = await callEdge(
+        {
+          action: 'reset-password',
+          userId: 'usr-preposto',
+          newPassword: 'NovaSenhaForte2026!'
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(200);
+
+      const logs = Object.values(state.tables.system_audit_logs || {});
+      const pwLog = logs.find(l => l.action === 'password_reset');
+      expect(pwLog).toBeDefined();
+      expect(pwLog.category).toBe('seguranca');
+      expect(pwLog.actor_id).toBe('usr-admin-1');
+      expect(pwLog.target_id).toBe('usr-preposto');
+      expect(pwLog.details.forceChange).toBe(true);
+    });
+
+    it('Ação "toggle-active" registra evento de auditoria com action "status_toggled" e category "seguranca"', async () => {
+      const res = await callEdge(
+        {
+          action: 'toggle-active',
+          userId: 'usr-preposto',
+          ativo: false
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(200);
+
+      const logs = Object.values(state.tables.system_audit_logs || {});
+      const toggleLog = logs.find(l => l.action === 'status_toggled');
+      expect(toggleLog).toBeDefined();
+      expect(toggleLog.category).toBe('seguranca');
+      expect(toggleLog.actor_id).toBe('usr-admin-1');
+      expect(toggleLog.target_id).toBe('usr-preposto');
+      expect(toggleLog.details.previousStatus).toBe(true);
+      expect(toggleLog.details.newStatus).toBe(false);
     });
   });
 });

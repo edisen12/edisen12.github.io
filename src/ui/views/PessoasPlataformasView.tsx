@@ -10,7 +10,23 @@ import {
   Plus,
   AlertTriangle,
   UserCheck,
-  UserX
+  UserX,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Check,
+  CheckCircle2,
+  Building2,
+  Ship,
+  MapPin,
+  Anchor,
+  User,
+  Briefcase,
+  Shield,
+  HardHat,
+  ClipboardCheck,
+  Layers
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
@@ -32,7 +48,7 @@ import {
   type ParsedPreviewState
 } from '../../services/excel.service';
 import { findResponsiblePeople } from '../../domain/calculations';
-import { PAPEIS_LABEL, SITUACOES_PLATAFORMA } from '../../config/constants';
+import { PAPEIS_LABEL, ROLES_LABEL, SITUACOES_PLATAFORMA } from '../../config/constants';
 import type { ImportKind, PapelOperacional, Pessoa, Plataforma, SystemRole, UserOnboarding, UserProfile } from '../../domain/types';
 import { normalizeText, platformKey } from '../../utils/format';
 import { Modal } from '../components/Modal';
@@ -291,11 +307,26 @@ export const PessoasPlataformasView: React.FC = () => {
       setDelPesId(id);
       return;
     }
+    const targetPessoa = dataset.pessoas?.[id];
+    const hadLogin = Boolean(
+      targetPessoa?.user_id ||
+      (targetPessoa?.email &&
+        dataset.profiles &&
+        Object.values(dataset.profiles).some(
+          p => p.email.toLowerCase() === targetPessoa.email.toLowerCase()
+        ))
+    );
+
     setDelPesId(null);
     try {
       await deletePessoa(id);
       await refreshData();
-      showToast('Pessoa excluída com sucesso.', 'success');
+      showToast(
+        hadLogin
+          ? 'Pessoa e credenciais de acesso excluídas com sucesso.'
+          : 'Pessoa excluída com sucesso.',
+        'success'
+      );
     } catch (err: any) {
       showToast(err?.message || 'Erro ao excluir pessoa.', 'error');
     }
@@ -597,7 +628,11 @@ export const PessoasPlataformasView: React.FC = () => {
                           <button
                             type="button"
                             className={`btn btn-sm ${delPesId === p.id ? 'btn-danger' : 'btn-icon btn-ghost'}`}
-                            title={delPesId === p.id ? 'Clique novamente para confirmar a exclusão' : 'Excluir pessoa do cadastro'}
+                            title={
+                              delPesId === p.id
+                                ? (prof ? 'Confirmar exclusão da pessoa e de suas credenciais de login?' : 'Clique novamente para confirmar a exclusão')
+                                : (prof ? 'Excluir pessoa e suas credenciais de login' : 'Excluir pessoa do cadastro')
+                            }
                             aria-label={delPesId === p.id ? 'Confirmar exclusão' : 'Excluir pessoa'}
                             style={{
                               color: delPesId === p.id ? 'var(--white)' : 'var(--ink-muted)',
@@ -1187,7 +1222,9 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title={initialPessoa ? `Editar ${initialPessoa.nome}` : 'Nova pessoa'}
+      icon={<UserPlus size={20} />}
+      title={initialPessoa ? `Editar Pessoa · ${initialPessoa.nome}` : 'Cadastrar Nova Pessoa'}
+      subtitle="Definição de perfil, papel operacional e carteira de plataformas"
       maxWidth="680px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -1203,40 +1240,64 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Nome</span>
-            <input
-              type="text"
-              value={nome}
-              onChange={e => setNome(e.target.value)}
-              placeholder="Nome completo"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Nome completo</span>
+              <span className="fld-hint">Obrigatório</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <User size={16} />
+              </span>
+              <input
+                type="text"
+                value={nome}
+                onChange={e => setNome(e.target.value)}
+                placeholder="Nome completo do colaborador"
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Papel operacional</span>
-            <select
-              value={papel}
-              onChange={e => setPapel(e.target.value as PapelOperacional)}
-              disabled={saving}
-            >
-              <option value="preposto">Preposto</option>
-              <option value="controlador">Controlador</option>
-              <option value="gestor">Gestor</option>
-            </select>
+            <span>
+              <span>Papel operacional</span>
+              <span className="fld-hint">Função</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Briefcase size={16} />
+              </span>
+              <select
+                value={papel}
+                onChange={e => setPapel(e.target.value as PapelOperacional)}
+                disabled={saving}
+              >
+                <option value="preposto">Preposto</option>
+                <option value="controlador">Controlador</option>
+                <option value="gestor">Gestor</option>
+              </select>
+            </div>
           </label>
         </div>
 
         <label className="fld">
-          <span>E-mail</span>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="colaborador@empresa.com.br"
-            disabled={saving}
-          />
+          <span>
+            <span>E-mail institucional</span>
+            <span className="fld-hint">Contato e notificações</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Mail size={16} />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="colaborador@empresa.com.br"
+              disabled={saving}
+            />
+          </div>
         </label>
 
         {/* Chips de UNs Inteiras */}
@@ -1446,7 +1507,9 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title={initialPlat ? `Editar ${initialPlat.sigla}` : 'Nova plataforma'}
+      icon={<Anchor size={20} />}
+      title={initialPlat ? `Editar Plataforma · ${initialPlat.sigla}` : 'Nova Plataforma Offshore'}
+      subtitle="Cadastro operacional de unidade offshore e armador"
       maxWidth="540px"
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
@@ -1459,7 +1522,8 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
                 onClick={handleDelete}
                 disabled={saving}
               >
-                {delConfirm ? 'Confirmar exclusão?' : 'Excluir'}
+                <Trash2 size={15} />
+                {delConfirm ? 'Confirmar exclusão?' : 'Excluir plataforma'}
               </button>
             )}
           </div>
@@ -1474,73 +1538,117 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
         </div>
       }
     >
-      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '12px' }}>
           <label className="fld">
-            <span>Sigla</span>
-            <input
-              type="text"
-              value={sigla}
-              onChange={e => setSigla(e.target.value.toUpperCase())}
-              placeholder="Ex: P58"
-              readOnly={!!initialPlat}
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Sigla</span>
+              <span className="fld-hint">Identificador</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Anchor size={16} />
+              </span>
+              <input
+                type="text"
+                value={sigla}
+                onChange={e => setSigla(e.target.value.toUpperCase())}
+                placeholder="Ex: P58"
+                readOnly={!!initialPlat}
+                required
+                disabled={saving}
+                style={{ fontWeight: 700, letterSpacing: '0.04em' }}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Nome descritivo</span>
-            <input
-              type="text"
-              value={nome}
-              onChange={e => setNome(e.target.value)}
-              placeholder="Ex: P-58 Baleia Azul"
-              disabled={saving}
-            />
-          </label>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <label className="fld">
-            <span>Unidade de negócio</span>
-            <input
-              type="text"
-              list="dlUnPlatModal"
-              value={un}
-              onChange={e => setUn(e.target.value)}
-              placeholder="Ex: UN-ES"
-              disabled={saving}
-            />
-          </label>
-
-          <label className="fld">
-            <span>Armador</span>
-            <input
-              type="text"
-              list="dlArmPlatModal"
-              value={armador}
-              onChange={e => setArmador(e.target.value)}
-              placeholder="Ex: Modec"
-              disabled={saving}
-            />
+            <span>
+              <span>Nome descritivo</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Building2 size={16} />
+              </span>
+              <input
+                type="text"
+                value={nome}
+                onChange={e => setNome(e.target.value)}
+                placeholder="Ex: P-58 Baleia Azul"
+                disabled={saving}
+              />
+            </div>
           </label>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Tipo de unidade</span>
-            <input
-              type="text"
-              value={tipo}
-              onChange={e => setTipo(e.target.value)}
-              placeholder="Ex: FPSO, Semissubmersível"
-              disabled={saving}
-            />
+            <span>
+              <span>Unidade de negócio</span>
+              <span className="fld-hint">UN</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <MapPin size={16} />
+              </span>
+              <input
+                type="text"
+                list="dlUnPlatModal"
+                value={un}
+                onChange={e => setUn(e.target.value)}
+                placeholder="Ex: UN-ES"
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Situação</span>
+            <span>
+              <span>Armador</span>
+              <span className="fld-hint">Operador</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Ship size={16} />
+              </span>
+              <input
+                type="text"
+                list="dlArmPlatModal"
+                value={armador}
+                onChange={e => setArmador(e.target.value)}
+                placeholder="Ex: Modec"
+                disabled={saving}
+              />
+            </div>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <label className="fld">
+            <span>
+              <span>Tipo de unidade</span>
+              <span className="fld-hint">Classe</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Layers size={16} />
+              </span>
+              <input
+                type="text"
+                value={tipo}
+                onChange={e => setTipo(e.target.value)}
+                placeholder="Ex: FPSO, Semissubmersível"
+                disabled={saving}
+              />
+            </div>
+          </label>
+
+          <label className="fld">
+            <span>
+              <span>Situação</span>
+              <span className="fld-hint">Status</span>
+            </span>
             <select
               value={situacao}
               onChange={e => setSituacao(e.target.value)}
@@ -1594,9 +1702,36 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
 
   const [email, setEmail] = useState(profile?.email || pessoa.email || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<SystemRole>(profile?.role || (pessoa.papel as SystemRole) || 'preposto');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [confirmDeleteCred, setConfirmDeleteCred] = useState(false);
+
+  const handleDeleteCredentials = async () => {
+    if (!profile) return;
+    if (!confirmDeleteCred) {
+      setConfirmDeleteCred(true);
+      return;
+    }
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await deleteUserAccount(profile.id);
+      if (!res.ok) {
+        throw new Error(res.message || 'Falha ao excluir credenciais.');
+      }
+      showToast('Credenciais de acesso excluídas com sucesso!', 'success');
+      await onChanged();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Erro ao excluir credenciais.');
+      setConfirmDeleteCred(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isPasswordValid = password.length >= 8;
 
   const handleCreateLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1693,8 +1828,10 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
+      icon={<KeyRound size={20} />}
       title={`Gestão de Acesso · ${pessoa.nome}`}
-      maxWidth="500px"
+      subtitle={profile ? `Credenciais ativas vinculadas a ${profile.email}` : 'Provisionamento de login corporativo no sistema'}
+      maxWidth="540px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
@@ -1703,64 +1840,123 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {profile ? (
           /* Usuário Já Possui Conta */
           <>
-            <div className="card note note-info" style={{ margin: 0 }}>
-              <div>
-                <strong>Conta de login vinculada:</strong> {profile.email}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                padding: '14px 16px',
+                background: 'var(--surface-alt)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Mail size={16} style={{ color: 'var(--blue)' }} />
+                  <strong style={{ fontSize: '0.92rem', color: 'var(--ink)' }}>{profile.email}</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className={`pill ${profile.ativo ? 'pill-ok' : 'pill-bad'}`}>
+                    {profile.ativo ? 'Acesso Ativo' : 'Acesso Desativado'}
+                  </span>
+                  {onboarding && (onboarding.primeiro_login || onboarding.obriga_troca_senha) && (
+                    <span
+                      className="pill pill-warn"
+                      title="Usuário ainda não trocou a senha provisória"
+                      style={{ fontSize: '0.72rem' }}
+                    >
+                      1º login pendente
+                    </span>
+                  )}
+                  {onboarding && !onboarding.primeiro_login && !onboarding.obriga_troca_senha && (
+                    <span
+                      className="pill pill-ok"
+                      title="Senha pessoal ativa e validada"
+                      style={{ fontSize: '0.72rem' }}
+                    >
+                      Senha ativa
+                    </span>
+                  )}
+                </div>
               </div>
-              <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span>Status atual:</span>
-                <span className={`pill ${profile.ativo ? 'pill-ok' : 'pill-bad'}`}>
-                  {profile.ativo ? 'Acesso Ativo' : 'Acesso Desativado'}
-                </span>
-                {onboarding && (onboarding.primeiro_login || onboarding.obriga_troca_senha) && (
-                  <span
-                    className="badge badge-warn pill pill-warn"
-                    title="Usuário ainda não trocou a senha provisória"
-                    style={{ fontSize: '0.68rem' }}
-                  >
-                    1º login / Troca pendente
-                  </span>
-                )}
-                {onboarding && !onboarding.primeiro_login && !onboarding.obriga_troca_senha && (
-                  <span
-                    className="badge badge-ok pill pill-ok"
-                    title="Senha pessoal ativa e validada"
-                    style={{ fontSize: '0.68rem' }}
-                  >
-                    Senha pessoal ativa
-                  </span>
-                )}
+              <div style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+                Papel no sistema: <strong style={{ color: 'var(--ink)' }}>{ROLES_LABEL[profile.role] || profile.role}</strong>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
-              <div className="note note-warn" style={{ fontSize: '0.84rem', margin: 0 }}>
-                Esta é uma senha provisória. No primeiro acesso (ou próximo login), o sistema obrigará o usuário a definir uma nova senha pessoal.
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                padding: '16px',
+                background: 'var(--surface)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Lock size={15} style={{ color: 'var(--orange)' }} />
+                  Redefinir Senha Provisória
+                </div>
+                <p className="sub" style={{ margin: '2px 0 0', fontSize: '0.78rem' }}>
+                  Ao redefinir, o sistema exigirá que o usuário crie uma nova senha pessoal definitiva no próximo acesso.
+                </p>
               </div>
 
               <label className="fld">
-                <span>Nova senha provisória (mínimo 8 caracteres)</span>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Definir nova senha provisória"
-                  disabled={loading}
-                />
+                <span>
+                  <span>Nova senha temporária</span>
+                  <span className="fld-hint">Mínimo 8 caracteres</span>
+                </span>
+                <div className="input-with-icon">
+                  <span className="input-icon-left">
+                    <Lock size={16} />
+                  </span>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Digite a nova senha provisória"
+                    disabled={loading}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="input-action-right"
+                    onClick={() => setShowPassword(p => !p)}
+                    title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                    aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </label>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              {password.length > 0 && (
+                <div className="password-requirements-card">
+                  <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+                    <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+                    <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button
                   type="button"
                   className="btn btn-primary"
                   onClick={handleResetPassword}
                   disabled={loading || password.length < 8}
                 >
-                  {loading ? 'Salvando…' : 'Redefinir senha'}
+                  <KeyRound size={15} />
+                  {loading ? 'Salvando…' : 'Salvar nova senha'}
                 </button>
 
                 <button
@@ -1770,66 +1966,175 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
                   onClick={handleToggleActive}
                   disabled={loading}
                 >
-                  {profile.ativo ? 'Desativar acesso' : 'Ativar acesso'}
+                  {profile.ativo ? <UserX size={15} /> : <UserCheck size={15} />}
+                  {profile.ativo ? 'Desativar acesso' : 'Reativar acesso'}
+                </button>
+
+                <button
+                  type="button"
+                  className={`btn ${confirmDeleteCred ? 'btn-danger' : 'btn-ghost'}`}
+                  style={{ color: confirmDeleteCred ? 'var(--white)' : 'var(--bad)', marginLeft: 'auto' }}
+                  onClick={handleDeleteCredentials}
+                  disabled={loading}
+                  title="Remove definitivamente o login e as credenciais desta pessoa"
+                >
+                  <Trash2 size={15} />
+                  {confirmDeleteCred ? 'Confirmar exclusão?' : 'Excluir credenciais'}
                 </button>
               </div>
             </div>
           </>
         ) : (
-          /* Usuário Não Possui Conta */
-          <form onSubmit={handleCreateLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <p className="sub" style={{ margin: 0 }}>
-              Crie uma conta de login imediata com e-mail e senha inicial (sem depender de SMTP/confirmação).
-            </p>
-
-            <div className="note note-warn" style={{ fontSize: '0.84rem', margin: 0 }}>
-              Esta é uma senha provisória. No primeiro acesso (ou próximo login), o sistema obrigará o usuário a definir uma nova senha pessoal.
+          /* Usuário Não Possui Conta - Provisionamento */
+          <form onSubmit={handleCreateLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="note note-info" style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.45 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, marginBottom: '2px' }}>
+                <ShieldCheck size={16} />
+                Provisionamento Direto (Zero-Touch)
+              </div>
+              Crie as credenciais de acesso corporativo com e-mail e senha inicial provisória. No primeiro login, o sistema guiará a definição obrigatória de senha pessoal.
             </div>
 
+            {/* E-mail */}
             <label className="fld">
-              <span>E-mail de acesso</span>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="nome@empresa.com.br"
-                required
-                disabled={loading}
-              />
+              <span>
+                <span>E-mail de acesso corporativo</span>
+                <span className="fld-hint">Identificador de login</span>
+              </span>
+              <div className="input-with-icon">
+                <span className="input-icon-left">
+                  <Mail size={16} />
+                </span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="colaborador@empresa.com.br"
+                  required
+                  disabled={loading}
+                  autoComplete="email"
+                />
+              </div>
             </label>
 
+            {/* Senha */}
             <label className="fld">
-              <span>Senha inicial provisória (mínimo 8 caracteres)</span>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Defina a senha inicial provisória"
-                required
-                disabled={loading}
-              />
+              <span>
+                <span>Senha provisória inicial</span>
+                <span className="fld-hint">Mínimo 8 caracteres</span>
+              </span>
+              <div className="input-with-icon">
+                <span className="input-icon-left">
+                  <Lock size={16} />
+                </span>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Defina a senha temporária"
+                  required
+                  disabled={loading}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="input-action-right"
+                  onClick={() => setShowPassword(p => !p)}
+                  title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </label>
 
-            <label className="fld">
-              <span>Papel de sistema</span>
-              <select
-                value={role}
-                onChange={e => setRole(e.target.value as SystemRole)}
-                disabled={loading}
-              >
-                <option value="preposto">Preposto</option>
-                <option value="controlador">Controlador</option>
-                <option value="gestor">Gestor do Contrato</option>
-              </select>
-            </label>
+            {password.length > 0 && (
+              <div className="password-requirements-card">
+                <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+                  <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+                  <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Papel do Sistema */}
+            <div className="fld">
+              <span>
+                <span>Papel de governança no sistema</span>
+                <span className="fld-hint">Escopo e permissões</span>
+              </span>
+
+              <div className="role-cards-grid" role="radiogroup" aria-label="Papel de governança no sistema">
+                <div
+                  className={`role-card-option ${role === 'preposto' ? 'selected' : ''}`}
+                  onClick={() => !loading && setRole('preposto')}
+                  role="radio"
+                  aria-checked={role === 'preposto'}
+                  tabIndex={0}
+                  onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && setRole('preposto')}
+                >
+                  <div className="role-card-header">
+                    <div className="role-card-title">
+                      <HardHat size={15} />
+                      Preposto
+                    </div>
+                    <span className="role-card-badge">Operacional</span>
+                  </div>
+                  <div className="role-card-desc">
+                    Acesso restrito às plataformas designadas na carteira. Registra e responde justificativas.
+                  </div>
+                </div>
+
+                <div
+                  className={`role-card-option ${role === 'controlador' ? 'selected' : ''}`}
+                  onClick={() => !loading && setRole('controlador')}
+                  role="radio"
+                  aria-checked={role === 'controlador'}
+                  tabIndex={0}
+                  onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && setRole('controlador')}
+                >
+                  <div className="role-card-header">
+                    <div className="role-card-title">
+                      <ClipboardCheck size={15} />
+                      Controlador
+                    </div>
+                    <span className="role-card-badge">Auditoria</span>
+                  </div>
+                  <div className="role-card-desc">
+                    Acompanhamento, conferência, relatórios e validação de conformidade da carteira.
+                  </div>
+                </div>
+
+                <div
+                  className={`role-card-option ${role === 'gestor' ? 'selected' : ''}`}
+                  onClick={() => !loading && setRole('gestor')}
+                  role="radio"
+                  aria-checked={role === 'gestor'}
+                  tabIndex={0}
+                  onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && setRole('gestor')}
+                >
+                  <div className="role-card-header">
+                    <div className="role-card-title">
+                      <ShieldCheck size={15} />
+                      Gestor
+                    </div>
+                    <span className="role-card-badge">Global</span>
+                  </div>
+                  <div className="role-card-desc">
+                    Acesso global a todas as plataformas, relatórios consolidados e medições USOFF.
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ marginTop: '6px' }}
+              style={{ marginTop: '6px', height: '40px' }}
               disabled={loading || password.length < 8}
             >
-              {loading ? 'Provisionando…' : 'Criar login'}
+              <UserPlus size={16} />
+              {loading ? 'Provisionando acesso…' : 'Criar login de acesso'}
             </button>
           </form>
         )}
@@ -1852,8 +2157,11 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({ open, onClose, onCreate
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const isPasswordValid = password.length >= 8;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1898,8 +2206,10 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({ open, onClose, onCreate
     <Modal
       open={open}
       onClose={onClose}
+      icon={<ShieldCheck size={20} />}
       title="Novo Administrador do Sistema"
-      maxWidth="480px"
+      subtitle="Acesso e governança global irrestrita"
+      maxWidth="500px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
@@ -1911,55 +2221,101 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({ open, onClose, onCreate
             onClick={() => handleSubmit()}
             disabled={loading || password.length < 8}
           >
+            <ShieldCheck size={16} />
             {loading ? 'Criando…' : 'Criar administrador'}
           </button>
         </div>
       }
     >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <p className="sub" style={{ margin: 0 }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
           Administradores possuem permissão total no sistema: visão global, configurações, importação e gestão de todos os usuários.
         </p>
 
-        <div className="note note-warn" style={{ fontSize: '0.84rem', margin: 0 }}>
-          Esta é uma senha provisória. No primeiro acesso (ou próximo login), o sistema obrigará o usuário a definir uma nova senha pessoal.
+        <div className="note note-warn" style={{ fontSize: '0.82rem', margin: 0 }}>
+          Esta é uma senha provisória. No primeiro acesso, o novo administrador será obrigado a definir sua senha pessoal definitiva.
         </div>
 
         <label className="fld">
-          <span>Nome completo</span>
-          <input
-            type="text"
-            value={nome}
-            onChange={e => setNome(e.target.value)}
-            placeholder="Nome do administrador"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Nome completo</span>
+            <span className="fld-hint">Obrigatório</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <User size={16} />
+            </span>
+            <input
+              type="text"
+              value={nome}
+              onChange={e => setNome(e.target.value)}
+              placeholder="Nome do administrador"
+              required
+              disabled={loading}
+              autoComplete="name"
+            />
+          </div>
         </label>
 
         <label className="fld">
-          <span>E-mail institucional</span>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="admin@empresa.com.br"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>E-mail institucional</span>
+            <span className="fld-hint">Login de governança</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Mail size={16} />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="admin@empresa.com.br"
+              required
+              disabled={loading}
+              autoComplete="email"
+            />
+          </div>
         </label>
 
         <label className="fld">
-          <span>Senha inicial (mínimo 8 caracteres)</span>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Defina uma senha forte"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Senha inicial provisória</span>
+            <span className="fld-hint">Mínimo 8 caracteres</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Lock size={16} />
+            </span>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Defina uma senha temporária forte"
+              required
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="input-action-right"
+              onClick={() => setShowPassword(p => !p)}
+              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </label>
+
+        {password.length > 0 && (
+          <div className="password-requirements-card">
+            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+            </div>
+          </div>
+        )}
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
       </form>
@@ -1983,8 +2339,11 @@ const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = ({
 }) => {
   const { showToast } = useToast();
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const isPasswordValid = password.length >= 8;
 
   const handleReset = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -2020,12 +2379,9 @@ const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <KeyRound size={18} />
-          <span>Redefinir Senha · {user.nome}</span>
-        </div>
-      }
+      icon={<KeyRound size={20} />}
+      title={`Redefinir Senha · ${user.nome}`}
+      subtitle={`Credencial provisória para ${user.email}`}
       maxWidth="480px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -2038,33 +2394,74 @@ const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = ({
             onClick={() => handleReset()}
             disabled={loading || password.length < 8}
           >
+            <KeyRound size={16} />
             {loading ? 'Redefinindo…' : 'Salvar Nova Senha'}
           </button>
         </div>
       }
     >
       <form onSubmit={handleReset} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div className="note note-warn" style={{ margin: 0, fontSize: '0.84rem' }}>
-          Esta é uma credencial provisória. O administrador será obrigado a definir uma nova senha no próximo login.
+        <div className="note note-warn" style={{ margin: 0, fontSize: '0.82rem' }}>
+          Esta é uma credencial provisória. O administrador será obrigado a definir uma nova senha pessoal no próximo login.
         </div>
 
-        <div>
-          <span className="sub" style={{ fontSize: '0.8rem' }}>Administrador:</span>
-          <div style={{ fontWeight: 600 }}>{user.nome} &lt;{user.email}&gt;</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 14px',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-sm)'
+          }}
+        >
+          <User size={18} style={{ color: 'var(--blue)' }} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{user.nome}</div>
+            <div className="sub" style={{ fontSize: '0.78rem' }}>{user.email}</div>
+          </div>
         </div>
 
         <label className="fld">
-          <span>Nova senha provisória (mínimo 8 caracteres)</span>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Digite a nova senha provisória"
-            autoFocus
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Nova senha temporária</span>
+            <span className="fld-hint">Mínimo 8 caracteres</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Lock size={16} />
+            </span>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Digite a nova senha provisória"
+              autoFocus
+              required
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="input-action-right"
+              onClick={() => setShowPassword(p => !p)}
+              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </label>
+
+        {password.length > 0 && (
+          <div className="password-requirements-card">
+            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+            </div>
+          </div>
+        )}
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
       </form>
@@ -2127,12 +2524,9 @@ const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {willDeactivate ? <UserX size={18} color="var(--bad)" /> : <UserCheck size={18} color="var(--ok)" />}
-          <span>{willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · {user.nome}</span>
-        </div>
-      }
+      icon={willDeactivate ? <UserX size={20} color="var(--bad)" /> : <UserCheck size={20} color="var(--ok)" />}
+      title={`${willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · ${user.nome}`}
+      subtitle={`Gestão do status de autenticação (${user.email})`}
       maxWidth="480px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -2145,6 +2539,7 @@ const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
             onClick={handleToggle}
             disabled={loading || isLastActiveAdmin}
           >
+            {willDeactivate ? <UserX size={16} /> : <UserCheck size={16} />}
             {loading ? 'Processando…' : willDeactivate ? 'Confirmar Desativação' : 'Confirmar Reativação'}
           </button>
         </div>
@@ -2160,7 +2555,7 @@ const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
           </div>
         ) : willDeactivate ? (
           <div className="note note-warn" style={{ margin: 0 }}>
-            <strong>Atenção:</strong> Ao desativar o acesso de <b>{user.nome}</b>, o token de sessão será revogado e a conta não poderá mais acessar o sistema até ser reativada.
+            <strong>Atenção:</strong> Ao desativar o acesso de <b>{user.nome}</b>, a sessão será cortada imediatamente e a conta não poderá mais autenticar no sistema.
           </div>
         ) : (
           <div className="note note-info" style={{ margin: 0 }}>
@@ -2168,10 +2563,25 @@ const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
           </div>
         )}
 
-        <div>
-          <span className="sub" style={{ fontSize: '0.8rem' }}>Administrador:</span>
-          <div style={{ fontWeight: 600 }}>{user.nome}</div>
-          <div className="sub">{user.email}</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 14px',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-sm)'
+          }}
+        >
+          <User size={20} style={{ color: 'var(--blue)' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{user.nome}</div>
+            <div className="sub" style={{ fontSize: '0.8rem' }}>{user.email}</div>
+          </div>
+          <span className={`pill ${user.ativo ? 'pill-ok' : 'pill-bad'}`}>
+            {user.ativo ? 'Ativo' : 'Inativo'}
+          </span>
         </div>
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
@@ -2237,12 +2647,9 @@ const AdminDeleteUserModal: React.FC<AdminDeleteUserModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--bad)' }}>
-          <AlertTriangle size={20} />
-          <span>Excluir Administrador Global</span>
-        </div>
-      }
+      icon={<AlertTriangle size={20} color="var(--bad)" />}
+      title="Excluir Administrador Global"
+      subtitle={`Remoção definitiva de credenciais para ${user.nome}`}
       maxWidth="500px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -2255,6 +2662,7 @@ const AdminDeleteUserModal: React.FC<AdminDeleteUserModalProps> = ({
             onClick={handleDelete}
             disabled={loading || isLastActiveAdmin || !isMatch}
           >
+            <Trash2 size={16} />
             {loading ? 'Excluindo…' : 'Excluir Definitivamente'}
           </button>
         </div>
@@ -2278,18 +2686,40 @@ const AdminDeleteUserModal: React.FC<AdminDeleteUserModalProps> = ({
             </div>
 
             <label className="fld">
-              <span>Para confirmar a exclusão, digite o e-mail do administrador:</span>
-              <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ink)' }}>
+              <span>
+                <span>Para confirmar a exclusão, digite o e-mail ou nome exato:</span>
+                <span className="fld-hint">Confirmação de segurança</span>
+              </span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  background: 'var(--surface-alt)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  color: 'var(--ink)'
+                }}
+              >
+                <Mail size={14} style={{ color: 'var(--ink-muted)' }} />
                 {user.email}
               </div>
-              <input
-                type="text"
-                value={confirmInput}
-                onChange={e => setConfirmInput(e.target.value)}
-                placeholder="Digite o e-mail para confirmar"
-                autoFocus
-                disabled={loading}
-              />
+              <div className="input-with-icon">
+                <span className="input-icon-left">
+                  <Trash2 size={16} />
+                </span>
+                <input
+                  type="text"
+                  value={confirmInput}
+                  onChange={e => setConfirmInput(e.target.value)}
+                  placeholder="Digite o e-mail para confirmar"
+                  autoFocus
+                  disabled={loading}
+                />
+              </div>
             </label>
           </>
         )}

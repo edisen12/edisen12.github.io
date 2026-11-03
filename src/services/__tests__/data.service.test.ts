@@ -299,13 +299,67 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       expect(platsNoBanco.map((p: any) => p.plataforma_sigla)).toEqual(['P25']);
     });
 
-    it('remove uma pessoa do sistema', async () => {
+    it('remove uma pessoa do sistema e suas credenciais de login associadas', async () => {
+      const prepostoUserId = mockUsers.preposto.id;
+      // Confere que a pessoa e seu perfil de acesso existem antes
+      expect(
+        mockClient.__mockState.tables.pessoas.some((p: any) => p.id === 'pes-preposto-001')
+      ).toBe(true);
+      expect(
+        mockClient.__mockState.tables.profiles.some((p: any) => p.id === prepostoUserId)
+      ).toBe(true);
+
       await deletePessoa('pes-preposto-001');
 
+      // Verifica que a pessoa foi removida
       const pessoaExiste = mockClient.__mockState.tables.pessoas.some(
         (p: any) => p.id === 'pes-preposto-001'
       );
       expect(pessoaExiste).toBe(false);
+
+      // Verifica que as credenciais associadas também foram removidas
+      const perfilExiste = mockClient.__mockState.tables.profiles.some(
+        (p: any) => p.id === prepostoUserId
+      );
+      expect(perfilExiste).toBe(false);
+    });
+
+    it('remove uma pessoa sem credenciais de acesso sem falhar', async () => {
+      // Cria uma pessoa sem login
+      mockClient.__mockState.tables.pessoas.push({
+        id: 'pes-sem-login-999',
+        nome: 'Pessoa Sem Login',
+        slug: 'pessoa-sem-login',
+        papel: 'controlador',
+        email: 'sem.login@empresa.com.br',
+        user_id: null
+      });
+
+      await deletePessoa('pes-sem-login-999');
+
+      const pessoaExiste = mockClient.__mockState.tables.pessoas.some(
+        (p: any) => p.id === 'pes-sem-login-999'
+      );
+      expect(pessoaExiste).toBe(false);
+    });
+
+    it('aborta a exclusão da pessoa se a remoção das credenciais falhar por salvaguarda', async () => {
+      mockClient.__mockState.edgeFunctions = {
+        'admin-users': async () => ({
+          data: { ok: false, message: 'Operação bloqueada por salvaguarda anti-lockout' },
+          error: null
+        })
+      };
+
+      await expect(deletePessoa('pes-preposto-001')).rejects.toThrow(
+        'Operação bloqueada por salvaguarda anti-lockout'
+      );
+
+      // A pessoa continua no banco pois a operação foi abortada
+      const pessoaExiste = mockClient.__mockState.tables.pessoas.some(
+        (p: any) => p.id === 'pes-preposto-001'
+      );
+      expect(pessoaExiste).toBe(true);
     });
   });
 
@@ -430,6 +484,82 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       clickSpy.mockRestore();
       createObjectURLSpy.mockRestore();
       revokeObjectURLSpy.mockRestore();
+    });
+  });
+
+  describe('9. Propagação de Erros e Sanidade de Integridade Referencial (Resolução de Dívidas)', () => {
+    it('lança erro em batchImportHH quando o upsert prévio de plataformas pendentes falha', async () => {
+      const originalFrom = mockClient.from.bind(mockClient);
+      const fromSpy = vi.spyOn(mockClient, 'from').mockImplementation(((table: any) => {
+        if (table === 'plataformas') {
+          return {
+            upsert: vi.fn().mockResolvedValue({ error: new Error('Falha RLS plataformas') })
+          } as any;
+        }
+        return originalFrom(table);
+      }) as any);
+
+      try {
+        const rows = [
+          { mat: '1001', p: 'INEDITA_P999', D: '2026-10-01', e: 10 }
+        ];
+        await expect(batchImportHH(rows, {})).rejects.toThrow('Falha RLS plataformas');
+      } finally {
+        fromSpy.mockRestore();
+      }
+    });
+
+    it('lança erro em batchImportCarteira quando o upsert prévio de técnicos falha', async () => {
+      const pidx: Record<string, any> = {
+        p50: { sigla: 'P50', chave_norm: 'p50', nome: 'Plataforma P-50' }
+      };
+
+      const originalFrom = mockClient.from.bind(mockClient);
+      const fromSpy = vi.spyOn(mockClient, 'from').mockImplementation(((table: any) => {
+        if (table === 'tecnicos') {
+          return {
+            upsert: vi.fn().mockResolvedValue({ error: new Error('Falha FK tecnicos') })
+          } as any;
+        }
+        return originalFrom(table);
+      }) as any);
+
+      try {
+        const rows = [
+          { mat: '9999', plat: 'P50', ini: '2026-10-01', fim: '2026-10-14' }
+        ];
+        await expect(batchImportCarteira(rows, pidx)).rejects.toThrow('Falha FK tecnicos');
+      } finally {
+        fromSpy.mockRestore();
+      }
+    });
+
+    it('lança erro em savePessoa quando a limpeza de pessoa_plataformas falha', async () => {
+      const originalFrom = mockClient.from.bind(mockClient);
+      const fromSpy = vi.spyOn(mockClient, 'from').mockImplementation(((table: any) => {
+        if (table === 'pessoa_plataformas') {
+          return {
+            delete: () => ({
+              eq: vi.fn().mockResolvedValue({ error: new Error('Deadlock ao limpar escopo') })
+            })
+          } as any;
+        }
+        return originalFrom(table);
+      }) as any);
+
+      try {
+        const input = {
+          id: 'pes-1',
+          nome: 'Controlador Teste',
+          papel: 'controlador' as const,
+          email: 'controlador@empresa.com.br',
+          plats: ['P50'],
+          uns: []
+        };
+        await expect(savePessoa(input)).rejects.toThrow('Deadlock ao limpar escopo');
+      } finally {
+        fromSpy.mockRestore();
+      }
     });
   });
 });

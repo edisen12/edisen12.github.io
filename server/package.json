@@ -1,0 +1,20 @@
+{
+  "name": "hh-offshore-self-hosted-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor backend universal self-hosted para HH Offshore (Infotec Brasil). Zero dependências obrigatórias; opera 100% sobre módulos nativos do Node.js 22.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node dist/server/src/index.js"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "*",
+    "mongodb": "*",
+    "mysql2": "*",
+    "pg": "*",
+    "mssql": "*",
+    "oracledb": "*"
+  }
+}

@@ -580,14 +580,14 @@ table th.center {
 }
 
 /* ==========================================================================
-   MODAIS E DRAWERS (ACESSIBILIDADE & FILETI LARANJA 3px)
+   MODAIS E DRAWERS (ACESSIBILIDADE, FILETE LARANJA 3px & ELEVAÇÃO PREMIUM)
    ========================================================================== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(14, 21, 34, 0.55);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: rgba(14, 21, 34, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -598,7 +598,8 @@ table th.center {
 
 .modal-box {
   background: var(--surface);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
   border-top: var(--signature-stripe);
   width: 100%;
@@ -616,6 +617,20 @@ table th.center {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: var(--surface);
+  gap: 12px;
+}
+
+.modal-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-soft);
+  color: var(--blue);
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -623,6 +638,35 @@ table th.center {
   font-size: 1.08rem;
   font-weight: 700;
   color: var(--blue);
+  line-height: 1.25;
+}
+
+.modal-subtitle {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  font-family: var(--f-body);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.modal-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.modal-close-btn:hover {
+  background: var(--surface-alt);
+  color: var(--ink);
 }
 
 .modal-body {
@@ -639,6 +683,275 @@ table th.center {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* ==========================================================================
+   SISTEMA DE FORMULÁRIOS, INPUTS E SELETORES (DESIGN SYSTEM INFOTEC)
+   ========================================================================== */
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fld > span,
+.fld-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.fld-hint {
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+/* Inputs, Selects e Textareas Universais */
+.fld input,
+.fld select,
+.fld textarea,
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 0.88rem;
+  line-height: normal;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.fld textarea,
+.form-textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.fld select,
+.form-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236B7A90' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.fld input:hover:not(:disabled),
+.fld select:hover:not(:disabled),
+.fld textarea:hover:not(:disabled),
+.form-input:hover:not(:disabled),
+.form-select:hover:not(:disabled),
+.form-textarea:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.fld input:focus,
+.fld select:focus,
+.fld textarea:focus,
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+  background: var(--surface);
+}
+
+.fld input:disabled,
+.fld select:disabled,
+.fld textarea:disabled,
+.form-input:disabled,
+.form-select:disabled,
+.form-textarea:disabled {
+  background: var(--surface-alt);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.fld input::placeholder,
+.fld textarea::placeholder,
+.form-input::placeholder,
+.form-textarea::placeholder {
+  color: var(--ink-light);
+}
+
+/* Input com Ícone Embutido (Esquerda / Direita) */
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.input-with-icon .input-icon-left {
+  position: absolute;
+  left: 12px;
+  pointer-events: none;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast);
+  z-index: 1;
+}
+
+.input-with-icon input,
+.input-with-icon select {
+  padding-left: 38px !important;
+}
+
+.input-with-icon .input-action-right {
+  position: absolute;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  border-radius: var(--radius-xs);
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  z-index: 2;
+}
+
+.input-with-icon .input-action-right:hover {
+  color: var(--ink);
+  background: var(--surface-alt);
+}
+
+.input-with-icon:focus-within .input-icon-left {
+  color: var(--blue);
+}
+
+/* Grade de Cartões Interativos de Seleção de Papel */
+.role-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .role-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.role-card-option {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+  text-align: left;
+}
+
+.role-card-option:hover {
+  border-color: var(--blue);
+  background: var(--surface-alt);
+}
+
+.role-card-option.selected {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  box-shadow: 0 0 0 1px var(--blue);
+}
+
+.role-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.role-card-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.role-card-option.selected .role-card-title {
+  color: var(--blue);
+}
+
+.role-card-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  background: var(--surface-alt);
+  color: var(--ink-muted);
+}
+
+.role-card-option.selected .role-card-badge {
+  background: var(--surface);
+  color: var(--blue);
+}
+
+.role-card-desc {
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.role-card-option.selected .role-card-desc {
+  color: var(--ink-secondary);
+}
+
+/* Indicador de Validação de Senha */
+.password-requirements-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-size: 0.76rem;
+}
+
+.password-req-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  transition: color var(--transition-fast);
+}
+
+.password-req-item.met {
+  color: var(--ok);
+  font-weight: 600;
 }
 
 /* Drawer Deslizante Lateral */

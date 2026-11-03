@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Mail, FileText, Copy, ExternalLink, Send } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
@@ -121,12 +122,9 @@ export function EmailComposerModal() {
     <Modal
       open={!!emailModal}
       onClose={closeEmailModal}
-      title={
-        <div>
-          <div>{title}</div>
-          {subtitle}
-        </div>
-      }
+      icon={<Mail size={20} />}
+      title={title}
+      subtitle={subtitle}
       maxWidth={720}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '8px' }}>
@@ -136,6 +134,7 @@ export function EmailComposerModal() {
               className="btn btn-ghost btn-sm"
               onClick={() => handleCopy(toInput, 'Destinatários')}
             >
+              <Copy size={14} />
               Copiar destinatários
             </button>
             <button
@@ -143,6 +142,7 @@ export function EmailComposerModal() {
               className="btn btn-ghost btn-sm"
               onClick={() => handleCopy(bodyInput, 'Texto')}
             >
+              <Copy size={14} />
               Copiar texto
             </button>
           </div>
@@ -160,15 +160,17 @@ export function EmailComposerModal() {
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-accent"
-              style={{ textDecoration: 'none' }}
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              Abrir no Outlook na web
+              <ExternalLink size={15} />
+              Abrir no Outlook Web
             </a>
             <a
               href={mailLinks.mailtoUrl}
               className="btn btn-primary"
-              style={{ textDecoration: 'none' }}
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
+              <Send size={15} />
               Abrir no Outlook
             </a>
           </div>
@@ -186,7 +188,7 @@ export function EmailComposerModal() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
-                  padding: '3px 8px',
+                  padding: '4px 10px',
                   borderRadius: '12px',
                   fontSize: '0.78rem',
                   fontWeight: 600,
@@ -214,41 +216,57 @@ export function EmailComposerModal() {
         )}
 
         {/* Campos de envio */}
-        <div>
-          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--ink-muted)', marginBottom: '4px' }}>
-            Para
-          </label>
-          <input
-            type="text"
-            value={toInput}
-            onChange={e => setToInput(e.target.value)}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
-          />
-        </div>
+        <label className="fld">
+          <span>
+            <span>Destinatários (Para)</span>
+            <span className="fld-hint">Separados por ponto e vírgula</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Mail size={16} />
+            </span>
+            <input
+              type="text"
+              value={toInput}
+              onChange={e => setToInput(e.target.value)}
+              className="form-input"
+              placeholder="destinatario@empresa.com.br"
+            />
+          </div>
+        </label>
 
-        <div>
-          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--ink-muted)', marginBottom: '4px' }}>
-            Assunto
-          </label>
-          <input
-            type="text"
-            value={subjectInput}
-            onChange={e => setSubjectInput(e.target.value)}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
-          />
-        </div>
+        <label className="fld">
+          <span>
+            <span>Assunto da mensagem</span>
+            <span className="fld-hint">Assunto do e-mail</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <FileText size={16} />
+            </span>
+            <input
+              type="text"
+              value={subjectInput}
+              onChange={e => setSubjectInput(e.target.value)}
+              className="form-input"
+              placeholder="Assunto da notificação"
+            />
+          </div>
+        </label>
 
-        <div>
-          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--ink-muted)', marginBottom: '4px' }}>
-            Texto
-          </label>
+        <label className="fld">
+          <span>
+            <span>Corpo do e-mail</span>
+            <span className="fld-hint">Texto com parâmetros operacionais</span>
+          </span>
           <textarea
             value={bodyInput}
             onChange={e => setBodyInput(e.target.value)}
             rows={10}
-            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem', lineHeight: 1.5 }}
+            className="form-textarea"
+            style={{ fontFamily: 'inherit', fontSize: '0.85rem', lineHeight: 1.5 }}
           />
-        </div>
+        </label>
 
         <p className="sub" style={{ margin: 0, fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
           Se o Outlook não abrir sozinho, copie os destinatários e o texto e cole numa mensagem nova. Textos muito longos podem ser cortados ao abrir via link: nesse caso, use &quot;Copiar texto&quot;.

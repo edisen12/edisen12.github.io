@@ -556,6 +556,11 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
             };
           }
 
+          if (body?.action === 'delete-user' && body?.userId) {
+            state.tables.profiles = (state.tables.profiles || []).filter((p: any) => p.id !== body.userId);
+            state.tables.user_onboarding = (state.tables.user_onboarding || []).filter((o: any) => o.user_id !== body.userId);
+          }
+
           return {
             data: {
               ok: true,

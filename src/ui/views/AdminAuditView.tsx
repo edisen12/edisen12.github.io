@@ -18,6 +18,9 @@ import {
   AlertTriangle,
   Lock,
   Eye,
+  EyeOff,
+  Mail,
+  User,
   Copy,
   Check,
   UserCheck,
@@ -883,8 +886,11 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
 }) => {
   const { showToast } = useToast();
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const isPasswordValid = password.length >= 8;
 
   const handleResetPassword = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -928,12 +934,9 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <KeyRound size={18} />
-          <span>Redefinir Senha Provisória · {user.nome}</span>
-        </div>
-      }
+      icon={<KeyRound size={20} />}
+      title={`Redefinir Senha Provisória · ${user.nome}`}
+      subtitle="Definição de credencial temporária para primeiro login"
       maxWidth="480px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -946,33 +949,74 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
             onClick={() => handleResetPassword()}
             disabled={loading || password.length < 8}
           >
+            <KeyRound size={16} />
             {loading ? 'Redefinindo…' : 'Confirmar Nova Senha'}
           </button>
         </div>
       }
     >
       <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div className="note note-warn" style={{ margin: 0, fontSize: '0.84rem' }}>
+        <div className="note note-warn" style={{ margin: 0, fontSize: '0.82rem' }}>
           Esta é uma credencial provisória. O sistema obrigará o usuário a definir uma nova senha pessoal no próximo login.
         </div>
 
-        <div>
-          <span className="sub" style={{ fontSize: '0.8rem' }}>Conta do usuário:</span>
-          <div style={{ fontWeight: 600 }}>{user.nome} &lt;{user.email}&gt;</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 14px',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-sm)'
+          }}
+        >
+          <User size={18} style={{ color: 'var(--blue)' }} />
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{user.nome}</div>
+            <div className="sub" style={{ fontSize: '0.78rem' }}>{user.email}</div>
+          </div>
         </div>
 
         <label className="fld">
-          <span>Nova senha provisória (mínimo 8 caracteres)</span>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Digite a nova senha temporária"
-            autoFocus
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Nova senha provisória</span>
+            <span className="fld-hint">Mínimo 8 caracteres</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Lock size={16} />
+            </span>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Digite a nova senha temporária"
+              autoFocus
+              required
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="input-action-right"
+              onClick={() => setShowPassword(p => !p)}
+              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </label>
+
+        {password.length > 0 && (
+          <div className="password-requirements-card">
+            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+            </div>
+          </div>
+        )}
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
       </form>
@@ -1043,12 +1087,9 @@ const ToggleActiveModal: React.FC<ToggleActiveModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {willDeactivate ? <UserX size={18} color="var(--bad)" /> : <UserCheck size={18} color="var(--ok)" />}
-          <span>{willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · {user.nome}</span>
-        </div>
-      }
+      icon={willDeactivate ? <UserX size={20} color="var(--bad)" /> : <UserCheck size={20} color="var(--ok)" />}
+      title={`${willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · ${user.nome}`}
+      subtitle={`Gestão do status de autenticação (${user.email})`}
       maxWidth="480px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -1061,6 +1102,7 @@ const ToggleActiveModal: React.FC<ToggleActiveModalProps> = ({
             onClick={handleToggle}
             disabled={loading || isLastActiveAdmin}
           >
+            {willDeactivate ? <UserX size={16} /> : <UserCheck size={16} />}
             {loading ? 'Processando…' : willDeactivate ? 'Confirmar Desativação' : 'Confirmar Reativação'}
           </button>
         </div>
@@ -1084,10 +1126,25 @@ const ToggleActiveModal: React.FC<ToggleActiveModalProps> = ({
           </div>
         )}
 
-        <div>
-          <span className="sub" style={{ fontSize: '0.8rem' }}>Usuário:</span>
-          <div style={{ fontWeight: 600 }}>{user.nome}</div>
-          <div className="sub">{user.email} · Papel: {ROLES_LABEL[user.role] || user.role}</div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 14px',
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-sm)'
+          }}
+        >
+          <User size={20} style={{ color: 'var(--blue)' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{user.nome}</div>
+            <div className="sub" style={{ fontSize: '0.8rem' }}>{user.email} · Papel: {ROLES_LABEL[user.role] || user.role}</div>
+          </div>
+          <span className={`pill ${user.ativo ? 'pill-ok' : 'pill-bad'}`}>
+            {user.ativo ? 'Ativo' : 'Inativo'}
+          </span>
         </div>
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
@@ -1161,12 +1218,9 @@ const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
     <Modal
       open={true}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--bad)' }}>
-          <AlertTriangle size={20} />
-          <span>Exclusão Definitiva de Conta</span>
-        </div>
-      }
+      icon={<AlertTriangle size={20} color="var(--bad)" />}
+      title="Exclusão Definitiva de Conta"
+      subtitle={`Remoção de credenciais de acesso (${user.email})`}
       maxWidth="500px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -1179,6 +1233,7 @@ const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
             onClick={handleDelete}
             disabled={loading || isLastActiveAdmin || !isMatch}
           >
+            <Trash2 size={16} />
             {loading ? 'Excluindo…' : 'Excluir Definitivamente'}
           </button>
         </div>
@@ -1202,18 +1257,40 @@ const DeleteUserModal: React.FC<DeleteUserModalProps> = ({
             </div>
 
             <label className="fld">
-              <span>Para confirmar a exclusão, digite o e-mail ou nome exato do usuário:</span>
-              <div style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--ink)' }}>
+              <span>
+                <span>Para confirmar a exclusão, digite o e-mail ou nome exato do usuário:</span>
+                <span className="fld-hint">Confirmação</span>
+              </span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 10px',
+                  background: 'var(--surface-alt)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'monospace',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  color: 'var(--ink)'
+                }}
+              >
+                <Mail size={14} style={{ color: 'var(--ink-muted)' }} />
                 {user.email}
               </div>
-              <input
-                type="text"
-                value={confirmInput}
-                onChange={e => setConfirmInput(e.target.value)}
-                placeholder="Digite o e-mail para confirmar"
-                autoFocus
-                disabled={loading}
-              />
+              <div className="input-with-icon">
+                <span className="input-icon-left">
+                  <Trash2 size={16} />
+                </span>
+                <input
+                  type="text"
+                  value={confirmInput}
+                  onChange={e => setConfirmInput(e.target.value)}
+                  placeholder="Digite o e-mail para confirmar"
+                  autoFocus
+                  disabled={loading}
+                />
+              </div>
             </label>
           </>
         )}
@@ -1242,8 +1319,11 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const isPasswordValid = password.length >= 8;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1288,13 +1368,10 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <ShieldCheck size={18} />
-          <span>Novo Administrador do Sistema</span>
-        </div>
-      }
-      maxWidth="480px"
+      icon={<ShieldCheck size={20} />}
+      title="Novo Administrador do Sistema"
+      subtitle="Acesso e governança global irrestrita"
+      maxWidth="500px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
@@ -1306,55 +1383,101 @@ const NovoAdminModal: React.FC<NovoAdminModalProps> = ({
             onClick={() => handleSubmit()}
             disabled={loading || password.length < 8}
           >
+            <ShieldCheck size={16} />
             {loading ? 'Criando…' : 'Criar Administrador'}
           </button>
         </div>
       }
     >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <p className="sub" style={{ margin: 0 }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
           Administradores possuem privilégios totais de governança no sistema: visão irrestrita, configurações, importação e gestão de credenciais.
         </p>
 
-        <div className="note note-warn" style={{ fontSize: '0.84rem', margin: 0 }}>
+        <div className="note note-warn" style={{ fontSize: '0.82rem', margin: 0 }}>
           Esta é uma senha provisória. No primeiro acesso, o novo administrador será obrigado a definir uma senha pessoal forte.
         </div>
 
         <label className="fld">
-          <span>Nome completo</span>
-          <input
-            type="text"
-            value={nome}
-            onChange={e => setNome(e.target.value)}
-            placeholder="Nome do administrador"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Nome completo</span>
+            <span className="fld-hint">Obrigatório</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <User size={16} />
+            </span>
+            <input
+              type="text"
+              value={nome}
+              onChange={e => setNome(e.target.value)}
+              placeholder="Nome do administrador"
+              required
+              disabled={loading}
+              autoComplete="name"
+            />
+          </div>
         </label>
 
         <label className="fld">
-          <span>E-mail institucional</span>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="admin@infotecbrasil.com.br"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>E-mail institucional</span>
+            <span className="fld-hint">Login corporativo</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Mail size={16} />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="admin@infotecbrasil.com.br"
+              required
+              disabled={loading}
+              autoComplete="email"
+            />
+          </div>
         </label>
 
         <label className="fld">
-          <span>Senha inicial provisória (mínimo 8 caracteres)</span>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="Defina uma senha provisória"
-            required
-            disabled={loading}
-          />
+          <span>
+            <span>Senha inicial provisória</span>
+            <span className="fld-hint">Mínimo 8 caracteres</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <Lock size={16} />
+            </span>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Defina uma senha provisória"
+              required
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              className="input-action-right"
+              onClick={() => setShowPassword(p => !p)}
+              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </label>
+
+        {password.length > 0 && (
+          <div className="password-requirements-card">
+            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
+              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
+              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
+            </div>
+          </div>
+        )}
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}
       </form>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useId } from 'react';
+import { Calendar, Hash, User, Anchor, Clock, Briefcase, FileText, Sun, Ship } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { batchImportHH, batchImportCarteira } from '../../services/data.service';
@@ -124,7 +125,9 @@ export const ManualHHModal: React.FC<ManualHHModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title="Lançar um dia à mão"
+      icon={<Clock size={20} />}
+      title="Lançamento Manual de HH"
+      subtitle="Registro individual de apontamento em plataforma"
       maxWidth="540px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
@@ -137,80 +140,122 @@ export const ManualHHModal: React.FC<ManualHHModalProps> = ({
             onClick={() => handleSubmit()}
             disabled={saving}
           >
+            <Clock size={16} />
             {saving ? 'Gravando…' : 'Salvar apontamento'}
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--ink-secondary)' }}>
+        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--ink-secondary)' }}>
           Registre o HH executado de um técnico diretamente no sistema. Se a plataforma não constar no cadastro, será cadastrada automaticamente para revisão.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Data</span>
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Data</span>
+              <span className="fld-hint">Dia do trabalho</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Calendar size={16} />
+              </span>
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Matrícula</span>
-            <input
-              type="text"
-              list={dlTecId}
-              value={matricula}
-              onChange={e => handleMatriculaChange(e.target.value)}
-              placeholder="Ex: 10231"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Matrícula</span>
+              <span className="fld-hint">ID do técnico</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Hash size={16} />
+              </span>
+              <input
+                type="text"
+                list={dlTecId}
+                value={matricula}
+                onChange={e => handleMatriculaChange(e.target.value)}
+                placeholder="Ex: 10231"
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
         </div>
 
         <label className="fld">
-          <span>Nome do colaborador</span>
-          <input
-            type="text"
-            value={nome}
-            onChange={e => setNome(e.target.value)}
-            placeholder="Nome completo do técnico"
-            disabled={saving}
-          />
+          <span>
+            <span>Nome do colaborador</span>
+            <span className="fld-hint">Identificação do técnico</span>
+          </span>
+          <div className="input-with-icon">
+            <span className="input-icon-left">
+              <User size={16} />
+            </span>
+            <input
+              type="text"
+              value={nome}
+              onChange={e => setNome(e.target.value)}
+              placeholder="Nome completo do técnico"
+              disabled={saving}
+            />
+          </div>
         </label>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Plataforma</span>
-            <input
-              type="text"
-              list={dlPlatId}
-              value={plataforma}
-              onChange={e => setPlataforma(e.target.value.toUpperCase())}
-              placeholder="Ex: P58"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Plataforma</span>
+              <span className="fld-hint">Sigla offshore</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Anchor size={16} />
+              </span>
+              <input
+                type="text"
+                list={dlPlatId}
+                value={plataforma}
+                onChange={e => setPlataforma(e.target.value.toUpperCase())}
+                placeholder="Ex: P58"
+                required
+                disabled={saving}
+                style={{ fontWeight: 600, letterSpacing: '0.04em' }}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>HH executado</span>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              max="24"
-              value={horas}
-              onChange={e => setHoras(e.target.value)}
-              placeholder="Ex: 11"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>HH executado</span>
+              <span className="fld-hint">Horas no dia</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Clock size={16} />
+              </span>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                max="24"
+                value={horas}
+                onChange={e => setHoras(e.target.value)}
+                placeholder="Ex: 11"
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
         </div>
 
@@ -371,8 +416,10 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
     <Modal
       open={open}
       onClose={onClose}
-      title="Cadastrar embarque à mão"
-      maxWidth="620px"
+      icon={<Ship size={20} />}
+      title="Cadastrar Embarque na Carteira"
+      subtitle="Inclusão direta de período na escala contratual"
+      maxWidth="640px"
       footer={
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
@@ -384,121 +431,190 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
             onClick={() => handleSubmit()}
             disabled={saving}
           >
+            <Ship size={16} />
             {saving ? 'Gravando…' : 'Salvar embarque'}
           </button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--ink-secondary)' }}>
+        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--ink-secondary)' }}>
           Cadastre um período de embarque na carteira. Se horas programadas não forem especificadas, o sistema calculará automaticamente com base nos dias × {formatHours(dataset.config.hh_dia)}.
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Matrícula</span>
-            <input
-              type="text"
-              list={dlTecId}
-              value={matricula}
-              onChange={e => handleMatriculaChange(e.target.value)}
-              placeholder="Ex: 10231"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Matrícula</span>
+              <span className="fld-hint">ID do técnico</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Hash size={16} />
+              </span>
+              <input
+                type="text"
+                list={dlTecId}
+                value={matricula}
+                onChange={e => handleMatriculaChange(e.target.value)}
+                placeholder="Ex: 10231"
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Plataforma</span>
-            <input
-              type="text"
-              list={dlPlatId}
-              value={plataforma}
-              onChange={e => setPlataforma(e.target.value.toUpperCase())}
-              placeholder="Ex: P58"
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Plataforma</span>
+              <span className="fld-hint">Sigla offshore</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Anchor size={16} />
+              </span>
+              <input
+                type="text"
+                list={dlPlatId}
+                value={plataforma}
+                onChange={e => setPlataforma(e.target.value.toUpperCase())}
+                placeholder="Ex: P58"
+                required
+                disabled={saving}
+                style={{ fontWeight: 600, letterSpacing: '0.04em' }}
+              />
+            </div>
           </label>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Nome do colaborador</span>
-            <input
-              type="text"
-              value={nome}
-              onChange={e => setNome(e.target.value)}
-              placeholder="Nome do técnico"
-              disabled={saving}
-            />
+            <span>
+              <span>Nome do colaborador</span>
+              <span className="fld-hint">Identificação</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <User size={16} />
+              </span>
+              <input
+                type="text"
+                value={nome}
+                onChange={e => setNome(e.target.value)}
+                placeholder="Nome do técnico"
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Função / Cargo</span>
-            <input
-              type="text"
-              value={funcao}
-              onChange={e => setFuncao(e.target.value)}
-              placeholder="Ex: Téc. Automação"
-              disabled={saving}
-            />
-          </label>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <label className="fld">
-            <span>Data de embarque (início)</span>
-            <input
-              type="date"
-              value={dataInicio}
-              onChange={e => setDataInicio(e.target.value)}
-              required
-              disabled={saving}
-            />
-          </label>
-
-          <label className="fld">
-            <span>Data de desembarque (fim)</span>
-            <input
-              type="date"
-              value={dataFim}
-              onChange={e => setDataFim(e.target.value)}
-              required
-              disabled={saving}
-            />
+            <span>
+              <span>Função / Cargo</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Briefcase size={16} />
+              </span>
+              <input
+                type="text"
+                value={funcao}
+                onChange={e => setFuncao(e.target.value)}
+                placeholder="Ex: Téc. Automação"
+                disabled={saving}
+              />
+            </div>
           </label>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Horas programadas HP (opcional)</span>
-            <input
-              type="number"
-              step="0.5"
-              min="0"
-              value={horasProgramadas}
-              onChange={e => setHorasProgramadas(e.target.value)}
-              placeholder={`Vazio = dias × ${formatHours(dataset.config.hh_dia)}`}
-              disabled={saving}
-            />
+            <span>
+              <span>Data de embarque (início)</span>
+              <span className="fld-hint">Início</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Calendar size={16} />
+              </span>
+              <input
+                type="date"
+                value={dataInicio}
+                onChange={e => setDataInicio(e.target.value)}
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
 
           <label className="fld">
-            <span>Operação / Código OP (opcional)</span>
-            <input
-              type="text"
-              value={operacao}
-              onChange={e => setOperacao(e.target.value)}
-              placeholder="Ex: OP-1049"
-              disabled={saving}
-            />
+            <span>
+              <span>Data de desembarque (fim)</span>
+              <span className="fld-hint">Término</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Calendar size={16} />
+              </span>
+              <input
+                type="date"
+                value={dataFim}
+                onChange={e => setDataFim(e.target.value)}
+                required
+                disabled={saving}
+              />
+            </div>
           </label>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <label className="fld">
-            <span>Ponderação PE (opcional)</span>
+            <span>
+              <span>Horas programadas HP</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <Clock size={16} />
+              </span>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                value={horasProgramadas}
+                onChange={e => setHorasProgramadas(e.target.value)}
+                placeholder={`Vazio = dias × ${formatHours(dataset.config.hh_dia)}`}
+                disabled={saving}
+              />
+            </div>
+          </label>
+
+          <label className="fld">
+            <span>
+              <span>Operação / Código OP</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
+            <div className="input-with-icon">
+              <span className="input-icon-left">
+                <FileText size={16} />
+              </span>
+              <input
+                type="text"
+                value={operacao}
+                onChange={e => setOperacao(e.target.value)}
+                placeholder="Ex: OP-1049"
+                disabled={saving}
+              />
+            </div>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <label className="fld">
+            <span>
+              <span>Ponderação PE</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
             <input
               type="number"
               step="0.01"
@@ -511,7 +627,10 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           </label>
 
           <label className="fld">
-            <span>Ponderação EX (opcional)</span>
+            <span>
+              <span>Ponderação EX</span>
+              <span className="fld-hint">Opcional</span>
+            </span>
             <input
               type="number"
               step="0.01"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserCheck } from 'lucide-react';
+import { UserCheck, Clock, FileText, AlertCircle, Anchor } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
@@ -133,7 +133,9 @@ export function JustificativaModal() {
     <Modal
       open={!!justModal}
       onClose={closeJustModal}
-      title={`Justificar · ${nomeTecnico}`}
+      icon={<FileText size={20} />}
+      title={`Justificar Apontamento · ${nomeTecnico}`}
+      subtitle={`Data: ${formatBr(dateIso)} · Plataforma: ${loc.p}`}
       maxWidth={640}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
@@ -151,12 +153,12 @@ export function JustificativaModal() {
             onClick={handleSave}
             disabled={isSaving}
           >
-            {isSaving ? 'Salvando...' : 'Salvar justificativa'}
+            {isSaving ? 'Salvando…' : 'Salvar justificativa'}
           </button>
         </div>
       }
     >
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {/* Painel de fatos do dia */}
         <div
           className="facts"
@@ -166,33 +168,35 @@ export function JustificativaModal() {
             gap: '10px',
             background: 'var(--surface-alt)',
             padding: '12px 14px',
-            borderRadius: 'var(--radius-md)',
-            marginBottom: '18px'
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--line)'
           }}
         >
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Data</span>
-            <b style={{ fontSize: '0.95rem' }}>{formatBr(dateIso)}</b>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Data</span>
+            <b style={{ fontSize: '0.92rem', color: 'var(--ink)' }}>{formatBr(dateIso)}</b>
           </div>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Plataforma</span>
-            <b style={{ fontSize: '0.95rem' }}>{loc.p}</b>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Plataforma</span>
+            <b style={{ fontSize: '0.92rem', color: 'var(--blue)' }}>{loc.p}</b>
           </div>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Disponível</span>
-            <b style={{ fontSize: '0.95rem' }}>{formatHours(r?.d)}</b>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Disponível</span>
+            <b style={{ fontSize: '0.92rem' }}>{formatHours(r?.d)}</b>
           </div>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Executado</span>
-            <b style={{ fontSize: '0.95rem' }}>{r?.sem ? '0 h (não chegou)' : formatHours(r?.e)}</b>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Executado</span>
+            <b style={{ fontSize: '0.92rem', color: r?.sem ? 'var(--bad)' : undefined }}>
+              {r?.sem ? '0 h (não chegou)' : formatHours(r?.e)}
+            </b>
           </div>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>% do dia</span>
-            <b style={{ fontSize: '0.95rem' }}>{formatPct(calcPct(r?.e || 0, r?.d || 1))}</b>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>% do dia</span>
+            <b style={{ fontSize: '0.92rem' }}>{formatPct(calcPct(r?.e || 0, r?.d || 1))}</b>
           </div>
           <div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Acumulado</span>
-            <b style={{ fontSize: '0.95rem' }}>
+            <span style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', display: 'block', fontWeight: 600 }}>Acumulado</span>
+            <b style={{ fontSize: '0.92rem' }}>
               {acc ? `${formatPct(acc.p)} (${formatSignedHours(acc.saldo)})` : '—'}
             </b>
           </div>
@@ -200,10 +204,11 @@ export function JustificativaModal() {
 
         {/* Formulário */}
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-              Motivo
-            </label>
+          <label className="fld">
+            <span>
+              <span>Motivo da divergência</span>
+              <span className="fld-hint">Obrigatório</span>
+            </span>
             <select
               value={motivo}
               onChange={e => {
@@ -213,8 +218,7 @@ export function JustificativaModal() {
                   setHorasGw(String(faltaHoras));
                 }
               }}
-              className="input-select"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
+              className="form-select"
             >
               {MOTIVOS_JUSTIFICATIVA.map(m => (
                 <option key={m} value={m}>
@@ -222,24 +226,31 @@ export function JustificativaModal() {
                 </option>
               ))}
             </select>
-          </div>
+          </label>
 
           {isGw && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                Horas de gangway desconectada (passo 0.5 h)
-              </label>
-              <input
-                type="number"
-                step="0.5"
-                min="0"
-                max={r?.d || 24}
-                value={horasGw}
-                onChange={e => setHorasGw(e.target.value)}
-                placeholder="Ex: 4.5"
-                style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)' }}
-              />
-            </div>
+            <label className="fld">
+              <span>
+                <span>Horas de gangway desconectada</span>
+                <span className="fld-hint">Passo de 0.5 h (máx: {formatHours(r?.d || 24)})</span>
+              </span>
+              <div className="input-with-icon">
+                <span className="input-icon-left">
+                  <Clock size={16} />
+                </span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  max={r?.d || 24}
+                  value={horasGw}
+                  onChange={e => setHorasGw(e.target.value)}
+                  placeholder="Ex: 4.5"
+                  className="form-input"
+                  required
+                />
+              </div>
+            </label>
           )}
 
           <div
@@ -263,21 +274,22 @@ export function JustificativaModal() {
             </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-              Descrição {motivo === 'Outro' ? <span style={{ color: 'var(--bad)' }}>(obrigatória para &quot;Outro&quot;)</span> : '(opcional)'}
-            </label>
+          <label className="fld">
+            <span>
+              <span>Descrição {motivo === 'Outro' ? <strong style={{ color: 'var(--bad)' }}>(obrigatória para &quot;Outro&quot;)</strong> : '(opcional)'}</span>
+              <span className="fld-hint">Detalhes operacionais</span>
+            </span>
             <textarea
               value={descricao}
               onChange={e => setDescricao(e.target.value)}
-              placeholder="O que aconteceu no dia"
+              placeholder="O que aconteceu no dia…"
               rows={3}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', resize: 'vertical' }}
+              className="form-textarea"
             />
-          </div>
+          </label>
 
           {errorMsg && (
-            <div style={{ color: 'var(--bad)', fontSize: '0.85rem', fontWeight: 600 }}>
+            <div className="note note-bad">
               {errorMsg}
             </div>
           )}

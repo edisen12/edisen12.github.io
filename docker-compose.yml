@@ -1,0 +1,165 @@
+# ==============================================================================
+# Docker Compose — Topologia self-hosted VPS (Isolamento em Duas Redes)
+# HH Offshore · Infotec Brasil
+# ==============================================================================
+#
+# INVARIANTE DE SEGURANÇA:
+# 1. 'frontend-net' (pública/bridge): interliga apenas 'nginx' e 'backend'.
+# 2. 'backend-net' (interna/internal: true): interliga 'backend' e o banco de dados.
+# 3. ZERO portas do banco de dados ou do backend são expostas para a internet ou host.
+#    Apenas a porta HTTP/HTTPS do Nginx (ex: 80/443) fica acessível externamente.
+#
+# COMO ESCOLHER O BANCO DE DADOS:
+# - PostgreSQL:   docker compose --env-file .env.vps --profile postgres up -d --build
+# - MariaDB:      docker compose --env-file .env.vps --profile mariadb up -d --build
+# - MongoDB:      docker compose --env-file .env.vps --profile mongodb up -d --build
+# - Banco Externo (RDS, On-Premise, etc.): docker compose --env-file .env.vps up -d --build
+#   (sem nenhum profile de banco ativado; configure DATABASE_URL no .env.vps)
+# ==============================================================================
+
+name: hh-offshore
+
+services:
+  # ----------------------------------------------------------------------------
+  # Nginx — Porta de entrada da aplicação, terminação HTTP/TLS e proxy reverso
+  # ----------------------------------------------------------------------------
+  nginx:
+    container_name: hh-offshore-nginx
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      # Para habilitar HTTPS direto no Nginx, descomente a linha abaixo e configure o bloco 443 em nginx.conf:
+      # - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - frontend-net
+
+  # ----------------------------------------------------------------------------
+  # Backend — Servidor Node.js 22 isolado (API REST, SSE, Autenticação e Drivers)
+  # ----------------------------------------------------------------------------
+  backend:
+    container_name: hh-offshore-backend
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.vps
+    environment:
+      - PORT=3000
+      - DB_DRIVER=${DB_DRIVER:-postgres}
+      - DB_DRIVER_MODULE=${DB_DRIVER_MODULE:-}
+      - DATABASE_URL=${DATABASE_URL}
+      - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-admin@infotecbrasil.com.br}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-ALTERE_ESTA_SENHA_FORTE}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - SESSION_TTL_HOURS=${SESSION_TTL_HOURS:-8}
+    networks:
+      - frontend-net
+      - backend-net
+
+  # ============================================================================
+  # PROFILES DE BANCO DE DADOS (100% ISOLADOS NA REDE INTERNA 'backend-net')
+  # Zero portas expostas no host. Acesso exclusivo pelo container 'backend'.
+  # ============================================================================
+
+  # Opção 1: PostgreSQL 17 (Profile 'postgres')
+  db-postgres:
+    container_name: hh-offshore-db-postgres
+    image: postgres:17-alpine
+    restart: unless-stopped
+    profiles:
+      - postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-hhoffshore}
+      POSTGRES_USER: ${DB_USER:-hhoff_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ALTERE_ESTA_SENHA_FORTE}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hhoff_user} -d ${DB_NAME:-hhoffshore}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Opção 2: MariaDB 11.4 / MySQL (Profile 'mariadb')
+  db-mariadb:
+    container_name: hh-offshore-db-mariadb
+    image: mariadb:11.4
+    restart: unless-stopped
+    profiles:
+      - mariadb
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-hhoffshore}
+      MARIADB_USER: ${DB_USER:-hhoff_user}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-ALTERE_ESTA_SENHA_FORTE}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-ALTERE_ESTA_SENHA_FORTE}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Opção 3: MongoDB 7.0 (Profile 'mongodb')
+  db-mongodb:
+    container_name: hh-offshore-db-mongodb
+    image: mongo:7.0
+    restart: unless-stopped
+    profiles:
+      - mongodb
+    environment:
+      MONGO_INITDB_DATABASE: ${DB_NAME:-hhoffshore}
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USER:-hhoff_user}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD:-ALTERE_ESTA_SENHA_FORTE}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # OUTROS BANCOS DE DADOS (SQL Server, Oracle, CockroachDB, etc.):
+  # Para adicionar outro container de banco, basta declarar o serviço associado
+  # EXCLUSIVAMENTE à rede 'backend-net' sem bloco 'ports:', atribuir um profile
+  # correspondente e mapear um volume de dados persistente.
+  # Exemplo SQL Server:
+  #   image: mcr.microsoft.com/mssql/server:2022-latest
+  #   networks: [backend-net]
+  #   environment: [ACCEPT_EULA=Y, MSSQL_SA_PASSWORD=ALTERE_ESTA_SENHA_FORTE]
+  # ============================================================================
+
+# ------------------------------------------------------------------------------
+# Redes Isoladas
+# ------------------------------------------------------------------------------
+networks:
+  # Rede pública/DMZ entre Nginx e Backend
+  frontend-net:
+    driver: bridge
+
+  # Rede 100% interna e isolada: sem gateway para internet e inacessível do host
+  backend-net:
+    driver: bridge
+    internal: true
+
+# ------------------------------------------------------------------------------
+# Volumes de Dados Persistentes
+# ------------------------------------------------------------------------------
+volumes:
+  postgres_data:
+  mariadb_data:
+  mongodb_data:

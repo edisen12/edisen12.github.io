@@ -4,6 +4,8 @@ import { X } from 'lucide-react';
 export interface ModalProps {
   open: boolean;
   title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  icon?: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
@@ -14,6 +16,8 @@ export interface ModalProps {
 export function Modal({
   open,
   title,
+  subtitle,
+  icon,
   onClose,
   children,
   footer,
@@ -61,15 +65,24 @@ export function Modal({
         style={{ maxWidth }}
       >
         <div className="modal-header">
-          <div className="modal-title">{title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+            {icon && (
+              <div className="modal-header-icon">
+                {icon}
+              </div>
+            )}
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="modal-title">{title}</div>
+              {subtitle && <div className="modal-subtitle">{subtitle}</div>}
+            </div>
+          </div>
           <button
             type="button"
-            className="btn-icon"
+            className="modal-close-btn"
             onClick={onClose}
             aria-label="Fechar janela"
-            style={{ color: 'var(--ink-muted)' }}
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 

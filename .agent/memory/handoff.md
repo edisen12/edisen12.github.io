@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-03 10:41 (BRT) · HEAD `1bc33ac` (main sincronizada com origin) · Suíte: 24 arquivos / 449 testes ✅ · `tsc --noEmit` (front + server) ✅
+> Última atualização: 2026-11-03 10:50 (BRT) · HEAD `1229679` (main sincronizada com origin e deploy Pages ✅) · Suíte: 24 arquivos / 449 testes ✅ · `tsc --noEmit` (front + server) ✅
 
 ## 1. Resumo Executivo
 

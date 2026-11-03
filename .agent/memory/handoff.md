@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-03 10:35 (BRT) · HEAD `7f0ccf4` + working tree (Exclusão em cascata de pessoas/credenciais + Dual-Topology + Migration 010) · Suíte: 24 arquivos / 449 testes ✅ · `tsc --noEmit` (front + server) ✅
+> Última atualização: 2026-11-03 10:41 (BRT) · HEAD `1bc33ac` (main sincronizada com origin) · Suíte: 24 arquivos / 449 testes ✅ · `tsc --noEmit` (front + server) ✅
 
 ## 1. Resumo Executivo
 
@@ -62,38 +62,42 @@
 - `vite.config.ts` (alias condicional `@active-adapter`, CSP dinâmica por topologia e auditoria pós-build `closeBundle()` zero-leak em `self-hosted`), `vitest.config.ts`, `tsconfig.json`, `index.html` (CSP + frame-busting), `.gitignore`.
 - `.github/workflows/deploy.yml` (typecheck → test → build → Pages) e `supabase-keepalive.yml`.
 
-### Estáveis mas SEM cobertura de teste de UI (podem ser abertos se a tarefa exigir — mexer com cuidado)
-- `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoRelatoriosView`, `MedicaoUsoffView`, `ImportarDadosView`, `PessoasPlataformasView` (85 KB, maior arquivo).
-- Modais: `JustificativaModal`, `FichaTecnicoDrawer`, `EmailComposerModal`, `ManualEntryModals`.
+### Modais do Sistema (Design System Infotec Elevado)
+- `Modal.tsx` — primitivo acessível com suporte a `icon`, `subtitle`, elevação `--shadow-modal`, close button com hover e backdrop blur.
+- `UserLoginModal` (`PessoasPlataformasView.tsx`) — provisionamento zero-touch e redefinição com inputs de ícone, alternador de senha (`Eye`/`EyeOff`), requisitos em tempo real e seleção de papel via cards operacionais explicativos.
+- `NovoAdminModal` (`PessoasPlataformasView.tsx` e `AdminAuditView.tsx`) — criação com campos estilizados, ícones e feedback.
+- `ResetPasswordModal`, `ToggleActiveModal`, `DeleteUserModal` (`AdminAuditView.tsx` e `PessoasPlataformasView.tsx`).
+- `PessoaModal` e `PlataformaModal` (`PessoasPlataformasView.tsx`).
+- `JustificativaModal`, `EmailComposerModal`, `ManualEntryModals` (`ManualHHModal`, `ManualEscalaModal`).
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Exclusão em Cascata de Pessoas e Credenciais (Resolução de Contas Órfãs):**
-  - Causa raiz: `deletePessoa` executava apenas `DELETE FROM pessoas WHERE id = id`. Como `profiles`, `auth.users` e `user_onboarding` não possuíam FK cascade direta a `pessoas`, as credenciais de login continuavam ativas e visíveis na tabela de credenciais (ou geravam erro 400 de e-mail duplicado ao tentar recadastrar a pessoa).
-  - Correção implementada:
-    1. `deletePessoa` (BaaS e Self-Hosted): antes de deletar a pessoa, localiza o `user_id` vinculado (ou busca perfil correspondente por e-mail) e aciona `action: 'delete-user'` via Edge Function / Server, removendo o usuário no GoTrue `auth.users`, em `profiles` e em `user_onboarding`, além de registrar auditoria WORM;
-    2. Salvaguardas anti-lockout: caso a remoção do usuário seja bloqueada (tentativa de auto-exclusão de admin ou de remoção do último admin ativo), a exclusão da pessoa é abortada com mensagem clara;
-    3. `invokeAdminUsers`: implementada extração de erro de `FunctionsHttpError` (via `(error.context as Response).clone().json()`), substituindo a mensagem genérica `"Edge Function returned a non 2xx status code"` pelo erro real da API;
-    4. `UserLoginModal`: adicionado botão "Excluir credenciais" com confirmação inline de segurança em dois cliques, permitindo revogar o login de uma pessoa sem necessariamente excluí-la do cadastro operacional.
-  - Testes: novos testes em `src/services/__tests__/data.service.test.ts` cobrindo a exclusão conjunta, exclusão de pessoa sem login e bloqueio por salvaguarda anti-lockout.
-- **Correção de Recursão Infinita em `user_onboarding` (Migration 010):**
-  - Causa raiz: na migration 007, a política `user_onboarding_update_policy` inseriu subconsultas na própria tabela `user_onboarding` dentro da cláusula `WITH CHECK`, disparando o erro PostgreSQL `42P17: infinite recursion detected in policy for relation "user_onboarding"` na compilação do query rewriter de qualquer `UPDATE`. Além disso, a RPC `complete_first_login_password_change` era `SECURITY INVOKER`, rodando sob RLS.
-  - Correção implementada e aplicada no banco de produção (`fwdvrkfootvublicetim`):
-    1. `user_onboarding_update_policy` limpa e sem recursão;
-    2. Trigger anti-bypass em PL/pgSQL (`trg_prevent_user_onboarding_flag_bypass`) que impede alteração direta das flags de segurança por usuários sem passar pela RPC autorizada ou sem ser admin;
-    3. `complete_first_login_password_change()` promovida a `SECURITY DEFINER` com token transacional de sessão `app.allow_first_login_completion`.
-  - Migration versionada em `supabase/migrations/010_fix_user_onboarding_rls_recursion.sql` e aplicada no Supabase via MCP `apply_migration`.
-  - Conta da Luanna validada no banco (ativa, aguardando conclusão normal de primeiro acesso).
-- **Abstração Dual-Topology e Validações de Suíte:**
-  - `npm run typecheck` (frontend) → 0 erros ✅
-  - `npx tsc -p server/tsconfig.json --noEmit` (backend `server/`) → 0 erros ✅
-  - `npm run test:run` → **24 arquivos / 449 testes passando** ✅
-  - `npm run build` → build Vite de produção gerado com sucesso ✅
-- **Memória nativa:** sincronizada em `.agent/memory/*`.
+- **Repaginação Geral de Modais e Sistema Unificado de Inputs:**
+  - Causa raiz do aspecto "jogado/esquisito": `.fld` não possuía regras em nenhum arquivo CSS, fazendo com que `<label className="fld">` renderizasse como `display: inline` padrão do navegador com inputs/selects crus, sem alinhamento, sem padding nem tokens de foco.
+  - Implementado design system de formulários em `src/styles/components.css`:
+    1. `.fld`, `.fld-label`, `.fld-hint` com flexbox estruturado e tipografia do sistema;
+    2. Inputs, selects (com seta SVG chevron) e textareas universais com tokens `--surface`, `--line`, foco com `--blue` e halo `--blue-soft`;
+    3. Padrão `.input-with-icon` com leading icons e trailing action buttons (como alternador de senha);
+    4. `.role-cards-grid` e `.role-card-option` para seleção interativa de papéis operacionais (Preposto, Controlador, Gestor);
+    5. `.password-requirements-card` com checagem visual em tempo real;
+    6. Atualização de `Modal.tsx` com `icon` e `subtitle`.
+  - Repaginação completa aplicada em todos os modais do sistema:
+    - `UserLoginModal`: e-mail com ícone, senha com `Eye`/`EyeOff` e check de 8 dígitos, seleção de papel em cards enriquecidos com badges e descrições contratuais;
+    - `NovoAdminModal` (ambas as views): ícones `User`, `Mail`, `Lock`, alternador de senha;
+    - `ResetPasswordModal`, `ToggleActiveModal`, `DeleteUserModal` (ambas as views): cartões informativos de usuário, confirmação assistida;
+    - `PessoaModal` e `PlataformaModal`: inputs estruturados com ícones temáticos (`Anchor`, `Building2`, `Ship`, etc.);
+    - `JustificativaModal`: fatos do dia em cards KPI, motivo com `.form-select`, horas com `.input-with-icon`, textarea e badge de usuário;
+    - `EmailComposerModal`: chips dos responsáveis, campos "Para" e "Assunto" com ícones, textarea estilizada e botões de cópia/abertura;
+    - `ManualEntryModals` (`ManualHHModal` e `ManualEscalaModal`): todos os campos convertidos para o novo padrão.
+  - Suíte de validação:
+    - `npm run typecheck` (front) → 0 erros ✅
+    - `npx tsc -p server/tsconfig.json --noEmit` (server) → 0 erros ✅
+    - `npm run test:run` → **24 arquivos / 449 testes passando** ✅
+    - `npm run build` → bundle Vite de produção compilado com sucesso ✅
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Avisar à usuária Luanna** que ela já pode concluir a troca de senha na tela de primeiro acesso (se estiver com a tela aberta, basta clicar em salvar novamente; se fechar, entrar com a senha definida ou provisória e salvar).
-2. **Revisar e commitar** as alterações pendentes da working tree (Dual-Topology + Migration 010 + memória).
+1. **Avisar à usuária Luanna** que ela já pode concluir a troca de senha na tela de primeiro acesso.
+2. **Revisar e commitar** as alterações pendentes da working tree (Modais/Inputs + Exclusão em cascata + Dual-Topology + Migration 010 + memória).
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
 4. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).

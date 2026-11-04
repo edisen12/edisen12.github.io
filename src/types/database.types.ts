@@ -63,10 +63,13 @@ export type Database = {
         Row: {
           data_fim: string
           data_inicio: string
+          divergencia_confirmada: number
           ex: number | null
           fonte: string
           hh_cancelado: number
           hh_carteira: number
+          hh_confirmado_portal: number
+          hh_confirmado_sap: number
           hh_fora_carteira: number
           horas_programadas: number | null
           id: string
@@ -80,10 +83,13 @@ export type Database = {
         Insert: {
           data_fim: string
           data_inicio: string
+          divergencia_confirmada?: number
           ex?: number | null
           fonte?: string
           hh_cancelado?: number
           hh_carteira?: number
+          hh_confirmado_portal?: number
+          hh_confirmado_sap?: number
           hh_fora_carteira?: number
           horas_programadas?: number | null
           id?: string
@@ -97,10 +103,13 @@ export type Database = {
         Update: {
           data_fim?: string
           data_inicio?: string
+          divergencia_confirmada?: number
           ex?: number | null
           fonte?: string
           hh_cancelado?: number
           hh_carteira?: number
+          hh_confirmado_portal?: number
+          hh_confirmado_sap?: number
           hh_fora_carteira?: number
           horas_programadas?: number | null
           id?: string
@@ -134,10 +143,12 @@ export type Database = {
           created_at: string
           data_fim: string
           data_inicio: string
+          divergencia_sap: number
           empresa: string
           estrutura: string
           fonte: string
           hh_confirmado: number
+          hh_confirmado_sap: number
           hh_programado: number
           id: string
           matricula: string
@@ -148,6 +159,7 @@ export type Database = {
           portal_id: string
           prioridade: string
           recursos: number
+          status_divergencia: string
           status_processamento: string
           status_programacao: string
           unidade_negocio: string
@@ -158,10 +170,12 @@ export type Database = {
           created_at?: string
           data_fim: string
           data_inicio: string
+          divergencia_sap?: number
           empresa?: string
           estrutura?: string
           fonte?: string
           hh_confirmado?: number
+          hh_confirmado_sap?: number
           hh_programado?: number
           id?: string
           matricula: string
@@ -172,6 +186,7 @@ export type Database = {
           portal_id?: string
           prioridade?: string
           recursos?: number
+          status_divergencia?: string
           status_processamento?: string
           status_programacao?: string
           unidade_negocio?: string
@@ -182,10 +197,12 @@ export type Database = {
           created_at?: string
           data_fim?: string
           data_inicio?: string
+          divergencia_sap?: number
           empresa?: string
           estrutura?: string
           fonte?: string
           hh_confirmado?: number
+          hh_confirmado_sap?: number
           hh_programado?: number
           id?: string
           matricula?: string
@@ -196,6 +213,7 @@ export type Database = {
           portal_id?: string
           prioridade?: string
           recursos?: number
+          status_divergencia?: string
           status_processamento?: string
           status_programacao?: string
           unidade_negocio?: string
@@ -301,6 +319,51 @@ export type Database = {
         Update: {
           emails_resumo?: Json
           id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      confirmacoes_sap: {
+        Row: {
+          created_at: string
+          data_criacao: string
+          data_fim_real: string
+          data_lancamento: string
+          horas_confirmadas: number
+          id: string
+          id_embarque: string
+          matricula: string
+          operacao: string
+          ordem: string
+          status_reconciliacao: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data_criacao: string
+          data_fim_real: string
+          data_lancamento: string
+          horas_confirmadas?: number
+          id?: string
+          id_embarque?: string
+          matricula: string
+          operacao: string
+          ordem: string
+          status_reconciliacao?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data_criacao?: string
+          data_fim_real?: string
+          data_lancamento?: string
+          horas_confirmadas?: number
+          id?: string
+          id_embarque?: string
+          matricula?: string
+          operacao?: string
+          ordem?: string
+          status_reconciliacao?: string
           updated_at?: string
         }
         Relationships: []
@@ -754,6 +817,7 @@ export type Database = {
         Returns: string
       }
       ping_health: { Args: never; Returns: string }
+      reconciliar_confirmacoes_sap: { Args: never; Returns: Json }
       update_own_profile: {
         Args: { p_nome: string; p_preferencias?: Json }
         Returns: undefined

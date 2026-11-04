@@ -6,7 +6,7 @@ export type MedCriterio = 'enc' | 'dias';
 export type DiaCorteMedicao = 1 | 16 | 21 | 26;
 export type StatusMeta = 'ok' | 'warn' | 'bad' | 'sem' | 'info';
 export type TabId = 'ger' | 'dia' | 'emb' | 'jus' | 'med' | 'us' | 'pes' | 'imp' | 'cfg' | 'adm' | 'perfil';
-export type ImportKind = 'hh' | 'cart' | 'plat' | 'pes';
+export type ImportKind = 'hh' | 'cart' | 'plat' | 'pes' | 'sap';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type TableDensity = 'comfortable' | 'compact';
 
@@ -91,6 +91,9 @@ export interface CarteiraEmbarque {
   hh_carteira?: number;
   hh_fora_carteira?: number;
   hh_cancelado?: number;
+  hh_confirmado_portal?: number;
+  hh_confirmado_sap?: number;
+  divergencia_confirmada?: number;
   operacao: string;
   pe: number | null;
   ex: number | null;
@@ -116,8 +119,26 @@ export interface CarteiraOperacao {
   status_programacao: 'Carteira' | 'Fora da carteira' | 'Cancelada' | string;
   hh_programado: number;
   hh_confirmado: number;
+  hh_confirmado_sap?: number;
+  divergencia_sap?: number;
+  status_divergencia?: string;
   recursos: number;
   fonte: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ConfirmacaoSAP {
+  id?: string;
+  matricula: string;
+  data_criacao: string;   // YYYY-MM-DD
+  data_lancamento: string; // YYYY-MM-DD
+  data_fim_real: string;  // YYYY-MM-DD
+  ordem: string;
+  operacao: string;
+  horas_confirmadas: number;
+  id_embarque?: string;
+  status_reconciliacao?: 'Pendente' | 'Em Carteira' | 'Fora da Carteira' | 'Sem Embarque' | string;
   created_at?: string;
   updated_at?: string;
 }
@@ -372,6 +393,7 @@ export interface AppDataset {
   onboardingMap?: Record<string, UserOnboarding>;
   tecnicos: Record<string, Tecnico>;
   carteira: CarteiraEmbarque[];
+  carteiraOperacoes?: CarteiraOperacao[];
   hhMap: Record<string, ApontamentoHH>; // chave: `${matricula}|${data}`
   justMap: Record<string, Justificativa>; // chave: `${matricula}|${data}`
   externalCoveredSet: Set<string>; // conjunto `${matricula}|${data}`

@@ -102,3 +102,15 @@
   2. *Colunas granulares na consolidação:* Adicionadas colunas `hh_carteira`, `hh_fora_carteira` e `hh_cancelado` em `carteira_embarques`.
   3. *Eliminação de redundância:* Coluna `operacao` descartada fisicamente de `carteira_embarques` em favor do `id_embarque`.
   4. *De-Para e Padronização da Visão Embarque Atual:* Remoção da métrica calculada "Programado até agora" da tabela acumulada; cabeçalhos padronizados para `HH programado`, `HH disponível`, `HH executado`, `% Exec. / Disponível` (meta diária) e `% Exec. / Programado` (avanço físico real sobre a programação total). Justificativas diárias de 11h permanecem focadas no Painel do Dia (`PainelDiaView`).
+- **2026-11-04** — Confirmações do SAP, Tolerância do PMB, Estornos Retroativos e Reconciliação (Migration 014):
+  1. *Tabela `confirmacoes_sap`:* Armazena o extrato completo de confirmações do SAP com chave única `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas)`.
+  2. *Motor de Reconciliação em Cascata (`reconciliar_confirmacoes_sap`):*
+     - Prioridade 1: Ordem/Operação com `data_fim_real` exatamente dentro da janela física do embarque `[data_inicio, data_fim]`.
+     - Prioridade 2: Ordem/Operação com `data_lancamento` dentro da tolerância de até +4 dias após `data_fim` (janela padrão de ajuste do PMB).
+     - Prioridade 3: Se a Ordem/Operação pertence a um único embarque histórico daquele técnico, vincula diretamente mesmo se o estorno/reversão ocorreu no mês seguinte (`data_criacao` tardia, com `data_lancamento` e `data_fim_real` retroativos).
+     - Prioridades 4 e 5: Lançamentos sem ordem prévia em carteira vinculados ao embarque pela presença a bordo (`data_fim_real` ou `data_lancamento`).
+  3. *Regra de Confronto e Divergência de Horas:*
+     - Compara `hh_confirmado` (Portal Offshore) vs `SUM(horas_confirmadas)` do SAP agrupado por `(matricula, ordem, operacao, id_embarque)`.
+     - Divergência: `hh_confirmado - hh_confirmado_sap`.
+     - Status classificados: `'OK'` (100% igual), `'Divergente (Portal > SAP)'`, `'Divergente (SAP > Portal)'`, `'Não Apontado no SAP'` (confirmado no Portal mas 0h no SAP), `'Não Confirmado no Portal'` (apontado no SAP mas 0h no Portal), `'Não Confirmado'` (0h em ambos).
+  4. *Visualização Integrada no Frontend:* Aba "Confronto SAP vs Portal" dentro de `MedicaoUsoffView.tsx` com filtros de status, KPIs de divergência, grid com destaques coloridos de divergência e exportador Excel dedicado (`exportConfrontoSAPXlsx`). Upload de extrato do SAP adicionado como Card 5 na tela de `ImportarDadosView.tsx`.

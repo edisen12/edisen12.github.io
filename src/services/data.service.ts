@@ -160,6 +160,37 @@ export async function batchImportPessoas(
 }
 
 /**
+ * Importa lote de confirmações do SAP em chunks determinísticos.
+ */
+export async function batchImportConfirmacoesSAP(
+  rows: Array<{
+    mat: string;
+    cria: string;
+    lanc: string;
+    real: string;
+    ordem: string;
+    op: string;
+    hc: number;
+  }>,
+  onProgress?: (gravadas: number, total: number) => void
+): Promise<any> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.batchImportConfirmacoesSAP === 'function') {
+    return provider.data.batchImportConfirmacoesSAP(rows, onProgress);
+  }
+}
+
+/**
+ * Dispara a reconciliação e batimento entre confirmações do SAP e ordens da carteira.
+ */
+export async function reconciliarConfirmacoesSAP(): Promise<any> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.reconciliarConfirmacoesSAP === 'function') {
+    return provider.data.reconciliarConfirmacoesSAP();
+  }
+}
+
+/**
  * Consulta a trilha de auditoria do sistema com filtros opcionais.
  */
 export async function fetchSystemAuditLogs(filters?: {

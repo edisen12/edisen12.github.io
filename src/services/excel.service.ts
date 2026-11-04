@@ -6,6 +6,7 @@
 import type {
   AppDataset,
   CarteiraEmbarque,
+  CarteiraOperacao,
   ContractConfig,
   ImportKind,
   PeriodDayEntry,
@@ -22,7 +23,8 @@ import {
 import {
   normalizeText,
   parseFlexibleHours,
-  platformKey
+  platformKey,
+  slugify
 } from '../utils/format';
 import { periodDisplayName, periodFileSlug } from '../domain/periods';
 import {
@@ -91,6 +93,15 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'email', label: 'E-mail', synonyms: ['mail'] },
     { key: 'plats', label: 'Plataformas', synonyms: ['plataforma'] },
     { key: 'uns', label: 'Unidades de negócio', synonyms: ['unidade', 'regional', 'un'] }
+  ],
+  sap: [
+    { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro'] },
+    { key: 'cria', label: 'Data Criação', synonyms: ['data_criacao', 'criacao', 'data criacao'] },
+    { key: 'lanc', label: 'Data Lançamento', synonyms: ['data_lancamento', 'lancamento', 'data lancamento'] },
+    { key: 'real', label: 'Data Fim Real', synonyms: ['data_fim_real', 'fim_real', 'data real', 'real'] },
+    { key: 'ordem', label: 'Ordem', synonyms: ['ordem', 'num ordem'] },
+    { key: 'op', label: 'Operação', synonyms: ['operacao', 'op'] },
+    { key: 'hc', label: 'Horas Confirmadas', synonyms: ['hc', 'horas confirmadas', 'horas'] }
   ]
 };
 
@@ -98,7 +109,8 @@ const REQUIRED_KEY_BY_KIND: Record<ImportKind, string> = {
   hh: 'mat',
   cart: 'mat',
   plat: 'sigla',
-  pes: 'nome'
+  pes: 'nome',
+  sap: 'mat'
 };
 
 export interface ParsedPreviewState {
@@ -222,6 +234,9 @@ function saveWorkbook(XLSX: any, wb: any, filename: string): void {
 
 export function guessImportKind(headers: string[]): ImportKind {
   const joined = headers.map(h => normalizeText(h)).join('|');
+  if (/data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b/.test(joined)) {
+    return 'sap';
+  }
   if (/desembarque|embarque/.test(joined) && !/execut/.test(joined)) {
     return 'cart';
   }
@@ -362,6 +377,28 @@ function extractRowsFromSheet(
         op: String(getVal('op') || '').trim(),
         pe: parseFlexibleHours(getVal('pe')),
         ex: parseFlexibleHours(getVal('ex'))
+      });
+    } else if (kind === 'sap') {
+      const cria = parseExcelOrStringDate(getVal('cria'));
+      const lanc = parseExcelOrStringDate(getVal('lanc')) || cria;
+      const real = parseExcelOrStringDate(getVal('real')) || lanc;
+      const ordem = String(getVal('ordem') || '').trim();
+      const op = String(getVal('op') || '').trim();
+      const hc = parseFlexibleHours(getVal('hc'));
+
+      if (!mat || !ordem || !cria) {
+        errors.push(`Linha ${i + 1}: campos obrigatórios ausentes no extrato SAP (matrícula, ordem ou data)`);
+        continue;
+      }
+
+      rows.push({
+        mat,
+        cria,
+        lanc,
+        real,
+        ordem,
+        op,
+        hc: hc != null ? hc : 0
       });
     }
   }
@@ -1029,7 +1066,7 @@ export async function exportTecnicoXlsx(
 // ------------------------------------------------------------------------------
 
 export async function exportModeloXlsx(
-  kind: 'cad' | 'hh' | 'cart',
+  kind: 'cad' | 'hh' | 'cart' | 'sap',
   dataset?: AppDataset
 ): Promise<void> {
   const XLSX = await import('xlsx');
@@ -1148,5 +1185,79 @@ export async function exportModeloXlsx(
     XLSX.utils.book_append_sheet(wb, createSheet(XLSX, instrRows, [100]), 'Instruções');
 
     saveWorkbook(XLSX, wb, 'Modelo carteira de embarque.xlsx');
+    return;
   }
+
+  if (kind === 'sap') {
+    const sapRows: any[][] = [
+      ['Matricula', 'Data_criacao', 'Data_lancamento', 'Data_fim_real', 'Ordem', 'Operacao', 'HC'],
+      ['10231', formatBr(today), formatBr(today), formatBr(today), '100085421', '0010', 8.5]
+    ];
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, sapRows, [14, 16, 16, 16, 18, 12, 12]), 'Confirmacoes_SAP');
+
+    const instrRows: any[][] = [
+      ['Instruções para Confirmações / Apontamentos do SAP'],
+      ['Uma linha por apontamento/confirmação realizada no SAP.'],
+      ['Colunas obrigatórias: Matricula, Data_criacao, Data_lancamento, Data_fim_real, Ordem, Operacao, HC.'],
+      ['Datas no formato dd/mm/aaaa ou aaaa-mm-dd.'],
+      ['O sistema realiza a reconciliação e o vínculo com o embarque físico (+4 dias de tolerância e estornos retroativos).'],
+      ['Confronto automático com o HH confirmado do Portal Offshore.'],
+      [],
+      ['Criado por Luanna de Abreu Teixeira']
+    ];
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, instrRows, [100]), 'Instruções');
+
+    saveWorkbook(XLSX, wb, 'Modelo confirmacoes SAP.xlsx');
+  }
+}
+
+/**
+ * Exporta o relatório completo de confronto entre o Portal Offshore e o SAP.
+ */
+export async function exportConfrontoSAPXlsx(
+  operations: CarteiraOperacao[],
+  periodLabel: string
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+
+  const headers = [
+    'Matrícula',
+    'Técnico',
+    'Plataforma',
+    'Unidade de Negócio',
+    'Início Embarque',
+    'Fim Embarque',
+    'Ordem',
+    'Operação',
+    'Status Programação',
+    'HH Programado',
+    'HH Confirmado (Portal)',
+    'HH Confirmado (SAP)',
+    'Divergência (Portal - SAP)',
+    'Status do Confronto'
+  ];
+
+  const dataRows = operations.map(op => [
+    op.matricula,
+    op.nome,
+    op.plataforma_sigla || '',
+    op.unidade_negocio,
+    formatBr(op.data_inicio),
+    formatBr(op.data_fim),
+    op.ordem,
+    op.operacao,
+    op.status_programacao,
+    op.hh_programado,
+    op.hh_confirmado,
+    op.hh_confirmado_sap || 0,
+    op.divergencia_sap || 0,
+    op.status_divergencia || 'Não Confirmado'
+  ]);
+
+  const widths = [12, 32, 12, 18, 14, 14, 16, 10, 18, 14, 16, 16, 18, 26];
+  const ws = createSheet(XLSX, [headers, ...dataRows], widths);
+  XLSX.utils.book_append_sheet(wb, ws, 'Confronto SAP x Portal');
+
+  saveWorkbook(XLSX, wb, `confronto_sap_portal_${slugify(periodLabel)}.xlsx`);
 }

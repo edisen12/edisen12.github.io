@@ -321,6 +321,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       pessoasRes,
       tecRows,
       cartRows,
+      cartOpRows,
       hhRows,
       justRows,
       wmRes,
@@ -347,6 +348,14 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       fetchAllPages<any>((from, to) =>
         supabase
           .from('carteira_embarques')
+          .select('*')
+          .gte('data_fim', queryIni)
+          .lte('data_inicio', queryFim)
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages<any>((from, to) =>
+        (supabase.from('carteira_operacoes') as any)
           .select('*')
           .gte('data_fim', queryIni)
           .lte('data_inicio', queryFim)
@@ -414,6 +423,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       pessoaRows: pessoasRes.data || [],
       tecnicoRows: tecRows,
       carteiraRows: cartRows,
+      carteiraOperacaoRows: cartOpRows || [],
       hhRows,
       justificativaRows: justRows,
       watermarkRow: wmRes.data,
@@ -652,6 +662,18 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       .from('carteira_embarques')
       .upsert(rows as any, { onConflict: 'matricula,data_inicio' });
     if (error) throw error;
+  },
+
+  async upsertConfirmacoesSAPChunk(rows: Array<Record<string, unknown>>): Promise<void> {
+    const { error } = await (supabase.from('confirmacoes_sap') as any)
+      .upsert(rows, { onConflict: 'matricula,data_criacao,data_lancamento,data_fim_real,ordem,operacao,horas_confirmadas' });
+    if (error) throw error;
+  },
+
+  async reconciliarConfirmacoesSAPRPC(): Promise<any> {
+    const { data, error } = await supabase.rpc('reconciliar_confirmacoes_sap');
+    if (error) throw error;
+    return data;
   },
 
   async insertFluxoImportacao(row: {

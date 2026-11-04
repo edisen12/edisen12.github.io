@@ -6,7 +6,7 @@ import { StatusPill } from '../components/StatusPill';
 import { MeterBar } from '../components/MeterBar';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import type { UsoffOperationRow } from '../../domain/types';
+import type { CarteiraOperacao, UsoffOperationRow } from '../../domain/types';
 import {
   calcPct,
   formatHours,
@@ -15,10 +15,20 @@ import {
   plural
 } from '../../utils/format';
 import { formatBr, formatBrShort } from '../../utils/date';
-import { computeDataAte, isPersonResponsible, statusOf } from '../../domain/calculations';
+import {
+  computeDataAte,
+  isPersonResponsible,
+  passesFilter,
+  resolvePlace,
+  statusOf
+} from '../../domain/calculations';
 import { computeUsoffOperations, summarizeUsoff } from '../../domain/usoff';
 import { periodDisplayName } from '../../domain/periods';
-import { exportUsoffXlsx } from '../../services/excel.service';
+import {
+  exportUsoffXlsx,
+  exportConfrontoSAPXlsx
+} from '../../services/excel.service';
+import { reconciliarConfirmacoesSAP } from '../../services/data.service';
 
 export function MedicaoUsoffView() {
   const {
@@ -27,12 +37,17 @@ export function MedicaoUsoffView() {
     activePeriod,
     filters,
     openFichaDrawer,
-    scopeLabel
+    scopeLabel,
+    isGlobal,
+    refreshData
   } = useApp();
 
   const { showToast } = useToast();
-  const [usoffTab, setUsoffTab] = useState<'operacoes' | 'unidades' | 'prepostos'>('operacoes');
+  const [usoffTab, setUsoffTab] = useState<'operacoes' | 'unidades' | 'prepostos' | 'confronto'>('operacoes');
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingConfronto, setIsExportingConfronto] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [confrontoStatusFilter, setConfrontoStatusFilter] = useState<string>('todos');
 
   const P = activePeriod;
   const isEnc = dataset.config.med_criterio === 'enc';
@@ -343,6 +358,289 @@ export function MedicaoUsoffView() {
     }
   ];
 
+  // Operações da Carteira filtradas para o período e escopo (Confronto SAP)
+  const rawCarteiraOps = dataset.carteiraOperacoes || [];
+  const confrontoOps = useMemo(() => {
+    return rawCarteiraOps.filter(op => {
+      if (isEnc) {
+        if (op.data_fim < P.ini || op.data_fim > P.fim) return false;
+      } else {
+        if (op.data_inicio > P.fim || op.data_fim < P.ini) return false;
+      }
+      const l = resolvePlace(pidx, op.plataforma_sigla ?? undefined, op.unidade_negocio);
+      if (!passesFilter(l, filters, dataset.pessoas)) return false;
+      return true;
+    });
+  }, [rawCarteiraOps, isEnc, P, pidx, filters, dataset.pessoas]);
+
+  const filteredConfrontoOps = useMemo(() => {
+    if (confrontoStatusFilter === 'todos') return confrontoOps;
+    if (confrontoStatusFilter === 'divergentes') {
+      return confrontoOps.filter(op => op.status_divergencia && op.status_divergencia !== 'OK' && op.status_divergencia !== 'Não Confirmado');
+    }
+    if (confrontoStatusFilter === 'ok') {
+      return confrontoOps.filter(op => op.status_divergencia === 'OK');
+    }
+    if (confrontoStatusFilter === 'div_portal_sap') {
+      return confrontoOps.filter(op => op.status_divergencia === 'Divergente (Portal > SAP)');
+    }
+    if (confrontoStatusFilter === 'div_sap_portal') {
+      return confrontoOps.filter(op => op.status_divergencia === 'Divergente (SAP > Portal)');
+    }
+    if (confrontoStatusFilter === 'nao_sap') {
+      return confrontoOps.filter(op => op.status_divergencia === 'Não Apontado no SAP');
+    }
+    if (confrontoStatusFilter === 'nao_portal') {
+      return confrontoOps.filter(op => op.status_divergencia === 'Não Confirmado no Portal');
+    }
+    if (confrontoStatusFilter === 'nao_conf') {
+      return confrontoOps.filter(op => op.status_divergencia === 'Não Confirmado');
+    }
+    return confrontoOps;
+  }, [confrontoOps, confrontoStatusFilter]);
+
+  const confrontoSummary = useMemo(() => {
+    let okCount = 0;
+    let divCount = 0;
+    let naoApontadoSapCount = 0;
+    let naoConfirmadoPortalCount = 0;
+    let naoConfirmadoCount = 0;
+    let totalHhProg = 0;
+    let totalHhPortal = 0;
+    let totalHhSap = 0;
+
+    confrontoOps.forEach(op => {
+      totalHhProg += op.hh_programado || 0;
+      totalHhPortal += op.hh_confirmado || 0;
+      totalHhSap += op.hh_confirmado_sap || 0;
+
+      const s = op.status_divergencia;
+      if (s === 'OK') {
+        okCount++;
+      } else if (s === 'Não Confirmado') {
+        naoConfirmadoCount++;
+      } else if (s === 'Não Apontado no SAP') {
+        naoApontadoSapCount++;
+        divCount++;
+      } else if (s === 'Não Confirmado no Portal') {
+        naoConfirmadoPortalCount++;
+        divCount++;
+      } else if (s && s.startsWith('Divergente')) {
+        divCount++;
+      }
+    });
+
+    const diffHh = totalHhPortal - totalHhSap;
+
+    return {
+      totalOps: confrontoOps.length,
+      okCount,
+      divCount,
+      naoApontadoSapCount,
+      naoConfirmadoPortalCount,
+      naoConfirmadoCount,
+      totalHhProg,
+      totalHhPortal,
+      totalHhSap,
+      diffHh
+    };
+  }, [confrontoOps]);
+
+  const handleExportConfronto = async () => {
+    setIsExportingConfronto(true);
+    try {
+      await exportConfrontoSAPXlsx(filteredConfrontoOps, periodDisplayName(P));
+      showToast('Relatório de confronto exportado com sucesso!', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao exportar confronto: ' + (err.message || 'Falha na geração'), 'error');
+    } finally {
+      setIsExportingConfronto(false);
+    }
+  };
+
+  const handleReconcile = async () => {
+    setIsReconciling(true);
+    try {
+      const res = await reconciliarConfirmacoesSAP();
+      await refreshData();
+      showToast(
+        `Reconciliação concluída: ${res?.operacoes_com_batimento_ok ?? 0} operações com batimento 100% OK e ${res?.operacoes_com_divergencia ?? 0} divergentes.`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao executar reconciliação do SAP.', 'error');
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
+  const confrontoColumns: DataTableColumn<CarteiraOperacao>[] = [
+    {
+      key: 'op',
+      header: 'Ordem / OP',
+      width: '160px',
+      sortValue: r => `${r.ordem}_${r.operacao}`,
+      render: r => (
+        <div>
+          <b>{r.ordem}</b>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+            Op: {r.operacao || '—'}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'tec',
+      header: 'Técnico',
+      width: '220px',
+      sortValue: r => r.nome,
+      render: r => (
+        <div style={{ minWidth: '180px' }}>
+          <button
+            type="button"
+            className="btn-link"
+            onClick={() => openFichaDrawer(r.matricula)}
+            style={{ fontSize: '0.82rem', color: 'var(--blue)', whiteSpace: 'nowrap', textAlign: 'left' }}
+          >
+            {r.nome}
+          </button>
+          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+            Mat. {r.matricula}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'plat',
+      header: 'Plataforma / UN',
+      width: '150px',
+      sortValue: r => r.plataforma_sigla || '',
+      render: r => (
+        <div>
+          <b>{r.plataforma_sigla || '—'}</b>
+          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+            {r.unidade_negocio || '—'}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'periodo',
+      header: 'Período',
+      width: '150px',
+      sortValue: r => r.data_inicio,
+      render: r => (
+        <div style={{ fontSize: '0.82rem' }}>
+          <div>{formatBrShort(r.data_inicio)} a {formatBrShort(r.data_fim)}</div>
+          <div className="sub" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
+            ID: {r.portal_id || '—'}
+          </div>
+        </div>
+      )
+    },
+    {
+      key: 'statusProg',
+      header: 'Programação',
+      width: '130px',
+      sortValue: r => r.status_programacao,
+      render: r => (
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            background:
+              r.status_programacao === 'Carteira'
+                ? 'var(--blue-soft)'
+                : r.status_programacao === 'Fora da carteira'
+                ? 'var(--orange-soft)'
+                : 'var(--surface-alt)',
+            color:
+              r.status_programacao === 'Carteira'
+                ? 'var(--blue)'
+                : r.status_programacao === 'Fora da carteira'
+                ? 'var(--orange-dark)'
+                : 'var(--ink-muted)'
+          }}
+        >
+          {r.status_programacao}
+        </span>
+      )
+    },
+    {
+      key: 'hhProg',
+      header: 'HH Prog.',
+      align: 'right',
+      width: '100px',
+      sortValue: r => r.hh_programado,
+      render: r => formatHours(r.hh_programado)
+    },
+    {
+      key: 'hhPortal',
+      header: 'Conf. Portal',
+      align: 'right',
+      width: '110px',
+      sortValue: r => r.hh_confirmado,
+      render: r => <b>{formatHours(r.hh_confirmado)}</b>
+    },
+    {
+      key: 'hhSap',
+      header: 'Conf. SAP',
+      align: 'right',
+      width: '110px',
+      sortValue: r => r.hh_confirmado_sap || 0,
+      render: r => (
+        <b style={{ color: (r.hh_confirmado_sap || 0) > 0 ? 'var(--blue)' : 'var(--ink-muted)' }}>
+          {formatHours(r.hh_confirmado_sap || 0)}
+        </b>
+      )
+    },
+    {
+      key: 'div',
+      header: 'Divergência',
+      align: 'right',
+      width: '110px',
+      sortValue: r => r.divergencia_sap || 0,
+      render: r => {
+        const div = r.divergencia_sap || 0;
+        if (div === 0) {
+          return <span style={{ color: 'var(--ink-muted)' }}>0,00</span>;
+        }
+        const isPos = div > 0;
+        return (
+          <span
+            style={{
+              fontWeight: 700,
+              color: isPos ? 'var(--orange-dark)' : 'var(--bad)'
+            }}
+          >
+            {isPos ? `+${formatHours(div)}` : formatHours(div)}
+          </span>
+        );
+      }
+    },
+    {
+      key: 'status',
+      header: 'Status Confronto',
+      width: '190px',
+      sortValue: r => r.status_divergencia || '',
+      render: r => {
+        const s = r.status_divergencia || 'Não Confirmado';
+        let meta: 'ok' | 'warn' | 'bad' | 'sem' | 'info' = 'sem';
+        if (s === 'OK') meta = 'ok';
+        else if (s === 'Divergente (Portal > SAP)') meta = 'warn';
+        else if (s === 'Divergente (SAP > Portal)') meta = 'bad';
+        else if (s === 'Não Apontado no SAP') meta = 'warn';
+        else if (s === 'Não Confirmado no Portal') meta = 'info';
+
+        return <StatusPill status={meta} text={s} />;
+      }
+    }
+  ];
+
   return (
     <div className="view-medicao-usoff">
       {/* Cabeçalho */}
@@ -520,11 +818,17 @@ export function MedicaoUsoffView() {
           {/* Seção com SegmentedControl e Tabelas */}
           <div style={{ marginBottom: '28px' }}>
             <div className="section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-              <SegmentedControl<'operacoes' | 'unidades' | 'prepostos'>
+              <SegmentedControl<'operacoes' | 'unidades' | 'prepostos' | 'confronto'>
                 options={[
                   { value: 'operacoes', label: 'Por Operação', count: ops.length },
                   { value: 'unidades', label: 'Por Unidade (UN)', count: groupUn.length },
-                  { value: 'prepostos', label: 'Por Preposto', count: groupPreposto.length }
+                  { value: 'prepostos', label: 'Por Preposto', count: groupPreposto.length },
+                  {
+                    value: 'confronto',
+                    label: 'Confronto SAP vs Portal',
+                    count: confrontoSummary.divCount > 0 ? confrontoSummary.divCount : confrontoOps.length,
+                    badgeTone: confrontoSummary.divCount > 0 ? 'warn' : 'default'
+                  }
                 ]}
                 value={usoffTab}
                 onChange={setUsoffTab}
@@ -573,6 +877,118 @@ export function MedicaoUsoffView() {
                   rowKey={r => r.name}
                   emptyMessage="Sem dados por preposto."
                 />
+              </div>
+            )}
+
+            {/* Sub-visão 4: Confronto SAP vs Portal */}
+            {usoffTab === 'confronto' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Barra de Ações e Filtro de Status */}
+                <div
+                  className="card"
+                  style={{
+                    background: 'var(--surface-alt)',
+                    padding: '14px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--line)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--ink)' }}>
+                      Filtrar por Status:
+                    </label>
+                    <select
+                      value={confrontoStatusFilter}
+                      onChange={e => setConfrontoStatusFilter(e.target.value)}
+                      style={{ padding: '6px 12px', fontWeight: 600, borderRadius: 'var(--radius-sm)' }}
+                    >
+                      <option value="todos">Todos os registros ({confrontoSummary.totalOps})</option>
+                      <option value="divergentes">Apenas com divergência ({confrontoSummary.divCount})</option>
+                      <option value="ok">Batimento OK (100%) ({confrontoSummary.okCount})</option>
+                      <option value="div_portal_sap">Divergente (Portal &gt; SAP)</option>
+                      <option value="div_sap_portal">Divergente (SAP &gt; Portal)</option>
+                      <option value="nao_sap">Não Apontado no SAP ({confrontoSummary.naoApontadoSapCount})</option>
+                      <option value="nao_portal">Não Confirmado no Portal ({confrontoSummary.naoConfirmadoPortalCount})</option>
+                      <option value="nao_conf">Não Confirmado ({confrontoSummary.naoConfirmadoCount})</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {isGlobal && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={handleReconcile}
+                        disabled={isReconciling}
+                        title="Executa o motor de reconciliação para reprocessar todas as ordens com tolerância de +4 dias e estornos"
+                      >
+                        {isReconciling ? 'Reconciliando...' : 'Reconciliar SAP'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={handleExportConfronto}
+                      disabled={isExportingConfronto || filteredConfrontoOps.length === 0}
+                    >
+                      {isExportingConfronto ? 'Exportando...' : 'Exportar Confronto (Excel)'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 6 KPIs de Confronto */}
+                <div className="kpis" style={{ marginBottom: 0 }}>
+                  <KpiCard
+                    value={confrontoSummary.totalOps}
+                    label="Operações no período"
+                    tone="blue"
+                  />
+                  <KpiCard
+                    value={confrontoSummary.okCount}
+                    label="Batimento 100% OK"
+                    tone="ok"
+                  />
+                  <KpiCard
+                    value={confrontoSummary.divCount}
+                    label="Divergências apuradas"
+                    tone={confrontoSummary.divCount > 0 ? 'bad' : 'blue'}
+                  />
+                  <KpiCard
+                    value={formatHours(confrontoSummary.totalHhPortal)}
+                    label="HH Conf. Portal Offshore"
+                    tone="blue"
+                  />
+                  <KpiCard
+                    value={formatHours(confrontoSummary.totalHhSap)}
+                    label="HH Conf. Extrato SAP"
+                    tone="blue"
+                  />
+                  <KpiCard
+                    value={(confrontoSummary.diffHh > 0 ? '+' : '') + formatHours(confrontoSummary.diffHh)}
+                    label="Saldo Líquido (Portal − SAP)"
+                    tone={confrontoSummary.diffHh === 0 ? 'ok' : 'warn'}
+                  />
+                </div>
+
+                {/* Tabela de Confronto */}
+                <DataTable
+                  data={filteredConfrontoOps}
+                  columns={confrontoColumns}
+                  rowKey={r => r.id || `${r.matricula}_${r.ordem}_${r.operacao}_${r.portal_id}`}
+                  searchable
+                  searchPlaceholder="Buscar por ordem, operação, matrícula, técnico ou plataforma..."
+                  getSearchString={r => `${r.ordem} ${r.operacao} ${r.matricula} ${r.nome} ${r.plataforma_sigla || ''} ${r.unidade_negocio || ''} ${r.status_divergencia || ''}`}
+                  emptyMessage="Nenhuma operação encontrada com os filtros selecionados."
+                />
+
+                <p className="sub" style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
+                  A reconciliação vincula os apontamentos do SAP ao embarque físico do Portal Offshore considerando a janela de execução real, tolerância de +4 dias após o desembarque (PMB) e estornos retroativos.
+                </p>
               </div>
             )}
           </div>

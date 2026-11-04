@@ -25,6 +25,7 @@ export interface RawBaaSDatasetPayload {
   pessoaRows: Array<Record<string, unknown>>;
   tecnicoRows: Array<Record<string, unknown>>;
   carteiraRows: Array<Record<string, unknown>>;
+  carteiraOperacaoRows?: Array<Record<string, unknown>> | null;
   hhRows: Array<Record<string, unknown>>;
   justificativaRows: Array<Record<string, unknown>>;
   watermarkRow?:
@@ -81,6 +82,8 @@ export interface BaaSConnectorPort {
   upsertTecnicosChunk(rows: Array<{ matricula: string; nome: string; funcao: string }>): Promise<void>;
   upsertApontamentosChunk(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertCarteiraChunk(rows: Array<Record<string, unknown>>): Promise<void>;
+  upsertConfirmacoesSAPChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
+  reconciliarConfirmacoesSAPRPC?(): Promise<any>;
   insertFluxoImportacao(row: {
     tipo_fluxo: 'hh' | 'carteira';
     origem: string;

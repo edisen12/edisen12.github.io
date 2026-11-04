@@ -8,6 +8,7 @@ import type {
   AppDataset,
   ApontamentoHH,
   CarteiraEmbarque,
+  CarteiraOperacao,
   ContractConfig,
   FluxoImportacao,
   Justificativa,
@@ -32,6 +33,7 @@ import type { ClientAuthPort } from '../../ports/auth.port';
 import type {
   AuditLogFilterInput,
   BatchImportCarteiraRow,
+  BatchImportConfirmacaoSAPRow,
   BatchImportHHRow,
   BatchImportPessoaRow,
   BatchImportPlataformaRow,
@@ -298,6 +300,41 @@ export function prepareBatchPlataformas(
 }
 
 /**
+ * Prepara o lote de confirmações/apontamentos do SAP ordenados por chave natural.
+ */
+export function prepareBatchConfirmacoesSAP(
+  rows: BatchImportConfirmacaoSAPRow[]
+): Array<{
+  matricula: string;
+  data_criacao: string;
+  data_lancamento: string;
+  data_fim_real: string;
+  ordem: string;
+  operacao: string;
+  horas_confirmadas: number;
+  updated_at: string;
+}> {
+  return rows.map(r => ({
+    matricula: String(r.mat || '').trim(),
+    data_criacao: String(r.cria || '').trim(),
+    data_lancamento: String(r.lanc || '').trim(),
+    data_fim_real: String(r.real || '').trim(),
+    ordem: String(r.ordem || '').trim(),
+    operacao: String(r.op || '').trim(),
+    horas_confirmadas: Number(r.hc) || 0,
+    updated_at: new Date().toISOString()
+  })).sort((a, b) => {
+    const cmpMat = a.matricula.localeCompare(b.matricula);
+    if (cmpMat !== 0) return cmpMat;
+    const cmpOrd = a.ordem.localeCompare(b.ordem);
+    if (cmpOrd !== 0) return cmpOrd;
+    const cmpOp = a.operacao.localeCompare(b.operacao);
+    if (cmpOp !== 0) return cmpOp;
+    return a.data_lancamento.localeCompare(b.data_lancamento);
+  });
+}
+
+/**
  * Filtra registros de auditoria em memória por termo de busca.
  */
 export function filterAuditLogsClientSide(
@@ -468,12 +505,42 @@ export async function assembleAppDataset(
       hh_carteira: row.hh_carteira != null ? Number(row.hh_carteira) : 0,
       hh_fora_carteira: row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0,
       hh_cancelado: row.hh_cancelado != null ? Number(row.hh_cancelado) : 0,
+      hh_confirmado_portal: row.hh_confirmado_portal != null ? Number(row.hh_confirmado_portal) : 0,
+      hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
+      divergencia_confirmada: row.divergencia_confirmada != null ? Number(row.divergencia_confirmada) : 0,
       operacao: idEmb,
       pe: row.pe != null ? Number(row.pe) : null,
       ex: row.ex != null ? Number(row.ex) : null,
       fonte: String(row.fonte || 'carteira')
     };
   });
+
+  // 6.1. Operações detalhadas da Carteira (com conciliação SAP)
+  const carteiraOperacoes: CarteiraOperacao[] = (raw.carteiraOperacaoRows || []).map(row => ({
+    id: String(row.id || ''),
+    portal_id: String(row.portal_id || ''),
+    matricula: String(row.matricula || ''),
+    chave_petrobras: String(row.chave_petrobras || ''),
+    nome: tecnicos[String(row.matricula || '')]?.nome || String(row.nome || ''),
+    empresa: String(row.empresa || ''),
+    estrutura: String(row.estrutura || ''),
+    unidade_negocio: String(row.unidade_negocio || ''),
+    plataforma_sigla: row.plataforma_sigla ? String(row.plataforma_sigla) : null,
+    data_inicio: String(row.data_inicio || ''),
+    data_fim: String(row.data_fim || ''),
+    ordem: String(row.ordem || ''),
+    operacao: String(row.operacao || ''),
+    status_processamento: String(row.status_processamento || 'Pendente'),
+    prioridade: String(row.prioridade || 'Regular'),
+    status_programacao: String(row.status_programacao || 'Carteira'),
+    hh_programado: row.hh_programado != null ? Number(row.hh_programado) : 0,
+    hh_confirmado: row.hh_confirmado != null ? Number(row.hh_confirmado) : 0,
+    hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
+    divergencia_sap: row.divergencia_sap != null ? Number(row.divergencia_sap) : 0,
+    status_divergencia: String(row.status_divergencia || 'Não Confirmado'),
+    recursos: row.recursos != null ? Number(row.recursos) : 1,
+    fonte: String(row.fonte || 'portal_offshore')
+  }));
 
   // 7. Apontamentos HH
   const hhMap: Record<string, ApontamentoHH> = {};
@@ -653,6 +720,7 @@ export async function assembleAppDataset(
     onboardingMap,
     tecnicos,
     carteira,
+    carteiraOperacoes,
     hhMap,
     justMap,
     externalCoveredSet,
@@ -834,6 +902,26 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         });
         count++;
         onProgress?.(count, total);
+      }
+    },
+    async batchImportConfirmacoesSAP(rows, onProgress) {
+      if (!rows.length) return;
+      const prepared = prepareBatchConfirmacoesSAP(rows);
+      const total = prepared.length;
+      if (typeof connector.upsertConfirmacoesSAPChunk === 'function') {
+        for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = prepared.slice(i, i + CHUNK_SIZE);
+          await connector.upsertConfirmacoesSAPChunk(chunk);
+          onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+        }
+      }
+      if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
+        return connector.reconciliarConfirmacoesSAPRPC();
+      }
+    },
+    async reconciliarConfirmacoesSAP() {
+      if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
+        return connector.reconciliarConfirmacoesSAPRPC();
       }
     },
     async fetchSystemAuditLogs(filters?: AuditLogFilterInput) {

@@ -60,6 +60,16 @@ export interface BatchImportPlataformaRow {
   situacao?: string;
 }
 
+export interface BatchImportConfirmacaoSAPRow {
+  mat: string;
+  cria: string;
+  lanc: string;
+  real: string;
+  ordem: string;
+  op: string;
+  hc: number;
+}
+
 export interface BatchImportPessoaRow {
   nome: string;
   papel: PapelOperacional;
@@ -102,6 +112,11 @@ export interface ClientDataPort {
     rows: BatchImportPessoaRow[],
     onProgress?: ProgressCallback
   ): Promise<void>;
+  batchImportConfirmacoesSAP?(
+    rows: BatchImportConfirmacaoSAPRow[],
+    onProgress?: ProgressCallback
+  ): Promise<any>;
+  reconciliarConfirmacoesSAP?(): Promise<any>;
   fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]>;
   deleteUserAccount(userId: string): Promise<{ ok: boolean; message: string }>;
   logSystemEvent(event: Partial<SystemAuditLog>): Promise<void>;

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-03 22:48 (BRT) · HEAD `94622af` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-04 14:10 (BRT) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 
@@ -35,11 +35,12 @@
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `013` — **imutáveis**.
+- `supabase/migrations/001` → `014` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
   - `013_carteira_programada_e_id_embarque.sql`: regra dos 12 dias (`horas_programadas` = `Carteira` + `Fora da carteira`), colunas `hh_carteira`, `hh_fora_carteira` e `hh_cancelado`, e remoção da coluna física redundante `operacao` de `carteira_embarques`.
+  - `014_confirmacoes_sap_e_reconciliacao.sql`: tabela `confirmacoes_sap`, colunas de conciliação em `carteira_operacoes` e `carteira_embarques`, RPC `reconciliar_confirmacoes_sap` (cascata de 5 prioridades, tolerância de +4 dias PMB e estornos retroativos).
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
 - `src/types/database.types.ts` — gerado; só regenerar via MCP `generate_typescript_types`, nunca editar à mão.
 
@@ -76,32 +77,29 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Carga de Técnicos, Operações da Carteira, Regra dos 12 Dias e Limpeza da Visão Embarque Atual (Consolidado ✅):**
-  - **136 técnicos** carregados em `public.tecnicos` (100% de cobertura; 0 faltantes em relação ao extrato operacional).
-  - **54 plataformas/UMS** cadastradas e verificadas em `public.plataformas` (todas as unidades referenciadas na carteira possuem sigla normalizada).
-  - **Migration 011, 012 & 013 aplicadas:** `carteira_operacoes` populada com **1.777 registros** granulares (1.440 status `'Carteira'`, 312 `'Fora da carteira'`, 25 `'Cancelada'`).
-  - **Regra dos 12 Dias e Consolidação Física Automática:** O trigger `sync_carteira_embarques_from_operacoes()` em `carteira_embarques` consolida:
-    - `horas_programadas`: soma de `hh_programado` onde status ∈ (`Carteira`, `Fora da carteira`) = **8.862,70h** em todo o contrato.
-    - Colunas granulares adicionadas: `hh_carteira` (7.447,00h), `hh_fora_carteira` (1.415,70h), `hh_cancelado` (133,00h).
-    - `operacao` redundante removida fisicamente de `carteira_embarques`; `id_embarque` é a referência unificada.
-  - **Visão de Embarque Atual (`EmbarqueAtualView.tsx`) Padronizada:**
-    - Removida coluna calculada artificial "Programado até agora".
-    - Cabeçalhos padronizados: `HH programado`, `HH disponível`, `HH executado`, `% Exec. / Disponível` (meta diária) e `% Exec. / Programado` (progresso total real).
-    - KPI cards simplificados e alinhados com a terminologia da operação.
-  - **Frontend e Tipagens Sincronizadas:** `CarteiraEmbarque` e `CarteiraOperacao` em `src/domain/types.ts`; `database.types.ts` regenerado via Supabase MCP; `assembleAppDataset` mapeando novos campos.
-  - **Higienização de Scratch:** Todos os arquivos temporários de processamento com dados foram eliminados.
+- **Confirmações do SAP, Conciliação com Portal Offshore e Módulo de Confronto (Consolidado ✅):**
+  - **Migration 014 aplicada com sucesso:**
+    - Tabela `public.confirmacoes_sap` criada com chave natural única `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas)`.
+    - Colunas de conciliação adicionadas em `public.carteira_operacoes` (`hh_confirmado_sap`, `divergencia_sap`, `status_divergencia`) e `public.carteira_embarques` (`hh_confirmado_portal`, `hh_confirmado_sap`, `divergencia_confirmada`).
+    - Políticas RLS e índices de performance em `(matricula, ordem, operacao)` e `id_embarque`.
+  - **Ingestão Completa:** Todas as **8.784 confirmações do SAP** (17.387,60h) importadas em `public.confirmacoes_sap`.
+  - **Motor de Reconciliação em Cascata (`reconciliar_confirmacoes_sap`):**
+    - 2.596 apontamentos vinculados diretamente aos embarques físicos do contrato.
+    - **605 operações da carteira com batimento 100% perfeito** (2.710,50h Portal = 2.710,50h SAP).
+    - **42 operações com divergência de horas** (25 SAP > Portal com -101,00h; 17 Portal > SAP com +107,00h).
+    - 344 operações apontadas no SAP mas não confirmadas no Portal (2.125,40h).
+    - 59 operações confirmadas no Portal mas não apontadas no SAP (258,00h).
+    - 727 operações não confirmadas (0h em ambos).
+  - **Frontend Integrado:**
+    - `MedicaoUsoffView.tsx`: nova aba **Confronto SAP vs Portal** no `SegmentedControl` com badge destacando divergências, barra de filtros por status (Todos, Divergentes, Batimento OK, Não Apontado no SAP, Não Confirmado no Portal, Não Confirmado), 6 KPIs de conferência, `<DataTable>` com badges coloridos e botão para re-executar reconciliação.
+    - `ImportarDadosView.tsx`: **Card 5 (Confirmações e apontamentos do SAP)** com dropzone, botão de modelo `.xlsx`, botão de atalho para a tela de confronto e suporte no seletor de revisão de mapeamento de colunas.
+    - `excel.service.ts`: exportador completo `exportConfrontoSAPXlsx` e modelo baixável para o SAP.
+  - **Higienização de Scratch:** Todos os arquivos e diretórios temporários de carga foram eliminados.
   - **Validação de Código:** `npm run typecheck`, `npm run test:run` (24 suítes / 449 testes) e `npm run build` 100% verdes.
-
-- **Aguardando Entrada do Usuário:**
-  - Envio da planilha de **Confirmações do SAP** (ou amostra de suas colunas) para criação da tabela `public.confirmacoes_sap` e modelagem da lógica de conciliação (+4 dias após o fim do embarque, reconciliação de datas de criação/lançamento vs. início/fim real, e tratamento de estornos/reversões).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Aguardar amostra/planilha de Confirmações do SAP** do usuário para definir o esquema da tabela e as regras de cruzamento com as ordens da carteira.
-2. **Desenvolver módulo de confronto:** estruturar regras de conferência de apontamentos (período do embarque, tolerância de +4 dias, batimento de horas confirmadas vs programadas por ordem/operação, estornos).
-3. **Frontend Integration para Operações e Confirmações:**
-   - Adicionar adaptadores e leitor de arquivo no `ImportarDadosView.tsx` para o Portal Offshore e extrato de confirmação SAP.
-   - Exibir detalhamento granular nas telas de medição e justificativas.
-4. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
-5. **Evolução de Técnicos (Backlog):** avaliar inclusão de tabela de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.
-6. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).
+1. **Apresentar o resultado da conciliação ao usuário:** conferir as 42 operações divergentes e os apontamentos não confirmados no Portal Offshore.
+2. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
+3. **Evolução de Técnicos (Backlog):** avaliar inclusão de tabela de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.
+4. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).

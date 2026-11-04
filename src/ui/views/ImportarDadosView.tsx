@@ -6,6 +6,7 @@ import {
   batchImportCarteira,
   batchImportPlataformas,
   batchImportPessoas,
+  batchImportConfirmacoesSAP,
   exportJsonSnapshot
 } from '../../services/data.service';
 import {
@@ -129,6 +130,12 @@ export const ImportarDadosView: React.FC = () => {
         showToast('Cadastro de pessoas atualizado com sucesso!', 'success');
         setPreview(null);
         setActiveTab('pes');
+      } else if (preview.kind === 'sap') {
+        await batchImportConfirmacoesSAP(preview.rows, onProgress);
+        await refreshData();
+        showToast('Confirmações do SAP importadas e reconciliação concluída com sucesso!', 'success');
+        setPreview(null);
+        setActiveTab('us');
       }
     } catch (err: any) {
       showToast(err?.message || 'Erro ao gravar registros no banco de dados.', 'error');
@@ -465,6 +472,66 @@ export const ImportarDadosView: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Card 5: Confirmações do SAP */}
+        <div className="card stack" style={{ gap: '12px' }}>
+          <h2 style={{ margin: 0, fontSize: '1.15rem' }}>5. Confirmações e apontamentos do SAP</h2>
+          <p className="sub" style={{ margin: 0, fontSize: '0.86rem' }}>
+            Extrato de ordens e operações confirmadas no SAP. Reconciliação com embarque físico (+4 dias de tolerância do PMB e estornos retroativos).
+          </p>
+
+          <div
+            className={`dropzone ${dragActiveKind === 'sap' ? 'on' : ''}`}
+            tabIndex={0}
+            role="button"
+            onClick={() => handleTriggerFileInput('sap')}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleTriggerFileInput('sap');
+              }
+            }}
+            onDragOver={e => {
+              e.preventDefault();
+              setDragActiveKind('sap');
+            }}
+            onDragLeave={() => setDragActiveKind(null)}
+            onDrop={e => handleDrop(e, 'sap')}
+            style={{
+              padding: '24px 16px',
+              border: '2px dashed var(--line-strong)',
+              borderRadius: 'var(--radius-md)',
+              textAlign: 'center',
+              cursor: 'pointer',
+              background: dragActiveKind === 'sap' ? 'var(--blue-soft)' : 'var(--surface-alt)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <div style={{ fontWeight: 600, color: 'var(--blue)', marginBottom: '4px' }}>
+              Arraste a planilha de Confirmações do SAP aqui
+            </div>
+            <div style={{ fontSize: '0.84rem', color: 'var(--ink-muted)' }}>
+              ou clique para escolher arquivo (.xlsx, .xls ou .csv)
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => exportModeloXlsx('sap', dataset)}
+            >
+              Baixar modelo SAP (.xlsx)
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => setActiveTab('us')}
+            >
+              Ver confronto SAP vs Portal
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Painel Interativo de Revisão e Remapeamento de Colunas */}
@@ -498,6 +565,7 @@ export const ImportarDadosView: React.FC = () => {
                 <option value="cart">Carteira de embarque</option>
                 <option value="plat">Plataformas</option>
                 <option value="pes">Pessoas e responsabilidades</option>
+                <option value="sap">Confirmações do SAP</option>
               </select>
             </div>
           </div>
@@ -601,6 +669,17 @@ export const ImportarDadosView: React.FC = () => {
                     <th>Unidades</th>
                   </tr>
                 )}
+                {preview.kind === 'sap' && (
+                  <tr>
+                    <th>Matrícula</th>
+                    <th>Criação</th>
+                    <th>Lançamento</th>
+                    <th>Fim Real</th>
+                    <th>Ordem</th>
+                    <th>Operação</th>
+                    <th style={{ textAlign: 'right' }}>Horas confirmadas</th>
+                  </tr>
+                )}
               </thead>
               <tbody>
                 {preview.rows.slice(0, 10).map((r, rIdx) => {
@@ -646,13 +725,26 @@ export const ImportarDadosView: React.FC = () => {
                       </tr>
                     );
                   }
+                  if (preview.kind === 'pes') {
+                    return (
+                      <tr key={rIdx}>
+                        <td style={{ fontWeight: 600 }}>{r.nome}</td>
+                        <td>{r.papel}</td>
+                        <td>{r.email || '—'}</td>
+                        <td>{Array.isArray(r.plats) ? r.plats.join(', ') : '—'}</td>
+                        <td>{Array.isArray(r.uns) ? r.uns.join(', ') : '—'}</td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={rIdx}>
-                      <td style={{ fontWeight: 600 }}>{r.nome}</td>
-                      <td>{r.papel}</td>
-                      <td>{r.email || '—'}</td>
-                      <td>{Array.isArray(r.plats) ? r.plats.join(', ') : '—'}</td>
-                      <td>{Array.isArray(r.uns) ? r.uns.join(', ') : '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{r.mat}</td>
+                      <td>{formatBr(r.cria)}</td>
+                      <td>{formatBr(r.lanc)}</td>
+                      <td>{formatBr(r.real)}</td>
+                      <td style={{ fontWeight: 600 }}>{r.ordem}</td>
+                      <td>{r.op || '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatHours(r.hc)}</td>
                     </tr>
                   );
                 })}

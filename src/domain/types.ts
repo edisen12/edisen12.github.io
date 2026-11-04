@@ -79,6 +79,7 @@ export interface Tecnico {
 
 export interface CarteiraEmbarque {
   id: string;
+  id_embarque?: string;
   matricula: string;
   nome?: string;
   funcao?: string;
@@ -87,10 +88,38 @@ export interface CarteiraEmbarque {
   data_inicio: string; // YYYY-MM-DD
   data_fim: string;    // YYYY-MM-DD
   horas_programadas: number | null;
+  hh_carteira?: number;
+  hh_fora_carteira?: number;
+  hh_cancelado?: number;
   operacao: string;
   pe: number | null;
   ex: number | null;
   fonte: string;
+}
+
+export interface CarteiraOperacao {
+  id?: string;
+  portal_id: string;
+  matricula: string;
+  chave_petrobras: string;
+  nome: string;
+  empresa: string;
+  estrutura: string;
+  unidade_negocio: string;
+  plataforma_sigla: string | null;
+  data_inicio: string; // YYYY-MM-DD
+  data_fim: string;    // YYYY-MM-DD
+  ordem: string;
+  operacao: string;
+  status_processamento: string;
+  prioridade: string;
+  status_programacao: 'Carteira' | 'Fora da carteira' | 'Cancelada' | string;
+  hh_programado: number;
+  hh_confirmado: number;
+  recursos: number;
+  fonte: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ApontamentoHH {

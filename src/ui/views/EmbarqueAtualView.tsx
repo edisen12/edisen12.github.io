@@ -194,33 +194,25 @@ export function EmbarqueAtualView() {
       )
     },
     {
-      key: 'progAte',
-      header: 'Programado até agora',
-      align: 'right',
-      width: '140px',
-      sortValue: r => r.acc.progAte,
-      render: r => formatHours(r.acc.progAte)
-    },
-    {
       key: 'disp',
-      header: 'Disponível até agora',
+      header: 'HH disponível',
       align: 'right',
-      width: '130px',
+      width: '120px',
       sortValue: r => r.acc.d,
       render: r => formatHours(r.acc.d)
     },
     {
       key: 'exec',
-      header: 'Executado',
+      header: 'HH executado',
       align: 'right',
-      width: '100px',
+      width: '110px',
       sortValue: r => r.acc.e,
       render: r => formatHours(r.acc.e)
     },
     {
       key: 'pctD',
-      header: '% do disponível',
-      width: '120px',
+      header: '% Exec. / Disponível',
+      width: '140px',
       sortValue: r => r.acc.p ?? -1,
       render: r => (
         <span style={{ fontWeight: 600 }}>
@@ -230,12 +222,12 @@ export function EmbarqueAtualView() {
     },
     {
       key: 'pctP',
-      header: '% do programado',
-      width: '130px',
-      sortValue: r => calcPct(r.acc.e, r.acc.progAte) ?? -1,
+      header: '% Exec. / Programado',
+      width: '140px',
+      sortValue: r => calcPct(r.acc.e, r.acc.prog) ?? -1,
       render: r => (
         <span style={{ fontWeight: 600 }}>
-          {formatPct(calcPct(r.acc.e, r.acc.progAte))}
+          {formatPct(calcPct(r.acc.e, r.acc.prog))}
         </span>
       )
     },
@@ -294,27 +286,27 @@ export function EmbarqueAtualView() {
           <div className="kpis">
             <KpiCard
               value={rows.length}
-              label="técnicos embarcados"
+              label="técnicos a bordo"
               tone="blue"
             />
             <KpiCard
               value={formatHours(prog)}
-              label="HH programado dos embarques"
+              label="HH programado total"
               tone="blue"
             />
             <KpiCard
               value={formatHours(pd)}
-              label="disponível até agora"
+              label="HH disponível até a data"
               tone="blue"
             />
             <KpiCard
               value={formatHours(pe)}
-              label="executado até agora"
+              label="HH executado até a data"
               tone="blue"
             />
             <KpiCard
               value={formatPct(accPct)}
-              label="acumulado"
+              label="% exec. / disponível"
               tone={accSt === 'ok' ? 'ok' : accSt === 'warn' ? 'warn' : 'bad'}
             />
             <KpiCard

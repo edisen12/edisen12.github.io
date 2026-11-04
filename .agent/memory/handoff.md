@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-03 10:50 (BRT) · HEAD `1229679` (main sincronizada com origin e deploy Pages ✅) · Suíte: 24 arquivos / 449 testes ✅ · `tsc --noEmit` (front + server) ✅
+> Última atualização: 2026-11-03 22:45 (BRT) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 
@@ -35,9 +35,13 @@
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `010` — **imutáveis**. Migration `010_fix_user_onboarding_rls_recursion.sql` criada e aplicada no banco de prod `fwdvrkfootvublicetim` (corrige recursão infinita 42P17 em `user_onboarding` e promove `complete_first_login_password_change` a `SECURITY DEFINER`).
+- `supabase/migrations/001` → `013` — **imutáveis**.
+  - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
+  - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
+  - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
+  - `013_carteira_programada_e_id_embarque.sql`: regra dos 12 dias (`horas_programadas` = `Carteira` + `Fora da carteira`), colunas `hh_carteira`, `hh_fora_carteira` e `hh_cancelado`, e remoção da coluna física redundante `operacao` de `carteira_embarques`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
-- `src/types/database.types.ts` — gerado; só regenerar, nunca editar à mão.
+- `src/types/database.types.ts` — gerado; só regenerar via MCP `generate_typescript_types`, nunca editar à mão.
 
 ### Backend Universal Self-Hosted & Infraestrutura VPS / Docker (Topologia `self-hosted`)
 - `server/package.json`, `server/tsconfig.json` — servidor Node 22/TS puro (`node:http`, `node:crypto`), zero dependências npm obrigatórias.
@@ -72,32 +76,32 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Repaginação Geral de Modais e Sistema Unificado de Inputs:**
-  - Causa raiz do aspecto "jogado/esquisito": `.fld` não possuía regras em nenhum arquivo CSS, fazendo com que `<label className="fld">` renderizasse como `display: inline` padrão do navegador com inputs/selects crus, sem alinhamento, sem padding nem tokens de foco.
-  - Implementado design system de formulários em `src/styles/components.css`:
-    1. `.fld`, `.fld-label`, `.fld-hint` com flexbox estruturado e tipografia do sistema;
-    2. Inputs, selects (com seta SVG chevron) e textareas universais com tokens `--surface`, `--line`, foco com `--blue` e halo `--blue-soft`;
-    3. Padrão `.input-with-icon` com leading icons e trailing action buttons (como alternador de senha);
-    4. `.role-cards-grid` e `.role-card-option` para seleção interativa de papéis operacionais (Preposto, Controlador, Gestor);
-    5. `.password-requirements-card` com checagem visual em tempo real;
-    6. Atualização de `Modal.tsx` com `icon` e `subtitle`.
-  - Repaginação completa aplicada em todos os modais do sistema:
-    - `UserLoginModal`: e-mail com ícone, senha com `Eye`/`EyeOff` e check de 8 dígitos, seleção de papel em cards enriquecidos com badges e descrições contratuais;
-    - `NovoAdminModal` (ambas as views): ícones `User`, `Mail`, `Lock`, alternador de senha;
-    - `ResetPasswordModal`, `ToggleActiveModal`, `DeleteUserModal` (ambas as views): cartões informativos de usuário, confirmação assistida;
-    - `PessoaModal` e `PlataformaModal`: inputs estruturados com ícones temáticos (`Anchor`, `Building2`, `Ship`, etc.);
-    - `JustificativaModal`: fatos do dia em cards KPI, motivo com `.form-select`, horas com `.input-with-icon`, textarea e badge de usuário;
-    - `EmailComposerModal`: chips dos responsáveis, campos "Para" e "Assunto" com ícones, textarea estilizada e botões de cópia/abertura;
-    - `ManualEntryModals` (`ManualHHModal` e `ManualEscalaModal`): todos os campos convertidos para o novo padrão.
-  - Suíte de validação:
-    - `npm run typecheck` (front) → 0 erros ✅
-    - `npx tsc -p server/tsconfig.json --noEmit` (server) → 0 erros ✅
-    - `npm run test:run` → **24 arquivos / 449 testes passando** ✅
-    - `npm run build` → bundle Vite de produção compilado com sucesso ✅
+- **Carga de Técnicos, Operações da Carteira, Regra dos 12 Dias e Limpeza da Visão Embarque Atual (Consolidado ✅):**
+  - **136 técnicos** carregados em `public.tecnicos` (100% de cobertura; 0 faltantes em relação ao extrato operacional).
+  - **54 plataformas/UMS** cadastradas e verificadas em `public.plataformas` (todas as unidades referenciadas na carteira possuem sigla normalizada).
+  - **Migration 011, 012 & 013 aplicadas:** `carteira_operacoes` populada com **1.777 registros** granulares (1.440 status `'Carteira'`, 312 `'Fora da carteira'`, 25 `'Cancelada'`).
+  - **Regra dos 12 Dias e Consolidação Física Automática:** O trigger `sync_carteira_embarques_from_operacoes()` em `carteira_embarques` consolida:
+    - `horas_programadas`: soma de `hh_programado` onde status ∈ (`Carteira`, `Fora da carteira`) = **8.862,70h** em todo o contrato.
+    - Colunas granulares adicionadas: `hh_carteira` (7.447,00h), `hh_fora_carteira` (1.415,70h), `hh_cancelado` (133,00h).
+    - `operacao` redundante removida fisicamente de `carteira_embarques`; `id_embarque` é a referência unificada.
+  - **Visão de Embarque Atual (`EmbarqueAtualView.tsx`) Padronizada:**
+    - Removida coluna calculada artificial "Programado até agora".
+    - Cabeçalhos padronizados: `HH programado`, `HH disponível`, `HH executado`, `% Exec. / Disponível` (meta diária) e `% Exec. / Programado` (progresso total real).
+    - KPI cards simplificados e alinhados com a terminologia da operação.
+  - **Frontend e Tipagens Sincronizadas:** `CarteiraEmbarque` e `CarteiraOperacao` em `src/domain/types.ts`; `database.types.ts` regenerado via Supabase MCP; `assembleAppDataset` mapeando novos campos.
+  - **Higienização de Scratch:** Todos os arquivos temporários de processamento com dados foram eliminados.
+  - **Validação de Código:** `npm run typecheck`, `npm run test:run` (24 suítes / 449 testes) e `npm run build` 100% verdes.
+
+- **Aguardando Entrada do Usuário:**
+  - Envio da planilha de **Confirmações do SAP** (ou amostra de suas colunas) para criação da tabela `public.confirmacoes_sap` e modelagem da lógica de conciliação (+4 dias após o fim do embarque, reconciliação de datas de criação/lançamento vs. início/fim real, e tratamento de estornos/reversões).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Avisar à usuária Luanna** que ela já pode concluir a troca de senha na tela de primeiro acesso.
-2. **Revisar e commitar** as alterações pendentes da working tree (Modais/Inputs + Exclusão em cascata + Dual-Topology + Migration 010 + memória).
-3. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
-4. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).
+1. **Aguardar amostra/planilha de Confirmações do SAP** do usuário para definir o esquema da tabela e as regras de cruzamento com as ordens da carteira.
+2. **Desenvolver módulo de confronto:** estruturar regras de conferência de apontamentos (período do embarque, tolerância de +4 dias, batimento de horas confirmadas vs programadas por ordem/operação, estornos).
+3. **Frontend Integration para Operações e Confirmações:**
+   - Adicionar adaptadores e leitor de arquivo no `ImportarDadosView.tsx` para o Portal Offshore e extrato de confirmação SAP.
+   - Exibir detalhamento granular nas telas de medição e justificativas.
+4. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
+5. **Evolução de Técnicos (Backlog):** avaliar inclusão de tabela de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.
+6. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).

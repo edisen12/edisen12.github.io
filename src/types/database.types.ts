@@ -65,10 +65,13 @@ export type Database = {
           data_inicio: string
           ex: number | null
           fonte: string
+          hh_cancelado: number
+          hh_carteira: number
+          hh_fora_carteira: number
           horas_programadas: number | null
           id: string
+          id_embarque: string
           matricula: string
-          operacao: string
           pe: number | null
           plataforma_sigla: string | null
           unidade_negocio: string
@@ -79,10 +82,13 @@ export type Database = {
           data_inicio: string
           ex?: number | null
           fonte?: string
+          hh_cancelado?: number
+          hh_carteira?: number
+          hh_fora_carteira?: number
           horas_programadas?: number | null
           id?: string
+          id_embarque?: string
           matricula: string
-          operacao?: string
           pe?: number | null
           plataforma_sigla?: string | null
           unidade_negocio?: string
@@ -93,10 +99,13 @@ export type Database = {
           data_inicio?: string
           ex?: number | null
           fonte?: string
+          hh_cancelado?: number
+          hh_carteira?: number
+          hh_fora_carteira?: number
           horas_programadas?: number | null
           id?: string
+          id_embarque?: string
           matricula?: string
-          operacao?: string
           pe?: number | null
           plataforma_sigla?: string | null
           unidade_negocio?: string
@@ -112,6 +121,96 @@ export type Database = {
           },
           {
             foreignKeyName: "carteira_embarques_plataforma_sigla_fkey"
+            columns: ["plataforma_sigla"]
+            isOneToOne: false
+            referencedRelation: "plataformas"
+            referencedColumns: ["sigla"]
+          },
+        ]
+      }
+      carteira_operacoes: {
+        Row: {
+          chave_petrobras: string
+          created_at: string
+          data_fim: string
+          data_inicio: string
+          empresa: string
+          estrutura: string
+          fonte: string
+          hh_confirmado: number
+          hh_programado: number
+          id: string
+          matricula: string
+          nome: string
+          operacao: string
+          ordem: string
+          plataforma_sigla: string | null
+          portal_id: string
+          prioridade: string
+          recursos: number
+          status_processamento: string
+          status_programacao: string
+          unidade_negocio: string
+          updated_at: string
+        }
+        Insert: {
+          chave_petrobras?: string
+          created_at?: string
+          data_fim: string
+          data_inicio: string
+          empresa?: string
+          estrutura?: string
+          fonte?: string
+          hh_confirmado?: number
+          hh_programado?: number
+          id?: string
+          matricula: string
+          nome?: string
+          operacao: string
+          ordem: string
+          plataforma_sigla?: string | null
+          portal_id?: string
+          prioridade?: string
+          recursos?: number
+          status_processamento?: string
+          status_programacao?: string
+          unidade_negocio?: string
+          updated_at?: string
+        }
+        Update: {
+          chave_petrobras?: string
+          created_at?: string
+          data_fim?: string
+          data_inicio?: string
+          empresa?: string
+          estrutura?: string
+          fonte?: string
+          hh_confirmado?: number
+          hh_programado?: number
+          id?: string
+          matricula?: string
+          nome?: string
+          operacao?: string
+          ordem?: string
+          plataforma_sigla?: string | null
+          portal_id?: string
+          prioridade?: string
+          recursos?: number
+          status_processamento?: string
+          status_programacao?: string
+          unidade_negocio?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "carteira_operacoes_matricula_fkey"
+            columns: ["matricula"]
+            isOneToOne: false
+            referencedRelation: "tecnicos"
+            referencedColumns: ["matricula"]
+          },
+          {
+            foreignKeyName: "carteira_operacoes_plataforma_sigla_fkey"
             columns: ["plataforma_sigla"]
             isOneToOne: false
             referencedRelation: "plataformas"
@@ -791,4 +890,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

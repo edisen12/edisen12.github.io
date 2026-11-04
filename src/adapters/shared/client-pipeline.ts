@@ -212,6 +212,7 @@ export function prepareBatchCarteira(
       data_fim: r.fim,
       horas_programadas: r.hp != null ? Number(r.hp) : null,
       operacao: r.op?.trim() || '',
+      id_embarque: r.id_embarque?.trim() || r.op?.trim() || '',
       pe: r.pe != null ? Number(r.pe) : null,
       ex: r.ex != null ? Number(r.ex) : null
     };
@@ -248,6 +249,7 @@ export function prepareBatchCarteira(
       data_fim: r.data_fim,
       horas_programadas: r.horas_programadas,
       operacao: r.operacao,
+      id_embarque: r.id_embarque,
       pe: r.pe,
       ex: r.ex,
       fonte: 'carteira',
@@ -451,8 +453,10 @@ export async function assembleAppDataset(
   // 6. Carteira de embarques
   const carteira: CarteiraEmbarque[] = (raw.carteiraRows || []).map(row => {
     const mat = String(row.matricula || '');
+    const idEmb = String(row.id_embarque || (row as any).operacao || '');
     return {
       id: String(row.id || ''),
+      id_embarque: idEmb,
       matricula: mat,
       nome: tecnicos[mat]?.nome || String(row.nome || ''),
       funcao: tecnicos[mat]?.funcao || String(row.funcao || ''),
@@ -461,7 +465,10 @@ export async function assembleAppDataset(
       data_inicio: String(row.data_inicio || ''),
       data_fim: String(row.data_fim || ''),
       horas_programadas: row.horas_programadas != null ? Number(row.horas_programadas) : null,
-      operacao: String(row.operacao || ''),
+      hh_carteira: row.hh_carteira != null ? Number(row.hh_carteira) : 0,
+      hh_fora_carteira: row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0,
+      hh_cancelado: row.hh_cancelado != null ? Number(row.hh_cancelado) : 0,
+      operacao: idEmb,
       pe: row.pe != null ? Number(row.pe) : null,
       ex: row.ex != null ? Number(row.ex) : null,
       fonte: String(row.fonte || 'carteira')

@@ -46,6 +46,7 @@ export interface BatchImportCarteiraRow {
   fim: string;
   hp?: number | null;
   op?: string;
+  id_embarque?: string;
   pe?: number | null;
   ex?: number | null;
 }

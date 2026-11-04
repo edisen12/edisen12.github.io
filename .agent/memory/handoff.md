@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-04 17:15 (BRT) · HEAD a ser commitado (Pipeline 100% autônomo para Portal Offshore e SAP) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-04 17:18 (BRT) · HEAD `1617c53` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 

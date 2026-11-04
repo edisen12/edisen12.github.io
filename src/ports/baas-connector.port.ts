@@ -82,6 +82,7 @@ export interface BaaSConnectorPort {
   upsertTecnicosChunk(rows: Array<{ matricula: string; nome: string; funcao: string }>): Promise<void>;
   upsertApontamentosChunk(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertCarteiraChunk(rows: Array<Record<string, unknown>>): Promise<void>;
+  upsertCarteiraOperacoesChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertConfirmacoesSAPChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
   reconciliarConfirmacoesSAPRPC?(): Promise<any>;
   insertFluxoImportacao(row: {

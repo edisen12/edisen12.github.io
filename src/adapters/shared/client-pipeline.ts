@@ -187,11 +187,35 @@ export function prepareBatchCarteira(
     data_fim: string;
     horas_programadas: number | null;
     operacao: string;
+    id_embarque: string;
     pe: number | null;
     ex: number | null;
     fonte: string;
     updated_at: string;
   }>;
+  opsPayload: Array<{
+    portal_id: string;
+    matricula: string;
+    chave_petrobras: string;
+    nome: string;
+    empresa: string;
+    estrutura: string;
+    unidade_negocio: string;
+    plataforma_sigla: string | null;
+    data_inicio: string;
+    data_fim: string;
+    ordem: string;
+    operacao: string;
+    status_processamento: string;
+    prioridade: string;
+    status_programacao: string;
+    hh_programado: number;
+    hh_confirmado: number;
+    recursos: number;
+    fonte: string;
+    updated_at: string;
+  }>;
+  isGranular: boolean;
   maxDate: string;
 } {
   const unknownPlats = new Map<string, string>();
@@ -242,29 +266,96 @@ export function prepareBatchCarteira(
     a.matricula.localeCompare(b.matricula)
   );
 
-  const cartPayload = preparedRows
-    .map(r => ({
-      matricula: r.matricula,
-      plataforma_sigla: r.plataforma_sigla,
-      unidade_negocio: r.unidade_negocio,
-      data_inicio: r.data_inicio,
-      data_fim: r.data_fim,
-      horas_programadas: r.horas_programadas,
-      operacao: r.operacao,
-      id_embarque: r.id_embarque,
-      pe: r.pe,
-      ex: r.ex,
-      fonte: 'carteira',
-      updated_at: new Date().toISOString()
-    }))
-    .sort((a, b) => {
-      const cmp = a.matricula.localeCompare(b.matricula);
-      return cmp !== 0 ? cmp : a.data_inicio.localeCompare(b.data_inicio);
+  // Consolidação para carteira_embarques (1 linha por técnico e início de embarque)
+  const cartMap = new Map<string, any>();
+  preparedRows.forEach(r => {
+    const key = `${r.matricula}_${r.data_inicio}`;
+    if (!cartMap.has(key)) {
+      cartMap.set(key, {
+        matricula: r.matricula,
+        plataforma_sigla: r.plataforma_sigla,
+        unidade_negocio: r.unidade_negocio,
+        data_inicio: r.data_inicio,
+        data_fim: r.data_fim,
+        horas_programadas: r.horas_programadas,
+        operacao: r.operacao,
+        id_embarque: r.id_embarque,
+        pe: r.pe,
+        ex: r.ex,
+        fonte: 'carteira',
+        updated_at: new Date().toISOString()
+      });
+    } else {
+      const existing = cartMap.get(key);
+      if (r.data_fim > existing.data_fim) existing.data_fim = r.data_fim;
+      if (r.horas_programadas != null) {
+        existing.horas_programadas = (existing.horas_programadas || 0) + r.horas_programadas;
+      }
+      if (!existing.id_embarque && r.id_embarque) existing.id_embarque = r.id_embarque;
+    }
+  });
+
+  const cartPayload = Array.from(cartMap.values()).sort((a, b) => {
+    const cmp = a.matricula.localeCompare(b.matricula);
+    return cmp !== 0 ? cmp : a.data_inicio.localeCompare(b.data_inicio);
+  });
+
+  // Operações granulares da carteira (para confronto com SAP e rastreabilidade total)
+  const isGranular = rows.some(
+    r => (r.ordem && r.ordem.trim() !== '') || (r.op && r.op.trim() !== '') || (r.id_embarque && r.id_embarque.trim() !== '')
+  );
+
+  const opsMap = new Map<string, any>();
+  if (isGranular) {
+    rows.forEach(r => {
+      const mat = r.mat.trim();
+      if (!mat || !r.ini || !r.fim) return;
+      const pFound = lookupPlatform(pidx, r.plat);
+      const resolvedSigla = pFound ? pFound.sigla : r.plat.trim().toUpperCase();
+      const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
+
+      const cleanOrdem = String(r.ordem || '').trim() || (r.op ? 'ORDEM_AVULSA' : 'SEM_ORDEM');
+      const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${r.id_embarque.trim()}` : 'SEM_OP');
+      const key = `${mat}_${r.ini}_${cleanOrdem}_${cleanOp}`;
+
+      opsMap.set(key, {
+        portal_id: String(r.id_embarque || '').trim(),
+        matricula: mat,
+        chave_petrobras: String(r.chave || '').trim(),
+        nome: String(r.nome || '').trim(),
+        empresa: String(r.empresa || '').trim(),
+        estrutura: String(r.reg || '').trim(),
+        unidade_negocio: resolvedUn,
+        plataforma_sigla: resolvedSigla || null,
+        data_inicio: r.ini,
+        data_fim: r.fim,
+        ordem: cleanOrdem,
+        operacao: cleanOp,
+        status_processamento: 'Pendente',
+        prioridade: 'Regular',
+        status_programacao: String(r.status_prog || 'Carteira').trim(),
+        hh_programado: r.hp != null ? Number(r.hp) : 0,
+        hh_confirmado: r.hc_portal != null ? Number(r.hc_portal) : 0,
+        recursos: parseInt(String(r.recursos || '1'), 10) || 1,
+        fonte: 'portal_offshore',
+        updated_at: new Date().toISOString()
+      });
     });
+  }
+
+  const opsPayload = Array.from(opsMap.values()).sort((a, b) => {
+    const cmpMat = a.matricula.localeCompare(b.matricula);
+    if (cmpMat !== 0) return cmpMat;
+    const cmpIni = a.data_inicio.localeCompare(b.data_inicio);
+    if (cmpIni !== 0) return cmpIni;
+    const cmpOrd = a.ordem.localeCompare(b.ordem);
+    if (cmpOrd !== 0) return cmpOrd;
+    return a.operacao.localeCompare(b.operacao);
+  });
 
   const maxDate = rows.reduce((max, r) => (r.fim > max ? r.fim : max), '');
 
-  return { pendingPlataformas, uniqueTecnicos, cartPayload, maxDate };
+  return { pendingPlataformas, uniqueTecnicos, cartPayload, opsPayload, isGranular, maxDate };
 }
 
 /**
@@ -861,20 +952,38 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         await connector.upsertTecnicosChunk(chunk);
       }
 
-      const total = prepared.cartPayload.length;
-      for (let i = 0; i < total; i += CHUNK_SIZE) {
-        const chunk = prepared.cartPayload.slice(i, i + CHUNK_SIZE);
-        await connector.upsertCarteiraChunk(chunk);
-        onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+      if (prepared.isGranular && typeof connector.upsertCarteiraOperacoesChunk === 'function') {
+        const total = prepared.opsPayload.length;
+        for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = prepared.opsPayload.slice(i, i + CHUNK_SIZE);
+          await connector.upsertCarteiraOperacoesChunk(chunk);
+          onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+        }
+      } else {
+        const total = prepared.cartPayload.length;
+        for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = prepared.cartPayload.slice(i, i + CHUNK_SIZE);
+          await connector.upsertCarteiraChunk(chunk);
+          onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+        }
       }
 
+      const totalRowsRecorded = prepared.isGranular ? prepared.opsPayload.length : prepared.cartPayload.length;
       await connector.insertFluxoImportacao({
         tipo_fluxo: 'carteira',
         origem,
-        total_linhas: total,
+        total_linhas: totalRowsRecorded,
         data_maxima: prepared.maxDate || null,
-        observacao: `Importação em lote de ${total} registros de carteira.`
+        observacao: `Importação em lote de ${totalRowsRecorded} registros de carteira.`
       });
+
+      if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
+        try {
+          await connector.reconciliarConfirmacoesSAPRPC();
+        } catch (rErr) {
+          console.warn('Reconciliação automática disparada após importação de carteira:', rErr);
+        }
+      }
     },
     async batchImportPlataformas(rows, onProgress) {
       if (!rows.length) return;

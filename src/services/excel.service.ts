@@ -71,14 +71,21 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro'] },
     { key: 'nome', label: 'Nome', synonyms: ['nome', 'colaborador', 'tecnico', 'empregado'] },
     { key: 'funcao', label: 'Função', synonyms: ['funcao', 'cargo'] },
-    { key: 'plat', label: 'Plataforma', synonyms: ['plataforma', 'unidade maritima', 'embarcacao', 'ues', 'instalacao'] },
-    { key: 'reg', label: 'Unidade de negócio', synonyms: ['unidade de neg', 'negocio', 'regional', 'bacia', 'un'] },
-    { key: 'hp', label: 'Horas programadas', synonyms: ['horas prog', 'hh prog', 'programad', 'hp'] },
+    { key: 'plat', label: 'Plataforma', synonyms: ['unidade', 'plataforma', 'unidade maritima', 'embarcacao', 'ues', 'instalacao'] },
+    { key: 'reg', label: 'Unidade de negócio', synonyms: ['estrutura', 'unidade de neg', 'negocio', 'regional', 'bacia', 'un'] },
+    { key: 'hp', label: 'Horas programadas', synonyms: ['hh programado', 'horas prog', 'hh prog', 'programad', 'hp'] },
     { key: 'op', label: 'Operação', synonyms: ['operacao', 'cod. op', 'op'] },
     { key: 'pe', label: 'PE (ponderação da programação)', synonyms: ['pond. prog', 'ponderacao da prog', 'ponderacao prog', 'pe'] },
     { key: 'ex', label: 'EX (ponderação da execução)', synonyms: ['pond. exec', 'ponderacao da exec', 'ponderacao exec', 'ex'] },
-    { key: 'fim', label: 'Desembarque', synonyms: ['desembarque', 'descida', 'retorno', 'fim', 'termino'] },
-    { key: 'ini', label: 'Embarque', synonyms: ['embarque', 'subida', 'inicio'] }
+    { key: 'fim', label: 'Desembarque', synonyms: ['fim', 'desembarque', 'descida', 'retorno', 'termino'] },
+    { key: 'ini', label: 'Embarque', synonyms: ['inicio', 'embarque', 'subida'] },
+    { key: 'id_embarque', label: 'ID Embarque / Carteira', synonyms: ['id', 'id embarque', 'portal id', 'id_embarque'] },
+    { key: 'ordem', label: 'Ordem', synonyms: ['ordem', 'num ordem'] },
+    { key: 'status_prog', label: 'Status Programação', synonyms: ['status programacao', 'status prog', 'status'] },
+    { key: 'hc_portal', label: 'HH Confirmado (Portal)', synonyms: ['hh confirmado', 'hc portal'] },
+    { key: 'chave', label: 'Chave Petrobras', synonyms: ['chave', 'chave petrobras'] },
+    { key: 'empresa', label: 'Empresa', synonyms: ['empresa'] },
+    { key: 'recursos', label: 'Recursos', synonyms: ['recursos'] }
   ],
   plat: [
     { key: 'sigla', label: 'Sigla', synonyms: ['sigla', 'codigo'] },
@@ -376,7 +383,14 @@ function extractRowsFromSheet(
         hp: parseFlexibleHours(getVal('hp')),
         op: String(getVal('op') || '').trim(),
         pe: parseFlexibleHours(getVal('pe')),
-        ex: parseFlexibleHours(getVal('ex'))
+        ex: parseFlexibleHours(getVal('ex')),
+        id_embarque: String(getVal('id_embarque') || '').trim(),
+        ordem: String(getVal('ordem') || '').trim(),
+        status_prog: String(getVal('status_prog') || '').trim(),
+        hc_portal: parseFlexibleHours(getVal('hc_portal')),
+        chave: String(getVal('chave') || '').trim(),
+        empresa: String(getVal('empresa') || '').trim(),
+        recursos: getVal('recursos')
       });
     } else if (kind === 'sap') {
       const cria = parseExcelOrStringDate(getVal('cria'));

@@ -530,6 +530,20 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
           return { data: 'PONG', error: null };
         }
 
+        case 'reconciliar_confirmacoes_sap': {
+          return {
+            data: {
+              total_confirmacoes_sap: 0,
+              vinculados_ao_embarque: 0,
+              sem_embarque_associado: 0,
+              operacoes_com_batimento_ok: 0,
+              operacoes_com_divergencia: 0,
+              dias_apontados_sincronizados: 0
+            },
+            error: null
+          };
+        }
+
         default:
           return { data: null, error: new Error(`RPC desconhecida: ${name}`) };
       }

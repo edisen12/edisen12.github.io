@@ -47,6 +47,12 @@ export interface BatchImportCarteiraRow {
   hp?: number | null;
   op?: string;
   id_embarque?: string;
+  ordem?: string;
+  status_prog?: string;
+  hc_portal?: number | null;
+  chave?: string;
+  empresa?: string;
+  recursos?: any;
   pe?: number | null;
   ex?: number | null;
 }

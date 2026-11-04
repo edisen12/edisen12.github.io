@@ -103,6 +103,16 @@ export function StickyFilterBar() {
                 Hoje
               </button>
             )}
+            {dataset.watermark.ultima_data_hh && currentDate !== dataset.watermark.ultima_data_hh && (
+              <button
+                type="button"
+                className="filter-today-btn"
+                onClick={() => updateFilter('fDate', dataset.watermark.ultima_data_hh!)}
+                title={`Ir para o dia com o último apontamento recebido (${formatBr(dataset.watermark.ultima_data_hh)})`}
+              >
+                Último dado
+              </button>
+            )}
           </div>
         </div>
 

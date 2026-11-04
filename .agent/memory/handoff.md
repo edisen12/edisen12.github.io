@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-04 14:10 (BRT) · HEAD `8b21766` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-04 16:30 (BRT) · HEAD a ser commitado (main com sincronização de HH e auto-alinhamento de data) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 
@@ -77,7 +77,7 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Confirmações do SAP, Conciliação com Portal Offshore e Módulo de Confronto (Consolidado ✅):**
+- **Confirmações do SAP, Conciliação com Portal Offshore e Sincronização Diária de HH (Consolidado ✅):**
   - **Migration 014 aplicada com sucesso:**
     - Tabela `public.confirmacoes_sap` criada com chave natural única `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas)`.
     - Colunas de conciliação adicionadas em `public.carteira_operacoes` (`hh_confirmado_sap`, `divergencia_sap`, `status_divergencia`) e `public.carteira_embarques` (`hh_confirmado_portal`, `hh_confirmado_sap`, `divergencia_confirmada`).
@@ -90,10 +90,16 @@
     - 344 operações apontadas no SAP mas não confirmadas no Portal (2.125,40h).
     - 59 operações confirmadas no Portal mas não apontadas no SAP (258,00h).
     - 727 operações não confirmadas (0h em ambos).
-  - **Frontend Integrado:**
-    - `MedicaoUsoffView.tsx`: nova aba **Confronto SAP vs Portal** no `SegmentedControl` com badge destacando divergências, barra de filtros por status (Todos, Divergentes, Batimento OK, Não Apontado no SAP, Não Confirmado no Portal, Não Confirmado), 6 KPIs de conferência, `<DataTable>` com badges coloridos e botão para re-executar reconciliação.
-    - `ImportarDadosView.tsx`: **Card 5 (Confirmações e apontamentos do SAP)** com dropzone, botão de modelo `.xlsx`, botão de atalho para a tela de confronto e suporte no seletor de revisão de mapeamento de colunas.
-    - `excel.service.ts`: exportador completo `exportConfrontoSAPXlsx` e modelo baixável para o SAP.
+    - **1.499 apontamentos diários de HH sincronizados** em `public.apontamentos_hh` agregando `data_fim_real` por técnico, com atualização de `fluxo_importacoes` e marca d'água (`ultima_data_hh = '2026-11-03'`).
+  - **Frontend Integrado e Sincronizado:**
+    - Auto-alinhamento inteligente de `fDate` com a marca d'água (`2026-11-03`) em `AppContext.tsx`, garantindo que o usuário veja os dados imediatamente ao abrir o sistema sem cair em dias futuros vazios.
+    - Botão "Último dado (03/11)" adicionado na barra de filtros superior (`StickyFilterBar.tsx`).
+    - **Todas as telas ativadas com dados reais:**
+      - *Visão Geral:* KPIs operacionais de contrato, aderência diária, aderência do período, lista de plataformas e prepostos.
+      - *Painel do Dia:* Técnicos a bordo, horas apontadas por técnico no dia (11h, 10h, etc.), alertas e status.
+      - *Embarque Atual:* HH programado, HH disponível, HH executado acumulado do embarque, % Exec./Disponível e % Exec./Programado.
+      - *Justificativas:* Caixa de entrada com dias que tiveram déficit (`e < 11h`) ou "Não chegou".
+      - *Medição USOFF:* Apuração USOFF com HC real e aba de Confronto SAP vs Portal.
   - **Higienização de Scratch:** Todos os arquivos e diretórios temporários de carga foram eliminados.
   - **Validação de Código:** `npm run typecheck`, `npm run test:run` (24 suítes / 449 testes) e `npm run build` 100% verdes.
 

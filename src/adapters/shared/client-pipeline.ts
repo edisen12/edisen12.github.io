@@ -583,8 +583,9 @@ export async function assembleAppDataset(
   const wmFirst = Array.isArray(raw.watermarkRow)
     ? (raw.watermarkRow.length > 0 ? raw.watermarkRow[0] : null)
     : raw.watermarkRow;
+  const maxHhDate = Object.values(hhMap).reduce((acc, h) => (h.data > acc ? h.data : acc), '');
   const watermark: WatermarkStatus = {
-    ultima_data_hh: wmFirst?.ultima_data_hh ? String(wmFirst.ultima_data_hh) : null,
+    ultima_data_hh: wmFirst?.ultima_data_hh ? String(wmFirst.ultima_data_hh) : (maxHhDate || null),
     ultima_importacao_em: wmFirst?.ultima_importacao_em ? String(wmFirst.ultima_importacao_em) : null
   };
 

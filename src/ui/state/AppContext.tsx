@@ -402,6 +402,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const ds = await loadAppDataset(queryWindow.queryIni, queryWindow.queryFim, isGlobal);
       setDataset(ds);
+
+      if (ds.watermark.ultima_data_hh) {
+        setFiltersState(prev => {
+          if (!prev.fDate || prev.fDate > ds.watermark.ultima_data_hh!) {
+            return {
+              ...prev,
+              fDate: ds.watermark.ultima_data_hh!
+            };
+          }
+          return prev;
+        });
+      }
     } catch (err) {
       console.error('Erro ao carregar dataset do contrato:', err);
     } finally {

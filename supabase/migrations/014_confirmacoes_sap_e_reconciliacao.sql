@@ -66,6 +66,7 @@ DECLARE
   v_sem_embarque integer;
   v_ops_ok integer;
   v_ops_div integer;
+  v_dias_sincronizados integer;
 BEGIN
   -- Passo 1: Vincular cada confirmação do SAP ao id_embarque do técnico
   UPDATE public.confirmacoes_sap cs
@@ -204,6 +205,62 @@ BEGIN
   ) sub
   WHERE ce.id_embarque = sub.id_embarque;
 
+  -- Passo 4: Sincronizar apontamentos diários de HH a partir das confirmações do SAP
+  INSERT INTO public.apontamentos_hh (
+    matricula,
+    data,
+    plataforma_sigla,
+    unidade_negocio,
+    horas_executadas,
+    updated_at
+  )
+  SELECT 
+    cs.matricula,
+    cs.data_fim_real AS data,
+    COALESCE(
+      MAX(ce_direct.plataforma_sigla),
+      (SELECT ce_near.plataforma_sigla FROM public.carteira_embarques ce_near WHERE ce_near.matricula = cs.matricula ORDER BY ABS(ce_near.data_inicio - cs.data_fim_real) LIMIT 1),
+      NULL
+    ) AS plataforma_sigla,
+    COALESCE(
+      MAX(ce_direct.unidade_negocio),
+      (SELECT ce_near.unidade_negocio FROM public.carteira_embarques ce_near WHERE ce_near.matricula = cs.matricula ORDER BY ABS(ce_near.data_inicio - cs.data_fim_real) LIMIT 1),
+      'UN-DESCONHECIDA'
+    ) AS unidade_negocio,
+    LEAST(24::numeric, GREATEST(0::numeric, ROUND(SUM(cs.horas_confirmadas)::numeric, 2))) AS horas_executadas,
+    now() AS updated_at
+  FROM public.confirmacoes_sap cs
+  LEFT JOIN public.carteira_embarques ce_direct ON ce_direct.id_embarque = cs.id_embarque AND cs.id_embarque <> ''
+  JOIN public.tecnicos t ON t.matricula = cs.matricula
+  WHERE cs.data_fim_real IS NOT NULL
+  GROUP BY cs.matricula, cs.data_fim_real
+  ON CONFLICT (matricula, data) DO UPDATE
+  SET 
+    plataforma_sigla = EXCLUDED.plataforma_sigla,
+    unidade_negocio = EXCLUDED.unidade_negocio,
+    horas_executadas = EXCLUDED.horas_executadas,
+    updated_at = now();
+
+  GET DIAGNOSTICS v_dias_sincronizados = ROW_COUNT;
+
+  -- Passo 5: Atualizar fluxo_importacoes para ativar watermark
+  INSERT INTO public.fluxo_importacoes (
+    tipo_fluxo,
+    origem,
+    total_linhas,
+    data_maxima,
+    observacao,
+    criado_em
+  )
+  SELECT 
+    'hh',
+    'Reconciliação SAP (' || count(*) || ' dias)',
+    count(*),
+    max(data),
+    'Sincronizado automaticamente das confirmações do SAP',
+    now()
+  FROM public.apontamentos_hh;
+
   -- Estatísticas finais
   SELECT count(*) INTO v_total_sap FROM public.confirmacoes_sap;
   SELECT count(*) INTO v_vinculados FROM public.confirmacoes_sap WHERE id_embarque <> '';
@@ -216,7 +273,8 @@ BEGIN
     'vinculados_ao_embarque', v_vinculados,
     'sem_embarque_associado', v_sem_embarque,
     'operacoes_com_batimento_ok', v_ops_ok,
-    'operacoes_com_divergencia', v_ops_div
+    'operacoes_com_divergencia', v_ops_div,
+    'dias_apontados_sincronizados', v_dias_sincronizados
   );
 END;
 $$;

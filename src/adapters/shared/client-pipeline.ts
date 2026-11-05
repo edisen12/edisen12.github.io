@@ -278,8 +278,8 @@ export function prepareBatchCarteira(
         data_inicio: r.data_inicio,
         data_fim: r.data_fim,
         horas_programadas: r.horas_programadas,
-        operacao: r.operacao,
-        id_embarque: r.id_embarque,
+        operacao: r.operacao || r.id_embarque || '',
+        id_embarque: r.id_embarque || r.operacao || '',
         pe: r.pe,
         ex: r.ex,
         fonte: 'carteira',
@@ -291,7 +291,7 @@ export function prepareBatchCarteira(
       if (r.horas_programadas != null) {
         existing.horas_programadas = (existing.horas_programadas || 0) + r.horas_programadas;
       }
-      if (!existing.id_embarque && r.id_embarque) existing.id_embarque = r.id_embarque;
+      if (!existing.id_embarque && (r.id_embarque || r.operacao)) existing.id_embarque = r.id_embarque || r.operacao;
     }
   });
 

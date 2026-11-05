@@ -128,3 +128,7 @@
   - Detecção heurística (`guessImportKind`) expandida para mapear com precisão cabeçalhos do Portal Offshore (`Início`, `Fim`, `Ordem`, `Operação`, `HH Programado`, `Status Programação`) sem falsos positivos em `hh`.
   - Inclusão de botão proeminente "Gravar no Banco de Dados" no topo da seção de prévia com rolagem suave automática (`scrollIntoView`) ao carregar o arquivo.
   - Alerta explícito no painel caso 0 linhas sejam lidas e toast informativo orientando o clique em gravação.
+- **2026-11-05** — Correção de Trigger de Carteira e Alinhamento de Colunas (Migration 016):
+  - Corrigida a função PL/pgSQL `sync_carteira_embarques_from_operacoes()` em `carteira_operacoes` para agrupar estritamente por `(matricula, data_inicio)` com agregação `MAX` para `portal_id`, `plataforma_sigla` e `unidade_negocio`, eliminando o erro SQL `21000: ON CONFLICT DO UPDATE command cannot affect row a second time` na importação de carteira do Portal Offshore.
+  - No client-pipeline, o payload de `carteira_embarques` foi blindado para nunca transmitir coluna redundante `operacao` ao Supabase (removida fisicamente na Migration 013).
+  - Na tela de importação, o campo de operação foi clarificado como `Operação (cruzamento SAP)` para evidenciar seu papel de relacionamento com as confirmações do SAP.

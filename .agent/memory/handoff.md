@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 09:10 (BRT) · HEAD `59c34b4` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-05 09:32 (BRT) · Branch `main` sincronizada com `origin/main` · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 
@@ -30,25 +30,26 @@
 - `src/ports/{auth,data,realtime,client-provider,baas-connector}.port.ts` — contratos agnósticos de Auth, Data, Realtime e BaaS.
 - `src/adapters/shared/client-pipeline.ts` — pipeline compartilhado (`assembleAppDataset`, batching topológico, chunks de 500, ordenação determinística por chave natural, validação de senha, debounce Realtime de 450 ms, overlay demo).
 - `src/config/env.ts`, `src/config/topology-guard.ts`, `src/services/provider.registry.ts` — resolução de topologia (`baas` vs `self-hosted`) e travas de build/runtime contra bancos puros em BaaS, segredos `VITE_*` e deploy estático indevido.
-- `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com checagem explícita de `{ error }` em 100% das chamadas (incluindo plataformas/técnicos pendentes, deleção de escopos, `fluxo_importacoes` e fallback `user_onboarding`).
+- `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com checagem explícita de `{ error }` em 100% das chamadas e sanitização contra colunas inexistentes.
 - `src/adapters/self-hosted/{http.client,self-hosted.provider,index}.ts` — cliente HTTP `credentials: 'same-origin'` com `X-CSRF-Token` apenas em memória (zero tokens em `localStorage`) + SSE Realtime (`/api/v1/realtime/events`).
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com regex heurística robusta para Portal Offshore e SAP, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `015` — **imutáveis**.
+- `supabase/migrations/001` → `016` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
   - `013_carteira_programada_e_id_embarque.sql`: regra dos 12 dias (`horas_programadas` = `Carteira` + `Fora da carteira`), colunas `hh_carteira`, `hh_fora_carteira` e `hh_cancelado`, e remoção da coluna física redundante `operacao` de `carteira_embarques`.
   - `014_confirmacoes_sap_e_reconciliacao.sql`: tabela `confirmacoes_sap`, colunas de conciliação em `carteira_operacoes` e `carteira_embarques`, RPC `reconciliar_confirmacoes_sap` (cascata de 5 prioridades, tolerância de +4 dias PMB e estornos retroativos).
   - `015_realtime_configuracoes_e_cadastros.sql`: triggers de sincronização instantânea em tempo real (heartbeat) sobre `configuracoes`, `config_usoff_un`, `plataformas` e `pessoas`.
+  - `016_fix_sync_carteira_embarques_trigger.sql`: correção da função `sync_carteira_embarques_from_operacoes()` para agrupar estritamente por `(matricula, data_inicio)` com agregação `MAX(...)` para campos variantes, blindando contra erros SQL `21000`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
 - `src/types/database.types.ts` — gerado; só regenerar via MCP `generate_typescript_types`, nunca editar à mão.
 
 ### Backend Universal Self-Hosted & Infraestrutura VPS / Docker (Topologia `self-hosted`)
 - `server/package.json`, `server/tsconfig.json` — servidor Node 22/TS puro (`node:http`, `node:crypto`), zero dependências npm obrigatórias.
 - `server/src/ports/universal-storage.port.ts` — `UniversalStorageDriverPort` (7 primitivas universais: `init`, `close`, `findOne`, `findMany`, `upsertMany`, `deleteMany`, `appendImmutable` + `runInTransaction` opcional).
-- `server/src/drivers/{registry,in-memory.driver,generic-sql.driver,generic-document.driver}.ts` — registry aberto (`registerStorageDriver` / `DB_DRIVER_MODULE`) + `GenericSqlDialectDriver` parametrizado (Postgres, MariaDB/MySQL, SQLite, MSSQL, Oracle, CockroachDB) + `GenericDocumentDriver` (MongoDB, CouchDB, DynamoDB) + `InMemoryStorageDriver`.
+- `server/src/drivers/{registry,in-memory.driver,generic-sql.driver,generic-document.driver}.ts` — registry aberto (`registerStorageDriver` / `DB_DRIVER_MODULE`) + `GenericSqlDialectDriver` parametrizado + `GenericDocumentDriver` + `InMemoryStorageDriver`.
 - `server/src/core/{crypto,realtime-hub,domain-engine.service}.ts`, `server/src/{app,index}.ts` — aplicação server-side de 100% das regras de negócio e segurança.
 - `docker/{frontend,backend}.Dockerfile`, `docker/nginx/nginx.conf`, `docker-compose.yml` · `.env.example` · `.env.vps.example` · `docs/DATABASE_ABSTRACTION.md`.
 
@@ -60,29 +61,31 @@
 
 ### UI consolidada
 - Componentes: `DataTable`, `SegmentedControl`, `Sidebar` (+ `__tests__`), `AppShell`, `Drawer`, `KpiCard`, `MeterBar`, `Modal`, `ScopeBanner`, `Sparkline120`, `StatusPill`, `StickyFilterBar`, `ToastContext`, `TopHeader`.
-- Views: `LoginView`, `FirstLoginGate`, `UserSettingsView`, `ConfiguracoesView`, `AdminAuditView` (+ `__tests__`), `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoUsoffView`, `ImportarDadosView` (com auto-scroll, CTA no topo e alerta de 0 linhas).
+- Views: `LoginView`, `FirstLoginGate`, `UserSettingsView`, `ConfiguracoesView`, `AdminAuditView` (+ `__tests__`), `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoUsoffView`, `ImportarDadosView` (com auto-scroll, CTA no topo, alerta de 0 linhas e mapeamento de colunas explícito para cruzamento SAP).
 - `src/App.tsx`, `src/main.tsx`, `src/ui/state/AppContext.tsx`.
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Diagnóstico e Correção da Importação de Dados (Portal Offshore e SAP):**
-  - **Diagnóstico do problema relatado:**
-    1. *Heurística `guessImportKind`:* O arquivo do Portal Offshore possui cabeçalhos como `Início`, `Fim`, `Ordem`, `Operação`, `Status Programação`, `HH Programado`. A regex anterior buscava especificamente a palavra `embarque` ou `desembarque`; sem encontrá-las, caía no fallback de `hh` (HH diário). Como `hh` procura a coluna `Data` (inexistente no Portal), gerava **0 linhas** na prévia.
-    2. *Toast falso-positivo prematuro:* O código chamava `showToast('Planilha ... processada com sucesso!')` assim que o SheetJS fazia a leitura em memória do arquivo (prévia), induzindo o usuário a acreditar que os dados já haviam sido persistidos no Supabase.
-    3. *Botão de gravação oculto e desabilitado:* O botão "Salvar X linhas" ficava apenas no final da página (abaixo de 5 cartões, 15 seletores e da tabela de prévia). Quando 0 linhas eram geradas, o botão ficava como `Salvar 0 linhas` (desabilitado). Mesmo com as 8.784 linhas do SAP carregadas, o usuário não rolava até o final para clicar.
-  - **Soluções Implementadas:**
-    1. *Detecção Heurística Precisa:* Regex em `src/services/excel.service.ts` atualizada para cobrir `status.*prog`, `hh.*prog`, `id_embarque`, `portal`, `inicio` + `fim`, `ordem` + `operacao` + `hh`, garantindo classificação imediata como `cart` (Carteira de embarque) com mapeamento completo das 15 colunas.
-    2. *CTA no Topo e Auto-Scroll:* Adicionado botão proeminente `Gravar X linhas no Banco` diretamente no cabeçalho do painel de prévia em `ImportarDadosView.tsx`, além de rolagem automática suave (`scrollIntoView`) ao selecionar o arquivo.
-    3. *Mensagens Claras de Toast & Alerta de 0 Linhas:* Toast atualizado para informar que a planilha foi carregada na prévia e orientar o clique em gravação. Adicionado card de aviso caso o usuário carregue um tipo incompatível.
-    4. *Sincronização em Tempo Real (Migration 015):* Aplicada trigger de heartbeat nas tabelas de configurações e pessoas/plataformas, permitindo sincronização instantânea entre múltiplos navegadores sem F5.
+- **Diagnóstico Completo de Carga do SAP e Portal Offshore:**
+  - **Validação de Duplicatas do SAP:**
+    - Verificação direta no Supabase confirmou **zero duplicatas**: 9.301 linhas totais e exatamente 9.301 chaves naturais distintas em `confirmacoes_sap`.
+    - Ao importar o lote de mais de 4.000 linhas, o mecanismo de `ON CONFLICT (matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas)` identificou as linhas idênticas já existentes, atualizou apenas o carimbo `updated_at` e inseriu apenas os 517 novos registros reais que faltavam.
+  - **Causa Raiz da Falha do Portal Offshore (Erro 500 / Postgres 21000):**
+    - Identificado no log de eventos do Supabase o erro: `ON CONFLICT DO UPDATE command cannot affect row a second time` (SQLSTATE 21000) no `POST /carteira_operacoes`.
+    - Causa: a trigger `sync_carteira_embarques_from_operacoes()` agrupava por `co.portal_id, co.plataforma_sigla, co.unidade_negocio`. Caso operações de um mesmo embarque físico possuíssem variações em algum desses atributos, a consolidação gerava linhas concorrentes para o mesmo `(matricula, data_inicio)` na mesma instrução de inserção em `carteira_embarques`.
+    - Solução: Migration 016 criada e aplicada no banco de dados, reescrevendo a trigger com `GROUP BY co.matricula, co.data_inicio` e agregadores `MAX(...)`, tornando impossível a colisão de chaves.
+  - **Esclarecimento e Ajuste da Coluna de Operação:**
+    - Na tabela consolidada `carteira_embarques`, a coluna `operacao` foi fisicamente descartada na Migration 013, mantendo apenas `id_embarque`.
+    - Na tabela granular `carteira_operacoes`, a coluna `operacao` é fundamental para o batimento ordem-a-ordem com o extrato do SAP.
+    - No frontend, o seletor foi renomeado para `Operação (cruzamento SAP)` e o conector Supabase foi protegido para nunca enviar campos inexistentes a `carteira_embarques`.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
   - `npm run test:run`: 24 suítes / 449 testes aprovados.
-  - `npm run build`: Bundle de produção gerado com sucesso em 3.80s.
+  - `npm run build`: Bundle de produção gerado com sucesso em 3.87s (`index-QhzoEFEv.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Apresentar diagnóstico e orientações ao usuário:** explicar a causa raiz do não salvamento e como a nova experiência com botão no topo e auto-scroll soluciona o fluxo.
-2. **Conferência da conciliação:** conferir os resultados na aba *Confronto SAP vs Portal* em *Medição USOFF* após as gravações.
+1. **Confirmar com o usuário:** informar o resultado da conferência do SAP (0 duplicatas, 9.301 registros íntegros) e a resolução do erro da trigger do Portal Offshore com a Migration 016.
+2. **Conferência da conciliação:** conferir os resultados na aba *Confronto SAP vs Portal* em *Medição USOFF* após a nova carga da carteira.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 4. **Evolução de Técnicos (Backlog):** avaliar inclusão de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.

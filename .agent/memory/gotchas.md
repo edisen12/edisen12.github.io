@@ -28,6 +28,10 @@ Antes de qualquer commit: `typecheck` + `test:run` + `build`. O deploy (`deploy.
 - **Lookback de 45 dias:** remover o `-45` em `neededQueryWindow`/`loadAppDataset` faz embarques que cruzam o corte perderem dias no critério `enc`.
 - **"Não chegou" falso** em preposto: acontece se `externalCoveredSet` não for populado (RPC `get_external_covered_days`).
 - **Deadlock `40P01` em importação:** acontece se os chunks não forem ordenados por chave natural antes do upsert.
+- **Erro `21000` em importação de carteira (`ON CONFLICT DO UPDATE command cannot affect row a second time`):**
+  - *Sintoma:* Erro HTTP 500 no `POST /rest/v1/carteira_operacoes` ao salvar prévia da carteira do Portal Offshore.
+  - *Causa:* A trigger `sync_carteira_embarques_from_operacoes()` em `carteira_operacoes` continha `GROUP BY co.portal_id, co.matricula, co.plataforma_sigla, co.unidade_negocio, co.data_inicio`. Quando operações do mesmo técnico no mesmo início de embarque possuíam variações de `portal_id` ou de plataforma, o comando `INSERT INTO carteira_embarques ... ON CONFLICT (matricula, data_inicio) DO UPDATE` tentava atualizar a mesma tupla duas vezes no mesmo comando SQL, acionando o erro 21000 do Postgres.
+  - *Solução:* Migration 016 corrigindo a trigger para agrupar estritamente por `(co.matricula, co.data_inicio)` e agregando campos variáveis via `MAX(...)`.
 - **Importação do Portal Offshore / SAP não grava no banco ("processada com sucesso" falso):**
   - *Sintoma:* O usuário seleciona o arquivo do Portal Offshore ou do SAP, vê a mensagem de sucesso, mas nenhuma linha é gravada no Supabase.
   - *Causa:* 1) A heurística `guessImportKind` em `excel.service.ts` não reconhecia cabeçalhos com "Início" e "Fim" sem a palavra "embarque", caindo no tipo `'hh'` e gerando 0 linhas por ausência da coluna `Data`; 2) O toast informava "Planilha processada com sucesso" logo após o SheetJS ler o arquivo em memória, dando a ilusão de que a gravação já havia ocorrido; 3) O botão "Salvar linhas" ficava apenas no rodapé da página.

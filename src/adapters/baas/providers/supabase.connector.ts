@@ -658,9 +658,11 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
   },
 
   async upsertCarteiraChunk(rows: Array<Record<string, unknown>>): Promise<void> {
+    // Sanitização para Supabase: remove coluna 'operacao' (removida fisicamente na migration 013)
+    const sanitized = rows.map(({ operacao, ...rest }) => rest);
     const { error } = await supabase
       .from('carteira_embarques')
-      .upsert(rows as any, { onConflict: 'matricula,data_inicio' });
+      .upsert(sanitized as any, { onConflict: 'matricula,data_inicio' });
     if (error) throw error;
   },
 

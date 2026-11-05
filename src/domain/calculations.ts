@@ -123,13 +123,18 @@ export const findCarteira = (
 };
 
 /**
- * Lista explícita de UMS (Unidades de Manutenção e Segurança / Flotéis) que possuem
- * programação operacional e NÃO devem ser isentas da cobrança de apontamento.
+ * Conjunto estrito de UMS que são medidas por HH de Armador (possuem carteira programada de HH).
+ * Conforme definição de negócio: apenas UMAR, UMCP e UMPA.
+ * As demais UMS (ex.: UMAC, UMGR, UMLI, UMPC, UMPT, UMTJ, UMVT, UMVV) operam por diária
+ * visto que não possuem carteira programada, sendo desconsideradas de apontamento negativo
+ * ("Não chegou" / sem: true) quando tanto programação quanto execução forem nulas ou em branco.
  */
-export const UMS_PROGRAMADAS_SIGLAS = new Set([
-  'UMPA', 'UMCP', 'UMAC', 'UMMA', 'UMPC', 'UMPT',
-  'UMTJ', 'UMVT', 'UMVV', 'UMGR', 'UMLI', 'ULI', 'UCC', 'UMAR'
+export const UMS_HH_ARMADOR_SIGLAS = new Set([
+  'UMAR', 'UMCP', 'UMPA'
 ]);
+
+// Alias de retrocompatibilidade
+export const UMS_PROGRAMADAS_SIGLAS = UMS_HH_ARMADOR_SIGLAS;
 
 /**
  * Verifica se uma plataforma é classificada como Armador / Embarcação Afretada por Diária.
@@ -144,9 +149,14 @@ export const isArmadorPlatform = (
   const armador = (plat?.armador || '').trim();
   const tipo = (plat?.tipo || '').toLowerCase();
 
-  // UMS operacionais com programação são mantidas fora da isenção de armador
-  if (UMS_PROGRAMADAS_SIGLAS.has(sigla) || (sigla.startsWith('UM') && sigla.length === 4)) {
+  // UMS medidas por HH (UMAR, UMCP, UMPA) NÃO são tratadas como armador de diária isento
+  if (UMS_HH_ARMADOR_SIGLAS.has(sigla)) {
     return false;
+  }
+
+  // Demais UMS operam por diária do armador (sem carteira programada)
+  if (sigla.startsWith('UM') || tipo.includes('ums')) {
+    return true;
   }
 
   if (un === 'Armador' || un === 'FPSOs afretados') return true;

@@ -63,12 +63,14 @@
 - Gatilho defensivo no banco: trigger PL/pgSQL `trg_sanitize_carteira_plataforma` em `carteira_operacoes` auto-corrige siglas e injeta a UN canônica automaticamente.
 
 ### 1.11 Regra de Armador / Diária e Desconsideração de "Não Chegou" (`isArmadorDiariaSemProg`)
-- Contratos de embarcações de **Armador** (`un === 'Armador'`, `tipo` afretado/AHTS, `armador !== ''` ou `un === 'FPSOs afretados'`) são medidos por **diária**.
+- Contratos de embarcações de **Armador** (`un === 'Armador'`, `tipo` afretado/AHTS, `armador !== ''`, `un === 'FPSOs afretados'` ou demais UMS afretadas) são medidos por **diária**.
 - Quando tanto a programação (`horas_programadas == null || horas_programadas === 0`) quanto a execução (`horas_executadas == null || horas_executadas === 0` / sem apontamento) forem nulas ou em branco:
   - O dia/embarque **NÃO ENTRA na métrica de apontamento negativo / "Não chegou"** (`sem: true`).
   - `resolveRecord` retorna `null` para essas datas, evitando débito de saldo negativo de -11h, marcação de status `'bad'` (vermelho) e cobrança indevida de justificativas.
   - No acumulado da carteira, `calcCarteiraHP` retorna 0h e o rótulo de fonte exibe `'Diária (Armador)'`.
-- **Exceção de UMS com Programação:** A frota de UMS (`UMS_PROGRAMADAS_SIGLAS`: `UMPA`, `UMCP`, `UMAC`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, `UMGR`, `UMLI`, `ULI`, `UCC`, `UMAR`) possui programação operacional real e é **mantida fora do escopo de isenção de armador**, sendo cobrada normalmente caso não aponte horas.
+- **Exceção de UMS por HH do Armador (`UMS_HH_ARMADOR_SIGLAS`):**
+  - Apenas **`UMAR`**, **`UMCP`** e **`UMPA`** são medidas por HH do armador (possuem programação de carteira).
+  - As demais UMS (ex.: `UMAC`, `UMGR`, `UMLI`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, etc.) operam por **diária** por não possuírem carteira programada, recebendo a isenção de "Não chegou" quando sem programação.
 
 ## 2. RBAC e Escopo
 
@@ -174,3 +176,6 @@
   - *Limpeza e Self-Healing no Banco (Migration 020):* Excluídas as plataformas pendentes duplicadas criadas por falta de matching (`PMXL`, `PMLZ1`, `PMNT1`, `PAG-02`, `PCR-01`), saneados os apontamentos de HH legados para as siglas canônicas, e criada a trigger PL/pgSQL `trg_sanitize_carteira_plataforma` em `carteira_operacoes` garantindo normalização determinística no banco. Plataforma `HFAB` vinculada à UN `Armador`.
   - *Regra de Negócio de Armador / Diária (`isArmadorDiariaSemProg`):* Embarcações de Armador medidas por diária com programação e execução nulas ou em branco são desconsideradas da métrica de apontamento negativo ("Não chegou"), suprimindo o saldo falso de -11h e o status `'bad'`.
   - *Exceção Operacional UMS:* A frota de UMS (`UMPA`, `UMCP`, `UMAC`, `UMMA`, etc.) possui programação operacional e foi expressamente mantida fora do escopo de isenção, sendo cobrada normalmente caso não aponte horas.
+- **2026-11-05** — Refinamento de UMS do Armador (HH vs Diária):
+  - Definido pelo usuário que apenas **`UMAR`**, **`UMCP`** e **`UMPA`** são medidas por HH de Armador.
+  - Todas as demais UMS operam por **diária** por não possuírem carteira programada, recebendo a isenção de apontamento negativo ("Não chegou") quando a programação for nula ou zero.

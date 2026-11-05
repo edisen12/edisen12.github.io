@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 13:35 (BRT) · Suíte: 24 arquivos / 462 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DIfabSIB.js`)
+> Última atualização: 2026-11-05 13:48 (BRT) · Suíte: 24 arquivos / 462 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DMjeHyda.js`)
 
 ## 1. Resumo Executivo
 
@@ -74,7 +74,7 @@
   - **Sanitização de Plataformas:** Criado método `sanitizePlatformCode` e dicionário `PLATFORM_ALIASES` em `src/utils/format.ts` para converter determinística e heuristicamente siglas do Portal Offshore (`PMXL1`/`PMXL` -> `MXL`, `PMLZ1` -> `MLZ`, `PMNT1` -> `PMNT`, `PAG-02` -> `PAG2`, `PCR-01` -> `PCR1`, `PCM-9` -> `PCM9`, `PPE-1A` -> `PPE1A`, `PRA-1` -> `PRA1`, `P-09` -> `P09`, etc.).
   - **Saneamento no Banco (Migration 020):** Aplicada com sucesso no Supabase. As plataformas pendentes duplicadas foram removidas, os 72 apontamentos legados de HH com siglas desnormalizadas foram atualizados para suas siglas e UNs canônicas, e a trigger `trg_sanitize_carteira_plataforma` garante normalização imediata em qualquer inserção em `carteira_operacoes`.
   - **Regra de Negócio de Armador / Diária:** Implementada função `isArmadorDiariaSemProg`. Quando o técnico está em embarcação de Armador (medida por diária) e tanto a programação quanto a execução forem nulas ou em branco, `resolveRecord` retorna `null`, suprimindo o apontamento negativo falso ("Não chegou" / -11h / status bad) e o alerta de justificativa pendente.
-  - **Exceção de UMS com Programação:** A frota de UMS (`UMS_PROGRAMADAS_SIGLAS`: `UMPA`, `UMCP`, `UMAC`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, `UMGR`, `UMLI`, `ULI`, `UCC`, `UMAR`) é mantida fora do escopo de isenção e é cobrada normalmente caso não registre apontamento.
+  - **Exceção de UMS por HH do Armador:** Apenas **`UMAR`**, **`UMCP`** e **`UMPA`** são medidas por HH de Armador. As demais UMS (`UMAC`, `UMGR`, `UMLI`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, etc.) operam por diária visto que não possuem carteira programada, recebendo a isenção de apontamento negativo quando sem programação.
   - **Base Atualizada:** Os 147 embarques consolidados em `carteira_embarques` (1.830 operações em `carteira_operacoes`) foram reconciliados com o SAP via `reconciliar_confirmacoes_sap()`, gerando 3.045 confirmações vinculadas, 879 batimentos OK e 1.562 dias apontados sincronizados.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.

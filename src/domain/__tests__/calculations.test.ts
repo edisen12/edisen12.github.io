@@ -326,22 +326,69 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(rec).toBeNull(); // Não gera sem: true (-11h negativo)
     });
 
-    it('caso 8: UMS (UMPA, UMCP, UMAC) com programação é mantida fora do escopo de isenção de armador', () => {
-      expect(UMS_PROGRAMADAS_SIGLAS.has('UMPA')).toBe(true);
+    it('caso 8: UMS (UMAR, UMCP, UMPA) são medidas por HH do armador; demais UMS são por diária (sem carteira programada)', () => {
+      // UMS medidas por HH do armador
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMAR')).toBe(true);
       expect(UMS_PROGRAMADAS_SIGLAS.has('UMCP')).toBe(true);
-      expect(UMS_PROGRAMADAS_SIGLAS.has('UMAC')).toBe(true);
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMPA')).toBe(true);
 
-      const datasetUms = createBaseDataset({
+      // Demais UMS operam por diária
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMAC')).toBe(false);
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMGR')).toBe(false);
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMTJ')).toBe(false);
+
+      // Plataforma UMAC (diária) sem programação e sem apontamento: isenta de "Não chegou" (retorna null)
+      const datasetUmac = createBaseDataset({
         carteira: [
           {
-            id: 'c-ums',
+            id: 'c-umac',
             matricula: '1001',
+            plataforma_sigla: 'UMAC',
+            unidade_negocio: 'Bacia de Campos (UN-BC)',
+            data_inicio: '2026-10-10',
+            data_fim: '2026-10-23',
+            horas_programadas: 0,
+            operacao: 'EMB_UMAC',
+            pe: null,
+            ex: null,
+            fonte: 'carteira'
+          }
+        ],
+        plataformas: {
+          UMAC: {
+            sigla: 'UMAC',
+            chave_norm: 'umac',
+            nome: 'UMS ARRAIAL DO CABO',
+            un: 'Bacia de Campos (UN-BC)',
+            armador: '',
+            gerencia: '',
+            tipo: 'Unidade Afretada UMS',
+            situacao: 'Operando',
+            cadastro_pendente: false
+          }
+        },
+        watermark: {
+          ultima_data_hh: '2026-10-15',
+          ultima_importacao_em: '2026-10-15T08:00:00'
+        },
+        hhMap: {}
+      });
+
+      const recUmac = resolveRecord('1001', '2026-10-12', datasetUmac);
+      expect(recUmac).toBeNull(); // Isenta: não gera -11h nem "Não chegou"
+
+      // Plataforma UMCP (medida por HH) sem apontamento: gera "Não chegou" normalmente
+      const datasetUmcp = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-umcp',
+            matricula: '1002',
             plataforma_sigla: 'UMCP',
             unidade_negocio: 'Armador',
             data_inicio: '2026-10-10',
             data_fim: '2026-10-23',
             horas_programadas: 154,
-            operacao: 'EMB_1001',
+            operacao: 'EMB_UMCP',
             pe: 1,
             ex: 1,
             fonte: 'carteira'
@@ -367,12 +414,11 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
         hhMap: {}
       });
 
-      // UMS com programação sem apontamento gera "Não chegou" normalmente
-      const rec = resolveRecord('1001', '2026-10-12', datasetUms);
-      expect(rec).not.toBeNull();
-      expect(rec?.sem).toBe(true);
-      expect(rec?.d).toBe(11);
-      expect(rec?.e).toBe(0);
+      const recUmcp = resolveRecord('1002', '2026-10-12', datasetUmcp);
+      expect(recUmcp).not.toBeNull();
+      expect(recUmcp?.sem).toBe(true);
+      expect(recUmcp?.d).toBe(11);
+      expect(recUmcp?.e).toBe(0);
     });
   });
 

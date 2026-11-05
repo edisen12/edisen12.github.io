@@ -439,7 +439,7 @@ export function FichaTecnicoDrawer() {
                                               color: isEm ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
                                             }}
                                           >
-                                            {isEm ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)'}
+                                            {isEm ? 'Cadastrada no Portal' : 'Não Cadastrada no Portal'}
                                           </span>
                                         </td>
                                         <td style={{ padding: '4px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>

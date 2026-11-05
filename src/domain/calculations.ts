@@ -227,6 +227,60 @@ export const calcHpInInterval = (
   return (calcCarteiraHP(c, config, plataformas) * (diffDays(a, b) + 1)) / n;
 };
 
+/**
+ * Retorna as horas programadas estritamente em 'Carteira' (com antecedência >= 12 dias do início do embarque).
+ * Conforme regra contratual:
+ * - Atividades com >= 12 dias são 'Carteira' e pontuam na parcela PE (PE * HP_carteira) e EX (EX * HC).
+ * - Atividades com < 12 dias ou inseridas no embarque são 'Fora da carteira' e NÃO pontuam na parcela PE,
+ *   pontuando apenas na execução (EX * HC).
+ * - Se c.hh_carteira não estiver informado (null/undefined - ex.: base legada ou sem detalhamento de 12 dias),
+ *   recai de forma retrocompatível para calcCarteiraHP(c, config, plataformas).
+ */
+export const calcCarteiraHPCarteira = (
+  c: CarteiraEmbarque,
+  config: ContractConfig,
+  plataformas?: Record<string, Plataforma>
+): number => {
+  if (plataformas && isArmadorDiariaSemProg(c, plataformas)) {
+    return 0;
+  }
+  if (c.hh_carteira != null && !isNaN(Number(c.hh_carteira))) {
+    return Number(c.hh_carteira);
+  }
+  return calcCarteiraHP(c, config, plataformas);
+};
+
+export const calcHpCarteiraInInterval = (
+  c: CarteiraEmbarque,
+  a: string,
+  b: string,
+  config: ContractConfig,
+  plataformas?: Record<string, Plataforma>
+): number => {
+  if (a > b) return 0;
+  const n = diffDays(c.data_inicio, c.data_fim) + 1;
+  return (calcCarteiraHPCarteira(c, config, plataformas) * (diffDays(a, b) + 1)) / n;
+};
+
+export const calcCarteiraHPForaCarteira = (
+  c: CarteiraEmbarque
+): number => {
+  if (c.hh_fora_carteira != null && !isNaN(Number(c.hh_fora_carteira))) {
+    return Number(c.hh_fora_carteira);
+  }
+  return 0;
+};
+
+export const calcHpForaCarteiraInInterval = (
+  c: CarteiraEmbarque,
+  a: string,
+  b: string
+): number => {
+  if (a > b) return 0;
+  const n = diffDays(c.data_inicio, c.data_fim) + 1;
+  return (calcCarteiraHPForaCarteira(c) * (diffDays(a, b) + 1)) / n;
+};
+
 export const computeDataAte = (
   P: PeriodWindow,
   lastDate: string | null

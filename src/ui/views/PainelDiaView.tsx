@@ -281,7 +281,7 @@ export function PainelDiaView() {
                   background: 'none',
                   padding: 0
                 }}
-                title={hasFora ? 'Contém ordens confirmadas no SAP fora da carteira do Portal (clique para ver)' : 'Ver ordens confirmadas no SAP'}
+                title={hasFora ? 'Contém ordens confirmadas no SAP não cadastradas no Portal (clique para ver)' : 'Ver ordens confirmadas no SAP'}
               >
                 {daySap.length} {plural(daySap.length, 'ordem', 'ordens')}
                 {hasFora ? ' ⚠️' : ''}
@@ -680,7 +680,7 @@ export function PainelDiaView() {
                     <b style={{ fontSize: '1.1rem', color: 'var(--ok)' }}>{formatHours(totalEmCart)}</b>
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Não cadastradas (Fora)</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Não cadastradas no Portal</span>
                     <b style={{ fontSize: '1.1rem', color: totalForaCart > 0 ? 'var(--orange-dark)' : 'var(--ink)' }}>
                       {formatHours(totalForaCart)}
                     </b>
@@ -689,7 +689,7 @@ export function PainelDiaView() {
               );
             })()}
 
-            {/* Aviso quando há ordens fora da carteira */}
+            {/* Aviso quando há ordens não cadastradas no Portal */}
             {modalOrdens.items.some(it => it.status_reconciliacao !== 'Em Carteira') && (
               <div
                 style={{
@@ -741,7 +741,7 @@ export function PainelDiaView() {
                               color: isEmCart ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
                             }}
                           >
-                            {isEmCart ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)'}
+                            {isEmCart ? 'Cadastrada no Portal' : 'Não Cadastrada no Portal'}
                           </span>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>

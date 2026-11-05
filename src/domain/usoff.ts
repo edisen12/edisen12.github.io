@@ -14,6 +14,8 @@ import { diffDays } from '../utils/date';
 import { calcPct } from '../utils/format';
 import { eachDay } from './periods';
 import {
+  calcHpCarteiraInInterval,
+  calcHpForaCarteiraInInterval,
   calcHpInInterval,
   computeDataAte,
   computePeriodDays,
@@ -74,7 +76,9 @@ export const computeUsoffOperations = (
     hd: number,
     hc: number,
     w: { pe: number | null; ex: number | null },
-    sharedAcrossPortfolios = false
+    sharedAcrossPortfolios = false,
+    hpCarteira?: number,
+    hpForaCarteira?: number
   ) => {
     const o =
       ops[key] ||
@@ -88,6 +92,8 @@ export const computeUsoffOperations = (
         fim: b,
         dias: 0,
         hp: 0,
+        hpCarteira: 0,
+        hpForaCarteira: 0,
         hpAte: 0,
         hd: 0,
         hc: 0,
@@ -109,6 +115,9 @@ export const computeUsoffOperations = (
     if (b > o.fim) o.fim = b;
     o.dias += diffDays(a, b) + 1;
     o.hp += hp;
+    const effHpCarteira = hpCarteira !== undefined ? hpCarteira : hp;
+    o.hpCarteira = (o.hpCarteira || 0) + effHpCarteira;
+    o.hpForaCarteira = (o.hpForaCarteira || 0) + (hpForaCarteira || 0);
     o.hpAte += hpAte;
     o.hd += hd;
     o.hc += hc;
@@ -120,7 +129,10 @@ export const computeUsoffOperations = (
     if (w.pe == null || w.ex == null) {
       o.falta = true;
     } else {
-      o.peHp += w.pe * hp;
+      // Regra contratual de USOFF:
+      // - O que for Carteira (>= 12 dias de antecedência) utiliza a ponderação de Programação (PE * HP_carteira) e Execução (EX * HC).
+      // - O que for Fora da carteira (< 12 dias) utiliza APENAS a ponderação da Execução (EX * HC); PE não incide.
+      o.peHp += w.pe * effHpCarteira;
       o.exHc += w.ex * hc;
       o.pes.add(w.pe);
       o.exs.add(w.ex);
@@ -167,23 +179,28 @@ export const computeUsoffOperations = (
       ? `op:${c.operacao}`
       : `emb:${c.id || c.matricula + '_' + c.data_inicio}`;
 
+    const hpCart = calcHpCarteiraInInterval(c, a, b, dataset.config, dataset.plataformas);
+    const hpFora = calcHpForaCarteiraInInterval(c, a, b);
+
     add(
       opKey,
       {
         op: c.operacao || '',
         tipo: c.operacao ? 'Operação' : 'Embarque',
-        fonte: hpSourceLabel(c, dataset.config)
+        fonte: hpSourceLabel(c, dataset.config, dataset.plataformas)
       },
       l,
       c.matricula,
       a,
       b,
-      calcHpInInterval(c, a, b, dataset.config),
-      calcHpInInterval(c, a, bb, dataset.config),
+      calcHpInInterval(c, a, b, dataset.config, dataset.plataformas),
+      calcHpInInterval(c, a, bb, dataset.config, dataset.plataformas),
       hd,
       hc,
       w,
-      isShared
+      isShared,
+      hpCart,
+      hpFora
     );
   });
 
@@ -212,7 +229,9 @@ export const computeUsoffOperations = (
         x.d,
         x.e,
         w,
-        false
+        false,
+        0,
+        0
       );
     });
   }
@@ -231,6 +250,8 @@ export const summarizeUsoff = (list: UsoffOperationRow[]): UsoffSummary => {
   const t = {
     n: list.length,
     hp: 0,
+    hpCarteira: 0,
+    hpForaCarteira: 0,
     hpAte: 0,
     hd: 0,
     hc: 0,
@@ -241,6 +262,8 @@ export const summarizeUsoff = (list: UsoffOperationRow[]): UsoffSummary => {
 
   list.forEach(o => {
     t.hp += o.hp;
+    t.hpCarteira += o.hpCarteira ?? o.hp;
+    t.hpForaCarteira += o.hpForaCarteira ?? 0;
     t.hpAte += o.hpAte;
     t.hd += o.hd;
     t.hc += o.hc;

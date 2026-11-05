@@ -1109,7 +1109,7 @@ export async function exportTecnicoXlsx(
       cs.horas_confirmadas,
       cs.contador_confirmacao || 0,
       cs.id_embarque || '',
-      cs.status_reconciliacao === 'Em Carteira' ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)',
+      cs.status_reconciliacao === 'Em Carteira' ? 'Cadastrada no Portal' : 'Não Cadastrada no Portal',
       formatBr(cs.data_criacao),
       formatBr(cs.data_lancamento)
     ]);
@@ -1386,8 +1386,8 @@ export async function exportPainelDiaOrdensXlsx(params: {
           c.horas_confirmadas,
           c.contador_confirmacao || 0,
           c.status_reconciliacao === 'Em Carteira'
-            ? 'Cadastrada no Portal (Em Carteira)'
-            : 'Não Cadastrada no Portal (Fora da Carteira)',
+            ? 'Cadastrada no Portal'
+            : 'Não Cadastrada no Portal',
           r.e,
           r.d,
           r.st.toUpperCase(),

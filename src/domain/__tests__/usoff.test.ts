@@ -537,4 +537,166 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(ops[0].sharedAcrossPortfolios).toBe(false);
     });
   });
+
+  describe('6. Regra dos 12 dias no USOFF (Carteira vs Fora da Carteira)', () => {
+    it('incide PE exclusivamente sobre horas de Carteira (>= 12 dias) e remunera todas as horas executadas por EX', () => {
+      // Embarque de 14 dias:
+      // - Total programado: 96h
+      // - Carteira (>= 12 dias): 72h
+      // - Fora da carteira (< 12 dias): 24h
+      // - Horas executadas (HC): 100h
+      // - PE = 1.5, EX = 2.0
+      // Esperado:
+      // peHp = 1.5 * 72 = 108 (NÃO 1.5 * 96 = 144)
+      // exHc = 2.0 * 100 = 200
+      // USoff = 108 + 200 = 308
+      const hhMap: Record<string, any> = {};
+      for (let day = 1; day <= 10; day++) {
+        const dStr = day < 10 ? `0${day}` : `${day}`;
+        hhMap[`1001|2026-10-${dStr}`] = {
+          matricula: '1001',
+          data: `2026-10-${dStr}`,
+          plataforma_sigla: 'P58',
+          unidade_negocio: 'Espírito Santo (UN-ES)',
+          horas_executadas: 10
+        };
+      }
+
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-12dias',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 96,
+            hh_carteira: 72,
+            hh_fora_carteira: 24,
+            operacao: 'OP-12DIAS',
+            pe: 1.5,
+            ex: 2.0,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.hp).toBe(96);
+      expect(op.hpCarteira).toBe(72);
+      expect(op.hpForaCarteira).toBe(24);
+      expect(op.hc).toBe(100);
+
+      // Ponderação estrita: PE * 72 e EX * 100
+      expect(op.peHp).toBe(108);
+      expect(op.exHc).toBe(200);
+      expect(op.us).toBe(308);
+
+      const summary = summarizeUsoff(ops);
+      expect(summary.hp).toBe(96);
+      expect(summary.hpCarteira).toBe(72);
+      expect(summary.hpForaCarteira).toBe(24);
+      expect(summary.peHp).toBe(108);
+      expect(summary.exHc).toBe(200);
+      expect(summary.us).toBe(308);
+    });
+
+    it('caso de técnico com 100% Fora da carteira (ex: Alexandre com 4h fora da carteira e 110h executadas no SAP)', () => {
+      // Quando hh_carteira = 0 e hh_fora_carteira = 4:
+      // PE * 0 = 0
+      // EX * 110 = 220 (com EX = 2.0)
+      // USoff = 220
+      const hhMap: Record<string, any> = {};
+      for (let day = 1; day <= 10; day++) {
+        const dStr = day < 10 ? `0${day}` : `${day}`;
+        hhMap[`1001|2026-10-${dStr}`] = {
+          matricula: '1001',
+          data: `2026-10-${dStr}`,
+          plataforma_sigla: 'P58',
+          unidade_negocio: 'Espírito Santo (UN-ES)',
+          horas_executadas: 11
+        };
+      }
+
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-alexandre',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 4,
+            hh_carteira: 0,
+            hh_fora_carteira: 4,
+            operacao: 'OP-ALEXANDRE',
+            pe: 1.5,
+            ex: 2.0,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.hp).toBe(4);
+      expect(op.hpCarteira).toBe(0);
+      expect(op.hpForaCarteira).toBe(4);
+      expect(op.hc).toBe(110);
+
+      // PE não pontua porque foi programado com < 12 dias
+      expect(op.peHp).toBe(0);
+      // EX remunera integralmente a execução a bordo
+      expect(op.exHc).toBe(220);
+      expect(op.us).toBe(220);
+    });
+
+    it('fallback retrocompatível para registros legados onde hh_carteira não foi preenchido', () => {
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-leg',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 154,
+            // hh_carteira ausente
+            operacao: 'OP-LEGACY',
+            pe: 1.0,
+            ex: 1.0,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap: {
+          '1001|2026-10-01': {
+            matricula: '1001',
+            data: '2026-10-01',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 11
+          }
+        }
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops[0].peHp).toBe(154);
+      expect(ops[0].exHc).toBe(11);
+      expect(ops[0].us).toBe(165);
+    });
+  });
 });

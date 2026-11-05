@@ -359,7 +359,7 @@ export function MedicaoUsoffView() {
     }
   ];
 
-  // Operações combinadas da Carteira do Portal + Confirmações do SAP fora da carteira
+  // Operações combinadas da Carteira do Portal + Confirmações do SAP não cadastradas no Portal
   const rawCarteiraOps = useMemo(() => {
     return mergeConfrontoOperations(
       dataset.carteiraOperacoes || [],
@@ -824,9 +824,9 @@ export function MedicaoUsoffView() {
                   borderRadius: 'var(--radius-md)'
                 }}
               >
-                <div>
+                <div title="Ponderação de Programação (PE × HP_carteira): incide apenas sobre horas em Carteira (>= 12 dias de antecedência). Horas fora da carteira (< 12 dias) pontuam apenas na Execução (EX × HC).">
                   <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
-                    Parcela da programação &Sigma; PE &times; HP
+                    Parcela da programação &Sigma; PE &times; HP (Carteira)
                   </div>
                   <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>
                     {T.falta > 0 ? '—' : formatUs(T.peHp)}

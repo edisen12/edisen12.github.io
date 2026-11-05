@@ -348,6 +348,8 @@ export interface UsoffOperationRow {
   fim: string;
   dias: number;
   hp: number;
+  hpCarteira?: number;
+  hpForaCarteira?: number;
   hpAte: number;
   hd: number;
   hc: number;
@@ -365,6 +367,8 @@ export interface UsoffOperationRow {
 export interface UsoffSummary {
   n: number;
   hp: number;
+  hpCarteira?: number;
+  hpForaCarteira?: number;
   hpAte: number;
   hd: number;
   hc: number;

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 14:28 (BRT) · Suíte: 24 arquivos / 464 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DpUxacBI.js`)
+> Última atualização: 2026-11-05 14:50 (BRT) · Suíte: 24 arquivos / 468 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-Di58MTVD.js`)
 
 ## 1. Resumo Executivo
 
@@ -70,19 +70,17 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Visibilidade e Confronto de Ordens do SAP fora da Carteira do Portal Offshore:**
-  - **Diagnóstico da Divergência:** No caso do técnico Alexandre de Oliveira Sales (e outros como Osmar, Jonhrele, etc.), a planilha do Portal Offshore continha apenas uma linha com 4 horas programadas (`ordem: 002032834400 / 0010`), enquanto no SAP o técnico trabalhou todos os dias do embarque confirmando 10 a 11 horas em mais de 18 ordens diferentes executadas a bordo que **nunca foram cadastradas no planejamento do Portal Offshore**.
-  - **Ingestão e Indexação de Confirmações SAP:** Adicionado `confirmacaoSapRows` em `RawBaaSDatasetPayload` e `confirmacoesSap` em `AppDataset` para todas as confirmações vinculadas a embarques (`id_embarque <> ''`). Implementado `buildSapIndex` para consultas instantâneas O(1) por técnico, data e embarque.
-  - **Painel do Dia (`PainelDiaView`):** Coluna Executado exibe a contagem de ordens confirmadas no SAP (`X ordens`) e alerta `⚠️` quando há ordens fora da carteira do Portal. Clicar abre o modal completo de detalhamento diário discriminando situação (`Cadastrada no Portal (Em Carteira)` vs `Não Cadastrada no Portal (Fora da Carteira)`). Novo botão no topo da tela: `Exportar Apontamentos do Dia (Excel)` via `exportPainelDiaOrdensXlsx`.
-  - **Ficha do Técnico (`FichaTecnicoDrawer`):** Histórico diário conta com detalhamento expansível por dia listando cada ordem e operação confirmada no SAP com badges de situação no Portal. O exportador `.xlsx` do técnico (`exportTecnicoXlsx`) inclui uma aba dedicada "Confirmações SAP".
-  - **Confronto SAP vs Portal (`MedicaoUsoffView`):** Implementada a função `mergeConfrontoOperations` que unifica as operações da carteira com as ordens do SAP executadas fora da carteira (`status_divergencia = 'Não Cadastrado no Portal'`). A visão de confronto agora permite filtrar por `Não Confirmado / Não Cadastrado no Portal` e exportar o confronto completo via `exportConfrontoSAPXlsx`.
+- **Regra dos 12 Dias no USOFF e Harmonização de Rótulos:**
+  - **Ponderação USOFF Aplicada:** Implementado em `src/domain/usoff.ts` e `src/domain/calculations.ts` (`calcCarteiraHPCarteira`, `calcHpCarteiraInInterval`, `calcCarteiraHPForaCarteira`, `calcHpForaCarteiraInInterval`). Na fórmula do USOFF, a parcela de programação ($PE \times HP_{carteira}$) incide **estritamente sobre as horas com antecedência $\ge 12$ dias** (`Carteira`). Horas cadastradas com $< 12$ dias ou durante o embarque (`Fora da carteira`) utilizam **apenas a ponderação de execução** ($EX \times HC$), tendo parcela de programação nula ($PE \times 0$). Caso `hh_carteira` não esteja definido (base legada), recai de forma retrocompatível sobre o $HP$ total.
+  - **Desambiguação Conceitual de Nomenclatura:** Ordens confirmadas no SAP pelo técnico que nunca foram cadastradas pelo planejamento no Portal Offshore são rotuladas exclusivamente como **`Não Cadastrada no Portal`** em todas as interfaces (`PainelDiaView`, `FichaTecnicoDrawer`, `MedicaoUsoffView` e `excel.service.ts`), reservando o termo contratual **`Fora da carteira`** exclusivamente para as programações cadastradas no Portal Offshore com $< 12$ dias de antecedência.
+  - **Exibição e KPIs:** No `MedicaoUsoffView`, o KPI e os tooltips destacam `Σ PE × HP (Carteira)` para deixar evidente aos gestores que apenas horas planejadas com $\ge 12$ dias recebem pontuação de PE.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
-  - `npm run test:run`: 24 suítes / 464 testes aprovados (100% verdes).
-  - `npm run build`: Bundle de produção gerado com sucesso em 5.56s (`index-DpUxacBI.js`).
+  - `npm run test:run`: 24 suítes / 468 testes aprovados (100% verdes).
+  - `npm run build`: Bundle de produção gerado com sucesso em 4.17s (`index-Di58MTVD.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Apresentar diagnóstico e novas ferramentas ao usuário:** detalhar por que ocorreu a divergência do Alexandre de Oliveira Sales (apenas 4h cadastradas no Portal vs 113h apontadas no SAP em ordens não planejadas).
+1. **Apresentar diagnóstico e novas ferramentas ao usuário:** detalhar o funcionamento da regra contratual dos 12 dias no USOFF e a distinção clara entre ordens "Não Cadastradas no Portal" e programação "Fora da carteira".
 2. **Validar a navegação e exportação:** demonstrar como inspecionar as ordens do dia no *Painel do Dia*, na *Ficha do Técnico* e no *Confronto SAP vs Portal*, bem como os relatórios Excel gerados.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.

@@ -17,6 +17,10 @@ import {
   buildPlatformIndex,
   buildSapIndex,
   calcCarteiraHP,
+  calcCarteiraHPCarteira,
+  calcCarteiraHPForaCarteira,
+  calcHpCarteiraInInterval,
+  calcHpForaCarteiraInInterval,
   calcHpInInterval,
   computeCobrancaStats,
   computeDataAte,
@@ -828,6 +832,54 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
 
       // Em um intervalo de 7 dias (01 a 07): 154 * 7 / 14 = 77h
       expect(calcHpInInterval(c, '2026-10-01', '2026-10-07', config)).toBe(77);
+    });
+
+    it('calcCarteiraHPCarteira e calcHpCarteiraInInterval (regra dos 12 dias)', () => {
+      const config = DEFAULT_CONFIG;
+      // Embarque com 100h programadas totais: 70h em Carteira (>= 12 dias) e 30h Fora da carteira (< 12 dias)
+      const c1: CarteiraEmbarque = {
+        id: 'c1',
+        matricula: '1001',
+        plataforma_sigla: 'P58',
+        unidade_negocio: 'Espírito Santo (UN-ES)',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-10', // 10 dias
+        horas_programadas: 100,
+        hh_carteira: 70,
+        hh_fora_carteira: 30,
+        operacao: 'OP-01',
+        pe: 1,
+        ex: 1,
+        fonte: 'carteira'
+      };
+
+      // HP Total: 100h
+      expect(calcCarteiraHP(c1, config)).toBe(100);
+      // HP Carteira: 70h
+      expect(calcCarteiraHPCarteira(c1, config)).toBe(70);
+      // HP Fora da Carteira: 30h
+      expect(calcCarteiraHPForaCarteira(c1)).toBe(30);
+
+      // Em 5 dias (01 a 05 de 10 dias):
+      expect(calcHpCarteiraInInterval(c1, '2026-10-01', '2026-10-05', config)).toBe(35);
+      expect(calcHpForaCarteiraInInterval(c1, '2026-10-01', '2026-10-05')).toBe(15);
+
+      // Fallback: se hh_carteira não estiver definido, recai para calcCarteiraHP
+      const cLegacy: CarteiraEmbarque = {
+        id: 'cleg',
+        matricula: '1001',
+        plataforma_sigla: 'P58',
+        unidade_negocio: 'Espírito Santo (UN-ES)',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-10',
+        horas_programadas: 80,
+        operacao: 'OP-02',
+        pe: 1,
+        ex: 1,
+        fonte: 'carteira'
+      };
+      expect(calcCarteiraHPCarteira(cLegacy, config)).toBe(80);
+      expect(calcCarteiraHPForaCarteira(cLegacy)).toBe(0);
     });
 
     it('prazoOf e computeDataAte', () => {

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 11:15 (BRT) · Suíte: 24 arquivos / 456 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DjwXaauv.js`)
+> Última atualização: 2026-11-05 13:35 (BRT) · Suíte: 24 arquivos / 462 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DIfabSIB.js`)
 
 ## 1. Resumo Executivo
 
@@ -24,18 +24,18 @@
 - Testes: `src/domain/__tests__/*` (domain, calculations, periods, usoff, communications).
 
 ### Utilitários
-- `src/utils/date.ts`, `src/utils/format.ts` (`parseCounter`, `parseFlexibleHours`) + `src/utils/__tests__/date-format.test.ts` (58 testes).
+- `src/utils/date.ts`, `src/utils/format.ts` (`parseCounter`, `parseFlexibleHours`, `parseIdEmbarque`, `sanitizePlatformCode`, `PLATFORM_ALIASES`) + `src/utils/__tests__/date-format.test.ts` (66 testes).
 
 ### Serviços & Abstração Client-Side (Dual-Topology)
 - `src/ports/{auth,data,realtime,client-provider,baas-connector}.port.ts` — contratos agnósticos de Auth, Data, Realtime e BaaS (`BatchImportConfirmacaoSAPRow` com `contador`).
-- `src/adapters/shared/client-pipeline.ts` — pipeline compartilhado (`assembleAppDataset`, batching topológico, chunks de 500, ordenação determinística por chave natural, validação de senha, debounce Realtime de 450 ms, overlay demo, deduplicação em memória e ordenação de confirmações SAP).
+- `src/adapters/shared/client-pipeline.ts` — pipeline compartilhado (`assembleAppDataset`, sanitização integrada de plataformas, batching topológico, chunks de 500, ordenação determinística por chave natural, validação de senha, debounce Realtime de 450 ms, overlay demo, deduplicação em memória e ordenação de confirmações SAP).
 - `src/config/env.ts`, `src/config/topology-guard.ts`, `src/services/provider.registry.ts` — resolução de topologia (`baas` vs `self-hosted`) e travas de build/runtime.
 - `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com `upsertConfirmacoesSAPChunk` usando a chave única estendida com `contador_confirmacao`.
 - `src/adapters/self-hosted/{http.client,self-hosted.provider,index}.ts` — cliente HTTP `credentials: 'same-origin'` com `X-CSRF-Token` apenas em memória + SSE Realtime.
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `019` — **imutáveis**.
+- `supabase/migrations/001` → `020` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
@@ -46,6 +46,7 @@
   - `017_contador_confirmacao_sap.sql`: reset de `confirmacoes_sap`, inclusão de `contador_confirmacao bigint NOT NULL DEFAULT 0` e chave única atualizada.
   - `018_unify_id_embarque.sql`: inclusão de `id_embarque` em `carteira_operacoes`, trigger de self-healing para strings GMT, sincronização bidirecional e RPC `reset_carteira_embarques`.
   - `019_fix_reset_carteira_embarques.sql`: adequação da RPC `reset_carteira_embarques` à extensão safeupdate do PostgreSQL com cláusulas WHERE explícitas.
+  - `020_sanitize_plataformas_e_armador.sql`: migração corretiva e defensiva para saneamento de siglas de plataformas e aliases (`PMXL`/`PMXL1` -> `MXL`, `PMLZ1` -> `MLZ`, `PMNT1` -> `PMNT`, `PAG-02` -> `PAG2`, `PCR-01` -> `PCR1`), remoção de plataformas pendentes duplicadas e trigger PL/pgSQL `trg_sanitize_carteira_plataforma` em `carteira_operacoes`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
 - `src/types/database.types.ts` — gerado via MCP `generate_typescript_types` atualizado com `id_embarque` em `carteira_operacoes`.
 
@@ -69,18 +70,19 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Correção da Chamada de Substituição de Carteira (Migration 019):**
-  - **Diagnóstico do Erro no Supabase:** A chamada para `/rest/v1/rpc/reset_carteira_embarques` retornava HTTP 400 com `"UPDATE requires a WHERE clause"`. A extensão `safeupdate` do Supabase bloqueava a query `UPDATE confirmacoes_sap SET id_embarque = ''` por não conter uma cláusula `WHERE` explícita.
-  - **Correção Definitiva:** Migration 019 substituiu todos os comandos por DMLs com `WHERE` explícito (`DELETE FROM carteira_operacoes WHERE id IS NOT NULL`, `DELETE FROM carteira_embarques WHERE id IS NOT NULL` e `UPDATE confirmacoes_sap SET id_embarque = '', status_reconciliacao = 'Pendente' WHERE id_embarque <> '' OR status_reconciliacao <> 'Pendente'`).
-  - **Execução do Reset Limpo:** A carteira legada foi completamente resetada no banco de produção (0 linhas em `carteira_operacoes` e 0 linhas em `carteira_embarques`). A tabela `confirmacoes_sap` (10.025 registros) foi mantida intacta e pronta para conciliação automática.
-  - **Pronto para os 147 Embarques:** O usuário pode agora subir a planilha oficial do Portal Offshore com os 147 embarques do período de medição, marcando a opção "Substituir carteira existente" ou importando diretamente.
+- **Sanitização de Unidades e Desconsideração de "Não Chegou" em Armador / Diária (Migration 020):**
+  - **Sanitização de Plataformas:** Criado método `sanitizePlatformCode` e dicionário `PLATFORM_ALIASES` em `src/utils/format.ts` para converter determinística e heuristicamente siglas do Portal Offshore (`PMXL1`/`PMXL` -> `MXL`, `PMLZ1` -> `MLZ`, `PMNT1` -> `PMNT`, `PAG-02` -> `PAG2`, `PCR-01` -> `PCR1`, `PCM-9` -> `PCM9`, `PPE-1A` -> `PPE1A`, `PRA-1` -> `PRA1`, `P-09` -> `P09`, etc.).
+  - **Saneamento no Banco (Migration 020):** Aplicada com sucesso no Supabase. As plataformas pendentes duplicadas foram removidas, os 72 apontamentos legados de HH com siglas desnormalizadas foram atualizados para suas siglas e UNs canônicas, e a trigger `trg_sanitize_carteira_plataforma` garante normalização imediata em qualquer inserção em `carteira_operacoes`.
+  - **Regra de Negócio de Armador / Diária:** Implementada função `isArmadorDiariaSemProg`. Quando o técnico está em embarcação de Armador (medida por diária) e tanto a programação quanto a execução forem nulas ou em branco, `resolveRecord` retorna `null`, suprimindo o apontamento negativo falso ("Não chegou" / -11h / status bad) e o alerta de justificativa pendente.
+  - **Exceção de UMS com Programação:** A frota de UMS (`UMS_PROGRAMADAS_SIGLAS`: `UMPA`, `UMCP`, `UMAC`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, `UMGR`, `UMLI`, `ULI`, `UCC`, `UMAR`) é mantida fora do escopo de isenção e é cobrada normalmente caso não registre apontamento.
+  - **Base Atualizada:** Os 147 embarques consolidados em `carteira_embarques` (1.830 operações em `carteira_operacoes`) foram reconciliados com o SAP via `reconciliar_confirmacoes_sap()`, gerando 3.045 confirmações vinculadas, 879 batimentos OK e 1.562 dias apontados sincronizados.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
-  - `npm run test:run`: 24 suítes / 456 testes aprovados (100% verdes).
-  - `npm run build`: Bundle de produção gerado com sucesso em 4.01s (`index-DjwXaauv.js`).
+  - `npm run test:run`: 24 suítes / 462 testes aprovados (100% verdes).
+  - `npm run build`: Bundle de produção gerado com sucesso em 4.09s (`index-DIfabSIB.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Avisar o usuário:** informar o erro exato diagnosticado nos logs do Supabase (`safeupdate: UPDATE requires a WHERE clause`), confirmar que a correção via Migration 019 já está aplicada e testada, e que as tabelas de carteira foram zeradas para receber com precisão cirúrgica os 147 embarques do período de medição.
-2. **Acompanhar a ingestão dos 147 embarques do Portal Offshore:** validar se a quantidade consolida em 147 embarques na visão *Embarque Atual* e se a conciliação automática com as 10.025 confirmações do SAP na aba *Confronto SAP vs Portal* opera perfeitamente.
+1. **Apresentar diagnóstico ao usuário:** confirmar que a sanitização das unidades e a regra de isenção de diária para armadores sem programação foram implementadas com 100% de cobertura de testes, e que os 147 embarques estão devidamente consolidados no banco de produção.
+2. **Conferência das telas:** validar junto ao usuário a exibição nas visões *Visão Geral*, *Painel do Dia*, *Embarque Atual* e *Confronto SAP vs Portal*.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.

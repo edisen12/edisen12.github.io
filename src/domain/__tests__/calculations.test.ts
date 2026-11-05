@@ -32,10 +32,13 @@ import {
   groupDaysByField,
   hpSourceLabel,
   inferEmbarkation,
+  isArmadorDiariaSemProg,
+  isArmadorPlatform,
   isPersonResponsible,
   listAvailablePlatforms,
   listAvailableUnits,
   lookupPlatform,
+  UMS_PROGRAMADAS_SIGLAS,
   passesFilter,
   prazoOf,
   resolveLocation,
@@ -279,6 +282,97 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       // Com a chave em externalCoveredSet, resolveRecord deve retornar null em vez de sintetizar falta/sem:true
       const rec = resolveRecord('1001', '2026-10-12', dataset);
       expect(rec).toBeNull();
+    });
+
+    it('caso 7: embarcação de Armador medida por diária sem programação e sem execução -> não gera "Não chegou" (retorna null)', () => {
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-armador',
+            matricula: '1001',
+            plataforma_sigla: 'CDAN',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-10',
+            data_fim: '2026-10-23',
+            horas_programadas: 0,
+            operacao: 'EMB_1001',
+            pe: null,
+            ex: null,
+            fonte: 'carteira'
+          }
+        ],
+        plataformas: {
+          CDAN: {
+            sigla: 'CDAN',
+            chave_norm: 'cdan',
+            nome: 'FPSO CIDADE DE ANCHIETA',
+            un: 'FPSOs afretados',
+            armador: '',
+            gerencia: '',
+            tipo: 'Embarcação afretada',
+            situacao: 'Operando',
+            cadastro_pendente: false
+          }
+        },
+        watermark: {
+          ultima_data_hh: '2026-10-15',
+          ultima_importacao_em: '2026-10-15T08:00:00'
+        },
+        hhMap: {}
+      });
+
+      // Em 2026-10-12, técnico está previsto a bordo de embarcação de armador sem programação e sem apontamento
+      const rec = resolveRecord('1001', '2026-10-12', dataset);
+      expect(rec).toBeNull(); // Não gera sem: true (-11h negativo)
+    });
+
+    it('caso 8: UMS (UMPA, UMCP, UMAC) com programação é mantida fora do escopo de isenção de armador', () => {
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMPA')).toBe(true);
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMCP')).toBe(true);
+      expect(UMS_PROGRAMADAS_SIGLAS.has('UMAC')).toBe(true);
+
+      const datasetUms = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-ums',
+            matricula: '1001',
+            plataforma_sigla: 'UMCP',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-10',
+            data_fim: '2026-10-23',
+            horas_programadas: 154,
+            operacao: 'EMB_1001',
+            pe: 1,
+            ex: 1,
+            fonte: 'carteira'
+          }
+        ],
+        plataformas: {
+          UMCP: {
+            sigla: 'UMCP',
+            chave_norm: 'umcp',
+            nome: 'UMS PRAIA DO CABO FRIO',
+            un: 'Armador',
+            armador: '',
+            gerencia: '',
+            tipo: 'Unidade Afretada UMS',
+            situacao: 'Operando',
+            cadastro_pendente: false
+          }
+        },
+        watermark: {
+          ultima_data_hh: '2026-10-15',
+          ultima_importacao_em: '2026-10-15T08:00:00'
+        },
+        hhMap: {}
+      });
+
+      // UMS com programação sem apontamento gera "Não chegou" normalmente
+      const rec = resolveRecord('1001', '2026-10-12', datasetUms);
+      expect(rec).not.toBeNull();
+      expect(rec?.sem).toBe(true);
+      expect(rec?.d).toBe(11);
+      expect(rec?.e).toBe(0);
     });
   });
 

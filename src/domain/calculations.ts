@@ -27,7 +27,8 @@ import {
 import {
   calcPct,
   formatHours,
-  platformKey
+  platformKey,
+  sanitizePlatformCode
 } from '../utils/format';
 import { eachDay } from './periods';
 
@@ -36,7 +37,7 @@ export const buildPlatformIndex = (
 ): Record<string, Plataforma> => {
   const idx: Record<string, Plataforma> = {};
   Object.values(plataformas).forEach(p => {
-    [p.sigla, p.nome].forEach(x => {
+    [p.sigla, p.nome, sanitizePlatformCode(p.sigla)].forEach(x => {
       const k = platformKey(x);
       if (k && !idx[k]) {
         idx[k] = p;
@@ -51,7 +52,22 @@ export const lookupPlatform = (
   rawName?: string | null
 ): Plataforma | null => {
   if (!rawName) return null;
-  return pidx[platformKey(rawName)] || null;
+  const sanitized = sanitizePlatformCode(rawName);
+  const kSanitized = platformKey(sanitized);
+  if (pidx[kSanitized]) return pidx[kSanitized];
+
+  const kRaw = platformKey(rawName);
+  if (pidx[kRaw]) return pidx[kRaw];
+
+  const rawUpper = String(rawName).trim().toUpperCase();
+  if (/^P[A-Z]{3,}/.test(rawUpper)) {
+    const withoutP = platformKey(rawUpper.slice(1));
+    if (pidx[withoutP]) return pidx[withoutP];
+    const sanitizedWithoutP = platformKey(sanitizePlatformCode(rawUpper.slice(1)));
+    if (pidx[sanitizedWithoutP]) return pidx[sanitizedWithoutP];
+  }
+
+  return null;
 };
 
 export const formatPlatformLabel = (p: Plataforma): string => {
@@ -106,10 +122,66 @@ export const findCarteira = (
   );
 };
 
+/**
+ * Lista explícita de UMS (Unidades de Manutenção e Segurança / Flotéis) que possuem
+ * programação operacional e NÃO devem ser isentas da cobrança de apontamento.
+ */
+export const UMS_PROGRAMADAS_SIGLAS = new Set([
+  'UMPA', 'UMCP', 'UMAC', 'UMMA', 'UMPC', 'UMPT',
+  'UMTJ', 'UMVT', 'UMVV', 'UMGR', 'UMLI', 'ULI', 'UCC', 'UMAR'
+]);
+
+/**
+ * Verifica se uma plataforma é classificada como Armador / Embarcação Afretada por Diária.
+ */
+export const isArmadorPlatform = (
+  plat?: Plataforma | null,
+  rawPlatSigla?: string,
+  rawUn?: string
+): boolean => {
+  const sigla = (plat?.sigla || rawPlatSigla || '').trim().toUpperCase();
+  const un = (plat?.un || rawUn || '').trim();
+  const armador = (plat?.armador || '').trim();
+  const tipo = (plat?.tipo || '').toLowerCase();
+
+  // UMS operacionais com programação são mantidas fora da isenção de armador
+  if (UMS_PROGRAMADAS_SIGLAS.has(sigla) || (sigla.startsWith('UM') && sigla.length === 4)) {
+    return false;
+  }
+
+  if (un === 'Armador' || un === 'FPSOs afretados') return true;
+  if (armador !== '' && armador !== 'Não informado') return true;
+  if (tipo.includes('afretad') || tipo.includes('ahts')) return true;
+
+  return false;
+};
+
+/**
+ * Regra de Negócio: Embarcações de Armador medidas por diária.
+ * Sempre que for armador e tanto a programação quanto a execução forem null, zero ou em branco,
+ * o dia NÃO deve entrar na métrica de apontamento negativo / "Não chegou" (sem: true),
+ * evitando saldo negativo falso de -11h e status bad.
+ */
+export const isArmadorDiariaSemProg = (
+  c: CarteiraEmbarque,
+  plataformas?: Record<string, Plataforma>
+): boolean => {
+  const hp = c.horas_programadas != null ? Number(c.horas_programadas) : null;
+  if (hp != null && !isNaN(hp) && hp > 0) {
+    return false;
+  }
+  const pFound = plataformas ? lookupPlatform(buildPlatformIndex(plataformas), c.plataforma_sigla) : null;
+  return isArmadorPlatform(pFound, c.plataforma_sigla, c.unidade_negocio);
+};
+
 export const calcCarteiraHP = (
   c: CarteiraEmbarque,
-  config: ContractConfig
+  config: ContractConfig,
+  plataformas?: Record<string, Plataforma>
 ): number => {
+  if (plataformas && isArmadorDiariaSemProg(c, plataformas)) {
+    return 0;
+  }
   const n = diffDays(c.data_inicio, c.data_fim) + 1;
   const H = Number(config.hh_dia) || 11;
   return c.horas_programadas != null && !isNaN(Number(c.horas_programadas))
@@ -119,8 +191,12 @@ export const calcCarteiraHP = (
 
 export const hpSourceLabel = (
   c: CarteiraEmbarque,
-  config: ContractConfig
+  config: ContractConfig,
+  plataformas?: Record<string, Plataforma>
 ): string => {
+  if (plataformas && isArmadorDiariaSemProg(c, plataformas)) {
+    return 'Diária (Armador)';
+  }
   return c.horas_programadas != null && !isNaN(Number(c.horas_programadas))
     ? 'Portal Offshore'
     : `dias × ${formatHours(config.hh_dia)}`;
@@ -130,11 +206,12 @@ export const calcHpInInterval = (
   c: CarteiraEmbarque,
   a: string,
   b: string,
-  config: ContractConfig
+  config: ContractConfig,
+  plataformas?: Record<string, Plataforma>
 ): number => {
   if (a > b) return 0;
   const n = diffDays(c.data_inicio, c.data_fim) + 1;
-  return (calcCarteiraHP(c, config) * (diffDays(a, b) + 1)) / n;
+  return (calcCarteiraHP(c, config, plataformas) * (diffDays(a, b) + 1)) / n;
 };
 
 export const computeDataAte = (
@@ -164,14 +241,22 @@ export const resolveRecord = (
   }
 
   const lastDate = dataset.watermark.ultima_data_hh;
+  const cart = findCarteira(dataset.carteira, mat, dateIso);
   if (
     lastDate &&
     dateIso <= lastDate &&
-    findCarteira(dataset.carteira, mat, dateIso)
+    cart
   ) {
     if (dataset.externalCoveredSet && dataset.externalCoveredSet.has(key)) {
       return null;
     }
+
+    // Regra Armador por Diária: se for embarcação de armador sem programação e sem execução,
+    // não entra na métrica de apontamento (evita saldo negativo de 11h e status bad falso)
+    if (isArmadorDiariaSemProg(cart, dataset.plataformas)) {
+      return null;
+    }
+
     return {
       d: hhDia,
       e: 0,
@@ -217,8 +302,8 @@ export const inferEmbarkation = (
       plat: c.plataforma_sigla,
       reg: c.unidade_negocio,
       fonte: 'carteira',
-      hp: calcCarteiraHP(c, dataset.config),
-      hpF: hpSourceLabel(c, dataset.config)
+      hp: calcCarteiraHP(c, dataset.config, dataset.plataformas),
+      hpF: hpSourceLabel(c, dataset.config, dataset.plataformas)
     };
   }
 
@@ -683,7 +768,7 @@ export const computePeriodTechs = (
         const a = c.data_inicio > win.ini ? c.data_inicio : win.ini;
         let b = c.data_fim < win.fim ? c.data_fim : win.fim;
         if (limitDate && b > limitDate) b = limitDate;
-        t += calcHpInInterval(c, a, b, dataset.config);
+        t += calcHpInInterval(c, a, b, dataset.config, dataset.plataformas);
       });
     return t;
   };
@@ -729,7 +814,7 @@ export const computePeriodTechs = (
           )
           .join('; ');
         cd = es.reduce((t, c) => t + diffDays(c.data_inicio, c.data_fim) + 1, 0);
-        pg = es.reduce((t, c) => t + calcCarteiraHP(c, dataset.config), 0);
+        pg = es.reduce((t, c) => t + calcCarteiraHP(c, dataset.config, dataset.plataformas), 0);
         pa = es.reduce(
           (t, c) =>
             t +
@@ -737,7 +822,8 @@ export const computePeriodTechs = (
               c,
               c.data_inicio,
               c.data_fim < ate ? c.data_fim : ate,
-              dataset.config
+              dataset.config,
+              dataset.plataformas
             ),
           0
         );

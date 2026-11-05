@@ -25,7 +25,7 @@ import type {
 } from '../../domain/types';
 import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES } from '../../config/constants';
 import { todayIso } from '../../utils/date';
-import { parseIdEmbarque, platformKey, slugify } from '../../utils/format';
+import { parseIdEmbarque, platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
 import { lookupPlatform } from '../../domain/calculations';
 import type { ClientDatabaseProvider } from '../../ports/client-provider.port';
 import type { BaaSConnectorPort, RawBaaSDatasetPayload } from '../../ports/baas-connector.port';
@@ -99,7 +99,7 @@ export function prepareBatchHH(
   const unknownPlats = new Map<string, string>();
   const preparedRows = rows.map(r => {
     const pFound = lookupPlatform(pidx, r.p);
-    const resolvedSigla = pFound ? pFound.sigla : r.p.trim().toUpperCase();
+    const resolvedSigla = pFound ? pFound.sigla : sanitizePlatformCode(r.p);
     const resolvedUn = pFound ? pFound.un : r.r?.trim() || '';
 
     if (!pFound && resolvedSigla) {
@@ -222,7 +222,7 @@ export function prepareBatchCarteira(
   const unknownPlats = new Map<string, string>();
   const preparedRows = rows.map(r => {
     const pFound = lookupPlatform(pidx, r.plat);
-    const resolvedSigla = pFound ? pFound.sigla : r.plat.trim().toUpperCase();
+    const resolvedSigla = pFound ? pFound.sigla : sanitizePlatformCode(r.plat);
     const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
 
     if (!pFound && resolvedSigla) {

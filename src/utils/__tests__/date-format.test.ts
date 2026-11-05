@@ -26,9 +26,11 @@ import {
   parseCounter,
   parseFlexibleHours,
   parseIdEmbarque,
+  PLATFORM_ALIASES,
   platformKey,
   plural,
   safeKey,
+  sanitizePlatformCode,
   slugify
 } from '../format';
 
@@ -450,6 +452,43 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
       expect(plural(0, 'dia', 'dias')).toBe('0 dias');
       expect(plural(2, 'dia', 'dias')).toBe('2 dias');
       expect(plural(14, 'hora', 'horas')).toBe('14 horas');
+    });
+  });
+
+  describe('sanitizePlatformCode & PLATFORM_ALIASES', () => {
+    it('resolve aliases conhecidos do Portal Offshore e SAP para siglas canônicas', () => {
+      expect(sanitizePlatformCode('PMXL1')).toBe('MXL');
+      expect(sanitizePlatformCode('PMXL')).toBe('MXL');
+      expect(sanitizePlatformCode('PMLZ1')).toBe('MLZ');
+      expect(sanitizePlatformCode('PMLZ')).toBe('MLZ');
+      expect(sanitizePlatformCode('PMNT1')).toBe('PMNT');
+      expect(sanitizePlatformCode('PAG-02')).toBe('PAG2');
+      expect(sanitizePlatformCode('PAG02')).toBe('PAG2');
+      expect(sanitizePlatformCode('PCR-01')).toBe('PCR1');
+      expect(sanitizePlatformCode('PCR01')).toBe('PCR1');
+      expect(sanitizePlatformCode('PCM-9')).toBe('PCM9');
+      expect(sanitizePlatformCode('PPE-1A')).toBe('PPE1A');
+      expect(sanitizePlatformCode('PRA-1')).toBe('PRA1');
+    });
+
+    it('normaliza padrão Petrobras P-XX para PXX', () => {
+      expect(sanitizePlatformCode('P-09')).toBe('P09');
+      expect(sanitizePlatformCode('P-18')).toBe('P18');
+      expect(sanitizePlatformCode('P-25')).toBe('P25');
+      expect(sanitizePlatformCode('P-70')).toBe('P70');
+    });
+
+    it('mantém inalteradas siglas limpas ou desconhecidas com underscores', () => {
+      expect(sanitizePlatformCode('UMAC')).toBe('UMAC');
+      expect(sanitizePlatformCode('UMCP')).toBe('UMCP');
+      expect(sanitizePlatformCode('P51')).toBe('P51');
+      expect(sanitizePlatformCode('PLAT_INEDITA_CUSTOM')).toBe('PLAT_INEDITA_CUSTOM');
+    });
+
+    it('retorna vazio para valores nulos, vazios ou indefinidos', () => {
+      expect(sanitizePlatformCode(null)).toBe('');
+      expect(sanitizePlatformCode(undefined)).toBe('');
+      expect(sanitizePlatformCode('')).toBe('');
     });
   });
 });

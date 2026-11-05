@@ -49,6 +49,27 @@
 - Situações de plataforma: Mobilizada, Mobilizando, Desmobilizando, Desmobilizada.
 - Importação de HH/carteira com sigla desconhecida → cria a plataforma automaticamente com `cadastro_pendente = true`.
 
+### 1.10 Sanitização Canônica de Plataformas e Aliases (`sanitizePlatformCode`, `PLATFORM_ALIASES`)
+- Aliases conhecidos do Portal Offshore e SAP são normalizados de forma determinística antes de qualquer busca ou gravação no banco:
+  - `PMXL1`, `PMXL` → `MXL` (Mexilhão, Bacia de Santos UN-BS).
+  - `PMLZ1`, `PMLZ` → `MLZ` (Merluza, Bacia de Santos UN-BS).
+  - `PMNT1` → `PMNT` (Plataforma de Manati, Bahia UN-BA).
+  - `PAG-02`, `PAG02` → `PAG2` (PAG 2, GAD Nordeste); também `PAG-01` → `PAG1`, `PAG-03` → `PAG3`.
+  - `PCR-01`, `PCR01` → `PCR1` (PCR 1, GAD Nordeste).
+  - `PCM-9`, `PCM-09` → `PCM9` (GAD Nordeste).
+  - `PPE-1A`, `PPE-01A` → `PPE1A` (Bahia UN-BA).
+  - `PRA-1`, `PRA-01` → `PRA1` (Espírito Santo UN-ES).
+  - Padrão Petrobras `P-XX` → `PXX` (ex.: `P-09` → `P09`, `P-18` → `P18`, `P-25` → `P25`, etc.).
+- Gatilho defensivo no banco: trigger PL/pgSQL `trg_sanitize_carteira_plataforma` em `carteira_operacoes` auto-corrige siglas e injeta a UN canônica automaticamente.
+
+### 1.11 Regra de Armador / Diária e Desconsideração de "Não Chegou" (`isArmadorDiariaSemProg`)
+- Contratos de embarcações de **Armador** (`un === 'Armador'`, `tipo` afretado/AHTS, `armador !== ''` ou `un === 'FPSOs afretados'`) são medidos por **diária**.
+- Quando tanto a programação (`horas_programadas == null || horas_programadas === 0`) quanto a execução (`horas_executadas == null || horas_executadas === 0` / sem apontamento) forem nulas ou em branco:
+  - O dia/embarque **NÃO ENTRA na métrica de apontamento negativo / "Não chegou"** (`sem: true`).
+  - `resolveRecord` retorna `null` para essas datas, evitando débito de saldo negativo de -11h, marcação de status `'bad'` (vermelho) e cobrança indevida de justificativas.
+  - No acumulado da carteira, `calcCarteiraHP` retorna 0h e o rótulo de fonte exibe `'Diária (Armador)'`.
+- **Exceção de UMS com Programação:** A frota de UMS (`UMS_PROGRAMADAS_SIGLAS`: `UMPA`, `UMCP`, `UMAC`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, `UMGR`, `UMLI`, `ULI`, `UCC`, `UMAR`) possui programação operacional real e é **mantida fora do escopo de isenção de armador**, sendo cobrada normalmente caso não aponte horas.
+
 ## 2. RBAC e Escopo
 
 | Papel | Escopo | Abas | Escrita |
@@ -148,3 +169,8 @@
   - *Diagnóstico do Erro no Supabase:* Ao acionar a opção "Substituir carteira anterior", a chamada retornava HTTP 400 com a mensagem `"UPDATE requires a WHERE clause"`. O Supabase ativa a extensão PostgreSQL `safeupdate` para sessões de API, exigindo cláusula `WHERE` explícita em todos os comandos `UPDATE` e `DELETE`.
   - *Correção Aplicada:* Migration 019 atualizou a RPC `reset_carteira_embarques()` para utilizar `DELETE ... WHERE id IS NOT NULL` e `UPDATE confirmacoes_sap SET id_embarque = '', status_reconciliacao = 'Pendente' WHERE id_embarque <> '' OR status_reconciliacao <> 'Pendente'`, eliminando o erro 400 e permitindo o reset limpo imediato da carteira.
   - *Execução de Reset:* A base de carteira foi resetada no banco para receber limpos os 147 embarques do período de medição atual informados pelo usuário.
+- **2026-11-05** — Sanitização Canônica de Plataformas e Regra de Diária / Armador (Migration 020):
+  - *Sanitização de Plataformas:* Implementado `sanitizePlatformCode` e `PLATFORM_ALIASES` em `src/utils/format.ts` para normalizar automaticamente variações de siglas do Portal Offshore e SAP (`PMXL1`/`PMXL` -> `MXL`, `PMLZ1` -> `MLZ`, `PMNT1` -> `PMNT`, `PAG-02` -> `PAG2`, `PCR-01` -> `PCR1`, `PCM-9` -> `PCM9`, etc.) e zeros à esquerda. Integrado em `lookupPlatform`, `buildPlatformIndex` e pipelines de ingestão de carteira e HH.
+  - *Limpeza e Self-Healing no Banco (Migration 020):* Excluídas as plataformas pendentes duplicadas criadas por falta de matching (`PMXL`, `PMLZ1`, `PMNT1`, `PAG-02`, `PCR-01`), saneados os apontamentos de HH legados para as siglas canônicas, e criada a trigger PL/pgSQL `trg_sanitize_carteira_plataforma` em `carteira_operacoes` garantindo normalização determinística no banco. Plataforma `HFAB` vinculada à UN `Armador`.
+  - *Regra de Negócio de Armador / Diária (`isArmadorDiariaSemProg`):* Embarcações de Armador medidas por diária com programação e execução nulas ou em branco são desconsideradas da métrica de apontamento negativo ("Não chegou"), suprimindo o saldo falso de -11h e o status `'bad'`.
+  - *Exceção Operacional UMS:* A frota de UMS (`UMPA`, `UMCP`, `UMAC`, `UMMA`, etc.) possui programação operacional e foi expressamente mantida fora do escopo de isenção, sendo cobrada normalmente caso não aponte horas.

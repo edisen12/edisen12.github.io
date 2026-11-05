@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 10:41 (BRT) · Suíte: 24 arquivos / 456 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-5VxX6_4X.js`)
+> Última atualização: 2026-11-05 11:15 (BRT) · Suíte: 24 arquivos / 456 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DjwXaauv.js`)
 
 ## 1. Resumo Executivo
 
@@ -35,7 +35,7 @@
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `018` — **imutáveis**.
+- `supabase/migrations/001` → `019` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
@@ -45,6 +45,7 @@
   - `016_fix_sync_carteira_embarques_trigger.sql`: correção da função `sync_carteira_embarques_from_operacoes()` para agrupar estritamente por `(matricula, data_inicio)`.
   - `017_contador_confirmacao_sap.sql`: reset de `confirmacoes_sap`, inclusão de `contador_confirmacao bigint NOT NULL DEFAULT 0` e chave única atualizada.
   - `018_unify_id_embarque.sql`: inclusão de `id_embarque` em `carteira_operacoes`, trigger de self-healing para strings GMT, sincronização bidirecional e RPC `reset_carteira_embarques`.
+  - `019_fix_reset_carteira_embarques.sql`: adequação da RPC `reset_carteira_embarques` à extensão safeupdate do PostgreSQL com cláusulas WHERE explícitas.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
 - `src/types/database.types.ts` — gerado via MCP `generate_typescript_types` atualizado com `id_embarque` em `carteira_operacoes`.
 
@@ -68,26 +69,18 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Resolução e Unificação Definitiva de `id_embarque` (Migration 018):**
-  - **Diagnóstico Preciso:** A flag `cellDates: true` no SheetJS interpretava números inteiros na faixa de 40.000 a 70.000 (IDs do Portal Offshore como `55104`, `56299`) como datas do Excel, instanciando objetos JavaScript `Date`. A conversão ingênua `String(date)` gerava strings completas de data no fuso local (`"Tue Oct 20 2054 00:00:00 GMT-0300..."`), fazendo parecer no Supabase que o `id_embarque` havia sumido e sido substituído por datas.
-  - **Recuperação de Dados em Produção:** 100% dos 1.830 registros de `carteira_operacoes` e 152 registros de `carteira_embarques` tiveram seus identificadores seriais originais recuperados matematicamente e limpos via SQL (0 strings GMT residuais no banco).
-  - **Unificação de Schema:** Tabela `carteira_operacoes` agora possui a coluna física `id_embarque text NOT NULL DEFAULT ''` com índice dedicado, espelhando bidirecionalmente `portal_id`.
-  - **Trigger de Self-Healing:** Implementada trigger `trg_normalize_carteira_operacoes_ids` que regenera o ID numérico e espelha `id_embarque` e `portal_id` automaticamente.
-  - **Frontend & Visualização:**
-    - Utilitário `parseIdEmbarque` protege o parser Excel client-side contra conversões indesejadas do SheetJS.
-    - Coluna `"ID Embarque"` adicionada à tabela da visão *Embarque Atual* (`EmbarqueAtualView.tsx`), com badge destacado e suporte a busca/ordenação direta por ID.
-    - Contador de embarques físicos com ID distinto adicionado ao cabeçalho da tabela.
-    - Coluna e busca de `ID Embarque` integradas na aba *Confronto SAP vs Portal* (`MedicaoUsoffView.tsx`) e exportador Excel (`exportConfrontoSAPXlsx`).
-    - Coluna de ID adicionada à tabela de prévia de importação da carteira (`ImportarDadosView.tsx`).
-    - Opção "Substituir carteira anterior (limpar dados antigos antes de gravar)" e RPC `reset_carteira_embarques()` adicionadas para permitir que o usuário elimine embarques legados de testes passados e sincronize exatamente 1-para-1 com o arquivo oficial.
+- **Correção da Chamada de Substituição de Carteira (Migration 019):**
+  - **Diagnóstico do Erro no Supabase:** A chamada para `/rest/v1/rpc/reset_carteira_embarques` retornava HTTP 400 com `"UPDATE requires a WHERE clause"`. A extensão `safeupdate` do Supabase bloqueava a query `UPDATE confirmacoes_sap SET id_embarque = ''` por não conter uma cláusula `WHERE` explícita.
+  - **Correção Definitiva:** Migration 019 substituiu todos os comandos por DMLs com `WHERE` explícito (`DELETE FROM carteira_operacoes WHERE id IS NOT NULL`, `DELETE FROM carteira_embarques WHERE id IS NOT NULL` e `UPDATE confirmacoes_sap SET id_embarque = '', status_reconciliacao = 'Pendente' WHERE id_embarque <> '' OR status_reconciliacao <> 'Pendente'`).
+  - **Execução do Reset Limpo:** A carteira legada foi completamente resetada no banco de produção (0 linhas em `carteira_operacoes` e 0 linhas em `carteira_embarques`). A tabela `confirmacoes_sap` (10.025 registros) foi mantida intacta e pronta para conciliação automática.
+  - **Pronto para os 147 Embarques:** O usuário pode agora subir a planilha oficial do Portal Offshore com os 147 embarques do período de medição, marcando a opção "Substituir carteira existente" ou importando diretamente.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
   - `npm run test:run`: 24 suítes / 456 testes aprovados (100% verdes).
-  - `npm run build`: Bundle de produção gerado com sucesso em 4.46s (`index-5VxX6_4X.js`).
+  - `npm run build`: Bundle de produção gerado com sucesso em 4.01s (`index-DjwXaauv.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Avisar o usuário:** explicar o diagnóstico da conversão de data do SheetJS, confirmar que todos os 150+ IDs reais do Portal Offshore foram recuperados no banco, demonstrar a nova coluna "ID Embarque" e a opção de substituição limpa na tela de importação.
-2. **Acompanhar a ingestão da nova planilha SAP e Carteira:** validar se os múltiplos lançamentos diários com `contador_confirmacao` e os IDs de embarque do Portal Offshore confrontam com precisão na aba *Confronto SAP vs Portal*.
+1. **Avisar o usuário:** informar o erro exato diagnosticado nos logs do Supabase (`safeupdate: UPDATE requires a WHERE clause`), confirmar que a correção via Migration 019 já está aplicada e testada, e que as tabelas de carteira foram zeradas para receber com precisão cirúrgica os 147 embarques do período de medição.
+2. **Acompanhar a ingestão dos 147 embarques do Portal Offshore:** validar se a quantidade consolida em 147 embarques na visão *Embarque Atual* e se a conciliação automática com as 10.025 confirmações do SAP na aba *Confronto SAP vs Portal* opera perfeitamente.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
-4. **Evolução de Técnicos (Backlog):** avaliar inclusão de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.

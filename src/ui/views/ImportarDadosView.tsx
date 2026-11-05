@@ -597,19 +597,22 @@ export const ImportarDadosView: React.FC = () => {
               >
                 {saving ? 'Gravando…' : `Gravar ${preview.rows.length} linhas no Banco`}
               </button>
-
-              {preview.kind === 'cart' && (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', cursor: 'pointer', userSelect: 'none', marginLeft: '6px' }}>
-                  <input
-                    type="checkbox"
-                    checked={substituirCarteira}
-                    onChange={e => setSubstituirCarteira(e.target.checked)}
-                  />
-                  <span>Substituir carteira anterior (limpar dados antigos antes de gravar)</span>
-                </label>
-              )}
             </div>
           </div>
+
+          {preview.kind === 'cart' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--surface-alt, #f8fafc)', borderRadius: '6px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', cursor: 'pointer', userSelect: 'none', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={substituirCarteira}
+                  onChange={e => setSubstituirCarteira(e.target.checked)}
+                  style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                />
+                <span>Substituir carteira existente (apaga os embarques antigos antes de gravar para garantir batimento 1-para-1 com esta planilha)</span>
+              </label>
+            </div>
+          )}
 
           {preview.rows.length === 0 && (
             <div className="card note note-bad" style={{ margin: 0, padding: '12px 16px' }}>

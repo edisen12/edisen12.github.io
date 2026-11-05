@@ -144,3 +144,7 @@
   - *Utilitário `parseIdEmbarque`:* Implementado em `src/utils/format.ts` para recuperação determinística tanto de objetos `Date` quanto de strings de data.
   - *Exibição e Rastreabilidade na UI:* Adicionada coluna destacada `"ID Embarque"` em `EmbarqueAtualView.tsx` (com badge e busca integrada) e no Confronto SAP em `MedicaoUsoffView.tsx`.
   - *Gestão e Substituição de Carteira:* Criada RPC `reset_carteira_embarques()` permitindo aos administradores e gestores substituir a carteira anterior durante a importação (limpando embarques legados de testes passados para manter a contagem 1-para-1 com a planilha original).
+- **2026-11-05** — Correção de SafeUpdate na RPC `reset_carteira_embarques` (Migration 019):
+  - *Diagnóstico do Erro no Supabase:* Ao acionar a opção "Substituir carteira anterior", a chamada retornava HTTP 400 com a mensagem `"UPDATE requires a WHERE clause"`. O Supabase ativa a extensão PostgreSQL `safeupdate` para sessões de API, exigindo cláusula `WHERE` explícita em todos os comandos `UPDATE` e `DELETE`.
+  - *Correção Aplicada:* Migration 019 atualizou a RPC `reset_carteira_embarques()` para utilizar `DELETE ... WHERE id IS NOT NULL` e `UPDATE confirmacoes_sap SET id_embarque = '', status_reconciliacao = 'Pendente' WHERE id_embarque <> '' OR status_reconciliacao <> 'Pendente'`, eliminando o erro 400 e permitindo o reset limpo imediato da carteira.
+  - *Execução de Reset:* A base de carteira foi resetada no banco para receber limpos os 147 embarques do período de medição atual informados pelo usuário.

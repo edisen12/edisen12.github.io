@@ -124,6 +124,7 @@ export interface ClientDataPort {
     onProgress?: ProgressCallback
   ): Promise<any>;
   reconciliarConfirmacoesSAP?(): Promise<any>;
+  resetCarteiraEmbarques?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
   fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]>;
   deleteUserAccount(userId: string): Promise<{ ok: boolean; message: string }>;
   logSystemEvent(event: Partial<SystemAuditLog>): Promise<void>;

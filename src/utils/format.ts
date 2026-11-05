@@ -72,5 +72,45 @@ export const parseCounter = (v: unknown): number => {
   return isNaN(n) ? 0 : n;
 };
 
+/**
+ * Converte identificador de embarque (portal_id / id_embarque) para string numérica limpa.
+ * Protege contra inteiros de ID (na faixa de 40.000 a 70.000) que o SheetJS converte
+ * indevidamente em Date (ex.: 55104 virando Date de 2050 ou string GMT).
+ */
+export const parseIdEmbarque = (val: unknown): string => {
+  if (val == null || val === '') return '';
+  if (val instanceof Date) {
+    const utc = Date.UTC(val.getFullYear(), val.getMonth(), val.getDate());
+    const epoch = Date.UTC(1899, 11, 30);
+    const serial = Math.round((utc - epoch) / 86400000);
+    return String(serial);
+  }
+  const str = String(val).trim();
+  if (str.includes('GMT') || str.includes('Brasília') || str.includes('UTC')) {
+    const m = str.match(/[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d+)\s+(\d{4})/);
+    if (m) {
+      const monthMap: Record<string, number> = {
+        Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+        Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+      };
+      const mon = monthMap[m[1]];
+      if (mon !== undefined) {
+        const day = parseInt(m[2], 10);
+        const yr = parseInt(m[3], 10);
+        const utc = Date.UTC(yr, mon, day);
+        const epoch = Date.UTC(1899, 11, 30);
+        const serial = Math.round((utc - epoch) / 86400000);
+        if (serial > 0 && serial < 200000) {
+          return String(serial);
+        }
+      }
+    }
+  }
+  if (/^\d+\.0+$/.test(str)) {
+    return str.replace(/\.0+$/, '');
+  }
+  return str;
+};
+
 export const plural = (n: number, sing: string, plur: string): string =>
   n + ' ' + (n === 1 ? sing : plur);

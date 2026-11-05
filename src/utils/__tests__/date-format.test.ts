@@ -25,6 +25,7 @@ import {
   normalizeText,
   parseCounter,
   parseFlexibleHours,
+  parseIdEmbarque,
   platformKey,
   plural,
   safeKey,
@@ -409,6 +410,33 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
       expect(parseCounter('')).toBe(0);
       expect(parseCounter('   ')).toBe(0);
       expect(parseCounter('sem-numero')).toBe(0);
+    });
+  });
+
+  describe('parseIdEmbarque', () => {
+    it('mantém inteiros e strings numéricas limpos', () => {
+      expect(parseIdEmbarque(55104)).toBe('55104');
+      expect(parseIdEmbarque('56299')).toBe('56299');
+      expect(parseIdEmbarque('55104.0')).toBe('55104');
+    });
+
+    it('recupera serial numérico de objetos Date gerados pelo SheetJS', () => {
+      // 56542 dias a partir de 1899-12-30 é 2054-10-20
+      const d = new Date(2054, 9, 20);
+      expect(parseIdEmbarque(d)).toBe('56542');
+    });
+
+    it('recupera serial numérico de strings corrompidas de data GMT', () => {
+      const gmt1 = 'Tue Oct 20 2054 00:00:00 GMT-0300 (Horário de Verão de Brasília)';
+      expect(parseIdEmbarque(gmt1)).toBe('56542');
+      const gmt2 = 'Fri Dec 14 2046 00:00:00 GMT-0300 (Horário Padrão de Brasília)';
+      expect(parseIdEmbarque(gmt2)).toBe('53675');
+    });
+
+    it('retorna vazio para nulos e vazios', () => {
+      expect(parseIdEmbarque(null)).toBe('');
+      expect(parseIdEmbarque(undefined)).toBe('');
+      expect(parseIdEmbarque('')).toBe('');
     });
   });
 

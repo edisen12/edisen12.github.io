@@ -684,6 +684,12 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
     return data;
   },
 
+  async resetCarteiraEmbarquesRPC(): Promise<{ deleted_operacoes: number; deleted_embarques: number }> {
+    const { data, error } = await supabase.rpc('reset_carteira_embarques');
+    if (error) throw error;
+    return data as any;
+  },
+
   async insertFluxoImportacao(row: {
     tipo_fluxo: 'hh' | 'carteira';
     origem: string;

@@ -137,3 +137,10 @@
   - Adicionada a coluna `contador_confirmacao bigint NOT NULL DEFAULT 0` na tabela `confirmacoes_sap`.
   - Tratamento numérico adotado como padrão arquitetural (`bigint` no banco, `parseCounter` no frontend): elimina qualquer divergência de zeros à esquerda (`'00000001'` vs `'1'`) e resolve o cenário de múltiplos lançamentos de mesma quantidade de horas para o mesmo técnico/ordem/operação no mesmo dia (ex.: 3h pela manhã e 3h à tarde).
   - Atualizada a chave de unicidade para `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas, contador_confirmacao)`.
+- **2026-11-05** — Unificação de `id_embarque`, Correção de Serial Excel e Visibilidade Total (Migration 018):
+  - *Diagnóstico do Bug do SheetJS:* A flag `cellDates: true` convertia identificadores numéricos inteiros do Portal Offshore na faixa de 40.000–70.000 (ex.: `55104`, `56299`) em objetos JavaScript `Date`. A serialização `String(date)` gravava strings de data GMT completas no banco. Como a função SQL agregava via `MAX()`, o texto `'Tue...'` vencia alfabeticamente os dígitos numéricos, corrompendo o `id_embarque`.
+  - *Unificação de Schema:* Adicionada a coluna física `id_embarque text NOT NULL DEFAULT ''` na tabela `carteira_operacoes` (com índice dedicado), mantendo sincronia bidirecional com `portal_id`.
+  - *Trigger de Self-Healing:* Criada trigger PL/pgSQL `trg_normalize_carteira_operacoes_ids` que converte strings GMT residuais de volta para inteiros seriais do Excel e espelha `id_embarque` e `portal_id`.
+  - *Utilitário `parseIdEmbarque`:* Implementado em `src/utils/format.ts` para recuperação determinística tanto de objetos `Date` quanto de strings de data.
+  - *Exibição e Rastreabilidade na UI:* Adicionada coluna destacada `"ID Embarque"` em `EmbarqueAtualView.tsx` (com badge e busca integrada) e no Confronto SAP em `MedicaoUsoffView.tsx`.
+  - *Gestão e Substituição de Carteira:* Criada RPC `reset_carteira_embarques()` permitindo aos administradores e gestores substituir a carteira anterior durante a importação (limpando embarques legados de testes passados para manter a contagem 1-para-1 com a planilha original).

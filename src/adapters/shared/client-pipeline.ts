@@ -25,7 +25,7 @@ import type {
 } from '../../domain/types';
 import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES } from '../../config/constants';
 import { todayIso } from '../../utils/date';
-import { platformKey, slugify } from '../../utils/format';
+import { parseIdEmbarque, platformKey, slugify } from '../../utils/format';
 import { lookupPlatform } from '../../domain/calculations';
 import type { ClientDatabaseProvider } from '../../ports/client-provider.port';
 import type { BaaSConnectorPort, RawBaaSDatasetPayload } from '../../ports/baas-connector.port';
@@ -195,6 +195,7 @@ export function prepareBatchCarteira(
   }>;
   opsPayload: Array<{
     portal_id: string;
+    id_embarque: string;
     matricula: string;
     chave_petrobras: string;
     nome: string;
@@ -238,7 +239,7 @@ export function prepareBatchCarteira(
       data_fim: r.fim,
       horas_programadas: r.hp != null ? Number(r.hp) : null,
       operacao: r.op?.trim() || '',
-      id_embarque: r.id_embarque?.trim() || r.op?.trim() || '',
+      id_embarque: parseIdEmbarque(r.id_embarque || r.op || ''),
       pe: r.pe != null ? Number(r.pe) : null,
       ex: r.ex != null ? Number(r.ex) : null
     };
@@ -315,11 +316,13 @@ export function prepareBatchCarteira(
       const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
 
       const cleanOrdem = String(r.ordem || '').trim() || (r.op ? 'ORDEM_AVULSA' : 'SEM_ORDEM');
-      const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${r.id_embarque.trim()}` : 'SEM_OP');
+      const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${parseIdEmbarque(r.id_embarque)}` : 'SEM_OP');
       const key = `${mat}_${r.ini}_${cleanOrdem}_${cleanOp}`;
+      const cleanId = parseIdEmbarque(r.id_embarque || '');
 
       opsMap.set(key, {
-        portal_id: String(r.id_embarque || '').trim(),
+        portal_id: cleanId,
+        id_embarque: cleanId,
         matricula: mat,
         chave_petrobras: String(r.chave || '').trim(),
         nome: String(r.nome || '').trim(),
@@ -602,7 +605,7 @@ export async function assembleAppDataset(
   // 6. Carteira de embarques
   const carteira: CarteiraEmbarque[] = (raw.carteiraRows || []).map(row => {
     const mat = String(row.matricula || '');
-    const idEmb = String(row.id_embarque || (row as any).operacao || '');
+    const idEmb = parseIdEmbarque(row.id_embarque || (row as any).operacao || '');
     return {
       id: String(row.id || ''),
       id_embarque: idEmb,
@@ -628,10 +631,13 @@ export async function assembleAppDataset(
   });
 
   // 6.1. Operações detalhadas da Carteira (com conciliação SAP)
-  const carteiraOperacoes: CarteiraOperacao[] = (raw.carteiraOperacaoRows || []).map(row => ({
-    id: String(row.id || ''),
-    portal_id: String(row.portal_id || ''),
-    matricula: String(row.matricula || ''),
+  const carteiraOperacoes: CarteiraOperacao[] = (raw.carteiraOperacaoRows || []).map(row => {
+    const cleanId = parseIdEmbarque((row as any).id_embarque || row.portal_id || '');
+    return {
+      id: String(row.id || ''),
+      portal_id: cleanId,
+      id_embarque: cleanId,
+      matricula: String(row.matricula || ''),
     chave_petrobras: String(row.chave_petrobras || ''),
     nome: tecnicos[String(row.matricula || '')]?.nome || String(row.nome || ''),
     empresa: String(row.empresa || ''),
@@ -652,7 +658,7 @@ export async function assembleAppDataset(
     status_divergencia: String(row.status_divergencia || 'Não Confirmado'),
     recursos: row.recursos != null ? Number(row.recursos) : 1,
     fonte: String(row.fonte || 'portal_offshore')
-  }));
+  };});
 
   // 7. Apontamentos HH
   const hhMap: Record<string, ApontamentoHH> = {};
@@ -1054,6 +1060,12 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
       if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
         return connector.reconciliarConfirmacoesSAPRPC();
       }
+    },
+    async resetCarteiraEmbarques() {
+      if (typeof connector.resetCarteiraEmbarquesRPC === 'function') {
+        return await connector.resetCarteiraEmbarquesRPC();
+      }
+      return { deleted_operacoes: 0, deleted_embarques: 0 };
     },
     async fetchSystemAuditLogs(filters?: AuditLogFilterInput) {
       const rawLogs = await connector.fetchRawAuditLogs({

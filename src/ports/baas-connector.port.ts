@@ -85,6 +85,7 @@ export interface BaaSConnectorPort {
   upsertCarteiraOperacoesChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertConfirmacoesSAPChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
   reconciliarConfirmacoesSAPRPC?(): Promise<any>;
+  resetCarteiraEmbarquesRPC?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
   insertFluxoImportacao(row: {
     tipo_fluxo: 'hh' | 'carteira';
     origem: string;

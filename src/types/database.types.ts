@@ -151,6 +151,7 @@ export type Database = {
           hh_confirmado_sap: number
           hh_programado: number
           id: string
+          id_embarque: string
           matricula: string
           nome: string
           operacao: string
@@ -178,6 +179,7 @@ export type Database = {
           hh_confirmado_sap?: number
           hh_programado?: number
           id?: string
+          id_embarque?: string
           matricula: string
           nome?: string
           operacao: string
@@ -205,6 +207,7 @@ export type Database = {
           hh_confirmado_sap?: number
           hh_programado?: number
           id?: string
+          id_embarque?: string
           matricula?: string
           nome?: string
           operacao?: string
@@ -821,6 +824,7 @@ export type Database = {
       }
       ping_health: { Args: never; Returns: string }
       reconciliar_confirmacoes_sap: { Args: never; Returns: Json }
+      reset_carteira_embarques: { Args: never; Returns: Json }
       update_own_profile: {
         Args: { p_nome: string; p_preferencias?: Json }
         Returns: undefined

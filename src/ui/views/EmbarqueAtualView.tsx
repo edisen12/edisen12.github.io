@@ -96,11 +96,12 @@ export function EmbarqueAtualView() {
   }, [D, dataset, pidx, filters]);
 
   // Agregações dos 6 KPIs
-  const { prog, pd, pe, negCount } = useMemo(() => {
+  const { prog, pd, pe, negCount, uniqueEmbarqueCount } = useMemo(() => {
     let totProg = 0;
     let totD = 0;
     let totE = 0;
     let negs = 0;
+    const embIds = new Set<string>();
 
     rows.forEach(r => {
       totProg += r.acc.prog;
@@ -109,13 +110,17 @@ export function EmbarqueAtualView() {
       if (r.acc.saldo < 0) {
         negs++;
       }
+      if (r.emb.id_embarque) {
+        embIds.add(r.emb.id_embarque);
+      }
     });
 
     return {
       prog: totProg,
       pd: totD,
       pe: totE,
-      negCount: negs
+      negCount: negs,
+      uniqueEmbarqueCount: embIds.size
     };
   }, [rows]);
 
@@ -133,6 +138,7 @@ export function EmbarqueAtualView() {
       key: 'tecnico',
       header: 'Técnico',
       width: '240px',
+      sortValue: r => r.nome,
       render: r => (
         <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
@@ -147,6 +153,31 @@ export function EmbarqueAtualView() {
             Mat. {r.mat}
           </div>
         </div>
+      )
+    },
+    {
+      key: 'id_embarque',
+      header: 'ID Embarque',
+      width: '120px',
+      sortValue: r => r.emb.id_embarque || '',
+      render: r => r.emb.id_embarque ? (
+        <span
+          style={{
+            fontFamily: 'monospace',
+            fontWeight: 700,
+            fontSize: '0.85rem',
+            padding: '2px 8px',
+            borderRadius: '4px',
+            background: 'var(--surface-muted, #f1f5f9)',
+            border: '1px solid var(--border-subtle, #cbd5e1)',
+            color: 'var(--ink, #1e293b)'
+          }}
+          title={`Identificador único do embarque no Portal Offshore: ${r.emb.id_embarque}`}
+        >
+          {r.emb.id_embarque}
+        </span>
+      ) : (
+        <span className="sub" style={{ color: 'var(--ink-muted)' }}>—</span>
       )
     },
     {
@@ -318,7 +349,9 @@ export function EmbarqueAtualView() {
 
           <div style={{ marginBottom: '20px' }}>
             <div className="section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontFamily: 'var(--f-display)' }}>Técnicos a bordo</h3>
+              <h3 style={{ margin: 0, fontFamily: 'var(--f-display)' }}>
+                Técnicos a bordo ({rows.length}) · {uniqueEmbarqueCount} {plural(uniqueEmbarqueCount, 'embarque com ID', 'embarques com ID')}
+              </h3>
 
               <SegmentedControl<'todos' | 'negativo' | 'ok'>
                 options={[
@@ -335,10 +368,10 @@ export function EmbarqueAtualView() {
             <DataTable
               data={filteredRows}
               columns={columns}
-              rowKey={r => `${r.mat}_${r.p}_${r.emb.ini}`}
+              rowKey={r => `${r.mat}_${r.p}_${r.emb.ini}_${r.emb.id_embarque || ''}`}
               searchable
-              searchPlaceholder="Buscar técnico, matrícula ou plataforma..."
-              getSearchString={r => `${r.nome} ${r.mat} ${r.p} ${r.r}`}
+              searchPlaceholder="Buscar técnico, matrícula, plataforma ou ID embarque..."
+              getSearchString={r => `${r.nome} ${r.mat} ${r.p} ${r.r} ${r.emb.id_embarque || ''}`}
               emptyMessage={
                 statusFilter === 'negativo'
                   ? 'Nenhum técnico com saldo negativo a bordo.'

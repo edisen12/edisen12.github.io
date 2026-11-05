@@ -7,6 +7,7 @@ import {
   batchImportPlataformas,
   batchImportPessoas,
   batchImportConfirmacoesSAP,
+  resetCarteiraEmbarques,
   exportJsonSnapshot
 } from '../../services/data.service';
 import {
@@ -29,6 +30,7 @@ export const ImportarDadosView: React.FC = () => {
   const [parsing, setParsing] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [saveProgress, setSaveProgress] = useState<string>('');
+  const [substituirCarteira, setSubstituirCarteira] = useState<boolean>(false);
 
   const [openManualHH, setOpenManualHH] = useState<boolean>(false);
   const [openManualCart, setOpenManualCart] = useState<boolean>(false);
@@ -121,9 +123,17 @@ export const ImportarDadosView: React.FC = () => {
         setPreview(null);
         setActiveTab('dia');
       } else if (preview.kind === 'cart') {
+        if (substituirCarteira) {
+          await resetCarteiraEmbarques();
+        }
         await batchImportCarteira(preview.rows, pidx, onProgress);
         await refreshData();
-        showToast('Carteira de programação importada com sucesso!', 'success');
+        showToast(
+          substituirCarteira
+            ? 'Carteira anterior substituída e novas linhas importadas com sucesso!'
+            : 'Carteira de programação importada com sucesso!',
+          'success'
+        );
         setPreview(null);
         setActiveTab('emb');
       } else if (preview.kind === 'plat') {
@@ -587,6 +597,17 @@ export const ImportarDadosView: React.FC = () => {
               >
                 {saving ? 'Gravando…' : `Gravar ${preview.rows.length} linhas no Banco`}
               </button>
+
+              {preview.kind === 'cart' && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.84rem', cursor: 'pointer', userSelect: 'none', marginLeft: '6px' }}>
+                  <input
+                    type="checkbox"
+                    checked={substituirCarteira}
+                    onChange={e => setSubstituirCarteira(e.target.checked)}
+                  />
+                  <span>Substituir carteira anterior (limpar dados antigos antes de gravar)</span>
+                </label>
+              )}
             </div>
           </div>
 
@@ -668,6 +689,7 @@ export const ImportarDadosView: React.FC = () => {
                 )}
                 {preview.kind === 'cart' && (
                   <tr>
+                    <th>ID Embarque</th>
                     <th>Matrícula</th>
                     <th>Nome</th>
                     <th>Plataforma</th>
@@ -729,6 +751,7 @@ export const ImportarDadosView: React.FC = () => {
                     const dias = r.ini && r.fim ? diffDays(r.ini, r.fim) + 1 : '—';
                     return (
                       <tr key={rIdx}>
+                        <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{r.id_embarque || '—'}</td>
                         <td style={{ fontWeight: 600 }}>{r.mat}</td>
                         <td>{r.nome}</td>
                         <td>{r.plat}</td>

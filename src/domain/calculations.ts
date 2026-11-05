@@ -209,6 +209,7 @@ export const inferEmbarkation = (
     const dia = diffDays(c.data_inicio, dateIso) + 1;
     const n = diffDays(c.data_inicio, c.data_fim) + 1;
     return {
+      id_embarque: c.id_embarque,
       ini: c.data_inicio,
       fim: c.data_fim,
       dia,

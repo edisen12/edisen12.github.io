@@ -103,6 +103,7 @@ export interface CarteiraEmbarque {
 export interface CarteiraOperacao {
   id?: string;
   portal_id: string;
+  id_embarque?: string;
   matricula: string;
   chave_petrobras: string;
   nome: string;
@@ -224,6 +225,7 @@ export interface ResolvedRecord {
 }
 
 export interface EmbarkationInfo {
+  id_embarque?: string;
   ini: string;
   fim: string;
   dia: number;

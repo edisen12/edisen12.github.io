@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 10:04 (BRT) · HEAD `290eafd` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 452 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-05 10:41 (BRT) · Suíte: 24 arquivos / 456 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-5VxX6_4X.js`)
 
 ## 1. Resumo Executivo
 
@@ -35,7 +35,7 @@
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `017` — **imutáveis**.
+- `supabase/migrations/001` → `018` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
@@ -44,8 +44,9 @@
   - `015_realtime_configuracoes_e_cadastros.sql`: triggers de sincronização instantânea em tempo real (heartbeat) sobre `configuracoes`, `config_usoff_un`, `plataformas` e `pessoas`.
   - `016_fix_sync_carteira_embarques_trigger.sql`: correção da função `sync_carteira_embarques_from_operacoes()` para agrupar estritamente por `(matricula, data_inicio)`.
   - `017_contador_confirmacao_sap.sql`: reset de `confirmacoes_sap`, inclusão de `contador_confirmacao bigint NOT NULL DEFAULT 0` e chave única atualizada.
+  - `018_unify_id_embarque.sql`: inclusão de `id_embarque` em `carteira_operacoes`, trigger de self-healing para strings GMT, sincronização bidirecional e RPC `reset_carteira_embarques`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
-- `src/types/database.types.ts` — gerado via MCP `generate_typescript_types` atualizado com `contador_confirmacao`.
+- `src/types/database.types.ts` — gerado via MCP `generate_typescript_types` atualizado com `id_embarque` em `carteira_operacoes`.
 
 ### Backend Universal Self-Hosted & Infraestrutura VPS / Docker (Topologia `self-hosted`)
 - `server/package.json`, `server/tsconfig.json` — servidor Node 22/TS puro, zero dependências npm obrigatórias.
@@ -67,26 +68,26 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Reset de Confirmações SAP e Inclusão da Coluna Contador Confirmação:**
-  - **Tabela `confirmacoes_sap` resetada (truncada):** 0 linhas atualmente no Supabase.
-  - **Campos de conciliação SAP zerados:** `hh_confirmado_sap = 0` e `status_divergencia = 'Não Apontado no SAP'` em `carteira_operacoes` e `carteira_embarques`.
-  - **Nova Coluna `contador_confirmacao`:**
-    - Criada no banco como `bigint NOT NULL DEFAULT 0` com índice dedicado.
-    - Decisão arquitetural de tratamento numérico: elimina discrepâncias de zeros à esquerda (`'00000001'` vs `'1'`) e resolve o problema de confirmações múltiplas com a mesma quantidade de horas para o mesmo técnico e operação no mesmo dia.
-    - Chave única `uq_confirmacao_sap_row` estendida para conter `contador_confirmacao`.
-  - **Frontend Atualizado:**
-    - Seletor "Contador Confirmação" adicionado na revisão de colunas da importação SAP.
-    - Utilitário `parseCounter` converte automaticamente strings com zeros à esquerda ou inteiros para número limpo.
-    - Tabela de prévia exibe a nova coluna "Contador".
-    - `src/types/database.types.ts` atualizado com o schema real do banco.
+- **Resolução e Unificação Definitiva de `id_embarque` (Migration 018):**
+  - **Diagnóstico Preciso:** A flag `cellDates: true` no SheetJS interpretava números inteiros na faixa de 40.000 a 70.000 (IDs do Portal Offshore como `55104`, `56299`) como datas do Excel, instanciando objetos JavaScript `Date`. A conversão ingênua `String(date)` gerava strings completas de data no fuso local (`"Tue Oct 20 2054 00:00:00 GMT-0300..."`), fazendo parecer no Supabase que o `id_embarque` havia sumido e sido substituído por datas.
+  - **Recuperação de Dados em Produção:** 100% dos 1.830 registros de `carteira_operacoes` e 152 registros de `carteira_embarques` tiveram seus identificadores seriais originais recuperados matematicamente e limpos via SQL (0 strings GMT residuais no banco).
+  - **Unificação de Schema:** Tabela `carteira_operacoes` agora possui a coluna física `id_embarque text NOT NULL DEFAULT ''` com índice dedicado, espelhando bidirecionalmente `portal_id`.
+  - **Trigger de Self-Healing:** Implementada trigger `trg_normalize_carteira_operacoes_ids` que regenera o ID numérico e espelha `id_embarque` e `portal_id` automaticamente.
+  - **Frontend & Visualização:**
+    - Utilitário `parseIdEmbarque` protege o parser Excel client-side contra conversões indesejadas do SheetJS.
+    - Coluna `"ID Embarque"` adicionada à tabela da visão *Embarque Atual* (`EmbarqueAtualView.tsx`), com badge destacado e suporte a busca/ordenação direta por ID.
+    - Contador de embarques físicos com ID distinto adicionado ao cabeçalho da tabela.
+    - Coluna e busca de `ID Embarque` integradas na aba *Confronto SAP vs Portal* (`MedicaoUsoffView.tsx`) e exportador Excel (`exportConfrontoSAPXlsx`).
+    - Coluna de ID adicionada à tabela de prévia de importação da carteira (`ImportarDadosView.tsx`).
+    - Opção "Substituir carteira anterior (limpar dados antigos antes de gravar)" e RPC `reset_carteira_embarques()` adicionadas para permitir que o usuário elimine embarques legados de testes passados e sincronize exatamente 1-para-1 com o arquivo oficial.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
-  - `npm run test:run`: 24 suítes / 452 testes aprovados.
-  - `npm run build`: Bundle de produção gerado com sucesso em 3.99s (`index-CEiZOx0e.js`).
+  - `npm run test:run`: 24 suítes / 456 testes aprovados (100% verdes).
+  - `npm run build`: Bundle de produção gerado com sucesso em 4.46s (`index-5VxX6_4X.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Avisar o usuário:** informar que a base do SAP foi resetada, a coluna `contador_confirmacao` foi criada e testada, e que o sistema está pronto para receber a nova planilha.
-2. **Acompanhar a ingestão da nova planilha SAP e Carteira:** validar se os múltiplos lançamentos diários e a conciliação com o Portal Offshore somam corretamente na aba *Confronto SAP vs Portal*.
+1. **Avisar o usuário:** explicar o diagnóstico da conversão de data do SheetJS, confirmar que todos os 150+ IDs reais do Portal Offshore foram recuperados no banco, demonstrar a nova coluna "ID Embarque" e a opção de substituição limpa na tela de importação.
+2. **Acompanhar a ingestão da nova planilha SAP e Carteira:** validar se os múltiplos lançamentos diários com `contador_confirmacao` e os IDs de embarque do Portal Offshore confrontam com precisão na aba *Confronto SAP vs Portal*.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 4. **Evolução de Técnicos (Backlog):** avaliar inclusão de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.

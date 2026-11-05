@@ -530,14 +530,34 @@ export function MedicaoUsoffView() {
       header: 'Período',
       width: '150px',
       sortValue: r => r.data_inicio,
-      render: r => (
-        <div style={{ fontSize: '0.82rem' }}>
-          <div>{formatBrShort(r.data_inicio)} a {formatBrShort(r.data_fim)}</div>
-          <div className="sub" style={{ fontSize: '0.72rem', color: 'var(--ink-muted)' }}>
-            ID: {r.portal_id || '—'}
+      render: r => {
+        const idEmb = r.id_embarque || r.portal_id;
+        return (
+          <div style={{ fontSize: '0.82rem' }}>
+            <div>{formatBrShort(r.data_inicio)} a {formatBrShort(r.data_fim)}</div>
+            <div style={{ fontSize: '0.74rem', marginTop: '2px' }}>
+              {idEmb ? (
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    padding: '1px 5px',
+                    borderRadius: '3px',
+                    background: 'var(--surface-muted, #f1f5f9)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    color: 'var(--ink, #1e293b)'
+                  }}
+                  title="ID do Embarque no Portal Offshore"
+                >
+                  ID {idEmb}
+                </span>
+              ) : (
+                <span className="sub" style={{ color: 'var(--ink-muted)' }}>sem ID</span>
+              )}
+            </div>
           </div>
-        </div>
-      )
+        );
+      }
     },
     {
       key: 'statusProg',
@@ -981,8 +1001,8 @@ export function MedicaoUsoffView() {
                   columns={confrontoColumns}
                   rowKey={r => r.id || `${r.matricula}_${r.ordem}_${r.operacao}_${r.portal_id}`}
                   searchable
-                  searchPlaceholder="Buscar por ordem, operação, matrícula, técnico ou plataforma..."
-                  getSearchString={r => `${r.ordem} ${r.operacao} ${r.matricula} ${r.nome} ${r.plataforma_sigla || ''} ${r.unidade_negocio || ''} ${r.status_divergencia || ''}`}
+                  searchPlaceholder="Buscar por ordem, operação, matrícula, técnico, ID embarque ou plataforma..."
+                  getSearchString={r => `${r.ordem} ${r.operacao} ${r.matricula} ${r.nome} ${r.id_embarque || ''} ${r.portal_id || ''} ${r.plataforma_sigla || ''} ${r.unidade_negocio || ''} ${r.status_divergencia || ''}`}
                   emptyMessage="Nenhuma operação encontrada com os filtros selecionados."
                 />
 

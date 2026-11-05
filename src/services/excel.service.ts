@@ -24,6 +24,7 @@ import {
   normalizeText,
   parseCounter,
   parseFlexibleHours,
+  parseIdEmbarque,
   platformKey,
   slugify
 } from '../utils/format';
@@ -396,7 +397,7 @@ function extractRowsFromSheet(
         op: String(getVal('op') || '').trim(),
         pe: parseFlexibleHours(getVal('pe')),
         ex: parseFlexibleHours(getVal('ex')),
-        id_embarque: String(getVal('id_embarque') || '').trim(),
+        id_embarque: parseIdEmbarque(getVal('id_embarque')),
         ordem: String(getVal('ordem') || '').trim(),
         status_prog: String(getVal('status_prog') || '').trim(),
         hc_portal: parseFlexibleHours(getVal('hc_portal')),
@@ -1251,6 +1252,7 @@ export async function exportConfrontoSAPXlsx(
   const wb = XLSX.utils.book_new();
 
   const headers = [
+    'ID Embarque',
     'Matrícula',
     'Técnico',
     'Plataforma',
@@ -1268,6 +1270,7 @@ export async function exportConfrontoSAPXlsx(
   ];
 
   const dataRows = operations.map(op => [
+    op.id_embarque || op.portal_id || '',
     op.matricula,
     op.nome,
     op.plataforma_sigla || '',

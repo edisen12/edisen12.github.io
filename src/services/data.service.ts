@@ -191,6 +191,17 @@ export async function reconciliarConfirmacoesSAP(): Promise<any> {
 }
 
 /**
+ * Reseta e limpa com segurança a carteira de operações e embarques para reimportação do zero.
+ */
+export async function resetCarteiraEmbarques(): Promise<{ deleted_operacoes: number; deleted_embarques: number }> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.resetCarteiraEmbarques === 'function') {
+    return provider.data.resetCarteiraEmbarques();
+  }
+  return { deleted_operacoes: 0, deleted_embarques: 0 };
+}
+
+/**
  * Consulta a trilha de auditoria do sistema com filtros opcionais.
  */
 export async function fetchSystemAuditLogs(filters?: {

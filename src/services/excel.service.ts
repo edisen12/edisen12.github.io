@@ -22,6 +22,7 @@ import {
 } from '../utils/date';
 import {
   normalizeText,
+  parseCounter,
   parseFlexibleHours,
   platformKey,
   slugify
@@ -108,6 +109,7 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'real', label: 'Data Fim Real', synonyms: ['data_fim_real', 'fim_real', 'data real', 'real'] },
     { key: 'ordem', label: 'Ordem', synonyms: ['ordem', 'num ordem'] },
     { key: 'op', label: 'Operação', synonyms: ['operacao', 'op'] },
+    { key: 'contador', label: 'Contador Confirmação', synonyms: ['contador confirmacao', 'contador de confirmacao', 'contador_confirmacao', 'contador', 'num confirmacao', 'confirmacao', 'confirmação', 'rmzhl', 'rueck'] },
     { key: 'hc', label: 'Horas Confirmadas', synonyms: ['hc', 'horas confirmadas', 'horas'] }
   ]
 };
@@ -241,7 +243,7 @@ function saveWorkbook(XLSX: any, wb: any, filename: string): void {
 
 export function guessImportKind(headers: string[]): ImportKind {
   const joined = headers.map(h => normalizeText(h)).join('|');
-  if (/data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b/.test(joined)) {
+  if (/data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b|contador|rmzhl|rueck/.test(joined)) {
     return 'sap';
   }
   if (
@@ -409,6 +411,7 @@ function extractRowsFromSheet(
       const ordem = String(getVal('ordem') || '').trim();
       const op = String(getVal('op') || '').trim();
       const hc = parseFlexibleHours(getVal('hc'));
+      const contador = parseCounter(getVal('contador'));
 
       if (!mat || !ordem || !cria) {
         errors.push(`Linha ${i + 1}: campos obrigatórios ausentes no extrato SAP (matrícula, ordem ou data)`);
@@ -422,7 +425,8 @@ function extractRowsFromSheet(
         real,
         ordem,
         op,
-        hc: hc != null ? hc : 0
+        hc: hc != null ? hc : 0,
+        contador
       });
     }
   }
@@ -1214,16 +1218,17 @@ export async function exportModeloXlsx(
 
   if (kind === 'sap') {
     const sapRows: any[][] = [
-      ['Matricula', 'Data_criacao', 'Data_lancamento', 'Data_fim_real', 'Ordem', 'Operacao', 'HC'],
-      ['10231', formatBr(today), formatBr(today), formatBr(today), '100085421', '0010', 8.5]
+      ['Matricula', 'Data_criacao', 'Data_lancamento', 'Data_fim_real', 'Ordem', 'Operacao', 'Contador_confirmacao', 'HC'],
+      ['10231', formatBr(today), formatBr(today), formatBr(today), '100085421', '0010', '00000001', 8.5]
     ];
-    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, sapRows, [14, 16, 16, 16, 18, 12, 12]), 'Confirmacoes_SAP');
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, sapRows, [14, 16, 16, 16, 18, 12, 22, 12]), 'Confirmacoes_SAP');
 
     const instrRows: any[][] = [
       ['Instruções para Confirmações / Apontamentos do SAP'],
       ['Uma linha por apontamento/confirmação realizada no SAP.'],
-      ['Colunas obrigatórias: Matricula, Data_criacao, Data_lancamento, Data_fim_real, Ordem, Operacao, HC.'],
+      ['Colunas: Matricula, Data_criacao, Data_lancamento, Data_fim_real, Ordem, Operacao, Contador_confirmacao (opcional), HC.'],
       ['Datas no formato dd/mm/aaaa ou aaaa-mm-dd.'],
+      ['Contador de confirmação: numeração sequencial/zeros à esquerda que distingue apontamentos múltiplos de um mesmo dia.'],
       ['O sistema realiza a reconciliação e o vínculo com o embarque físico (+4 dias de tolerância e estornos retroativos).'],
       ['Confronto automático com o HH confirmado do Portal Offshore.'],
       [],

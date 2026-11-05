@@ -674,7 +674,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
 
   async upsertConfirmacoesSAPChunk(rows: Array<Record<string, unknown>>): Promise<void> {
     const { error } = await (supabase.from('confirmacoes_sap') as any)
-      .upsert(rows, { onConflict: 'matricula,data_criacao,data_lancamento,data_fim_real,ordem,operacao,horas_confirmadas' });
+      .upsert(rows, { onConflict: 'matricula,data_criacao,data_lancamento,data_fim_real,ordem,operacao,horas_confirmadas,contador_confirmacao' });
     if (error) throw error;
   },
 

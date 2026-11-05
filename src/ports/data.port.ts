@@ -74,6 +74,7 @@ export interface BatchImportConfirmacaoSAPRow {
   ordem: string;
   op: string;
   hc: number;
+  contador?: number;
 }
 
 export interface BatchImportPessoaRow {

@@ -325,6 +325,7 @@ export type Database = {
       }
       confirmacoes_sap: {
         Row: {
+          contador_confirmacao: number
           created_at: string
           data_criacao: string
           data_fim_real: string
@@ -339,6 +340,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          contador_confirmacao?: number
           created_at?: string
           data_criacao: string
           data_fim_real: string
@@ -353,6 +355,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          contador_confirmacao?: number
           created_at?: string
           data_criacao?: string
           data_fim_real?: string

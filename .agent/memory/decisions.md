@@ -132,3 +132,8 @@
   - Corrigida a função PL/pgSQL `sync_carteira_embarques_from_operacoes()` em `carteira_operacoes` para agrupar estritamente por `(matricula, data_inicio)` com agregação `MAX` para `portal_id`, `plataforma_sigla` e `unidade_negocio`, eliminando o erro SQL `21000: ON CONFLICT DO UPDATE command cannot affect row a second time` na importação de carteira do Portal Offshore.
   - No client-pipeline, o payload de `carteira_embarques` foi blindado para nunca transmitir coluna redundante `operacao` ao Supabase (removida fisicamente na Migration 013).
   - Na tela de importação, o campo de operação foi clarificado como `Operação (cruzamento SAP)` para evidenciar seu papel de relacionamento com as confirmações do SAP.
+- **2026-11-05** — Reset de Confirmações SAP e Inclusão de `contador_confirmacao` (Migration 017):
+  - Base `confirmacoes_sap` resetada (truncada) e indicadores de conciliação zerados em `carteira_operacoes` e `carteira_embarques` a pedido do usuário para nova ingestão limpa.
+  - Adicionada a coluna `contador_confirmacao bigint NOT NULL DEFAULT 0` na tabela `confirmacoes_sap`.
+  - Tratamento numérico adotado como padrão arquitetural (`bigint` no banco, `parseCounter` no frontend): elimina qualquer divergência de zeros à esquerda (`'00000001'` vs `'1'`) e resolve o cenário de múltiplos lançamentos de mesma quantidade de horas para o mesmo técnico/ordem/operação no mesmo dia (ex.: 3h pela manhã e 3h à tarde).
+  - Atualizada a chave de unicidade para `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas, contador_confirmacao)`.

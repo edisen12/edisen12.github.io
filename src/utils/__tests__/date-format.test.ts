@@ -23,6 +23,7 @@ import {
   formatSignedHours,
   formatUs,
   normalizeText,
+  parseCounter,
   parseFlexibleHours,
   platformKey,
   plural,
@@ -386,6 +387,28 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
       expect(parseFlexibleHours(null)).toBeNull();
       expect(parseFlexibleHours('')).toBeNull();
       expect(parseFlexibleHours('não-numérico')).toBeNull();
+    });
+  });
+
+  describe('parseCounter', () => {
+    it('elimina zeros à esquerda de strings numéricas do SAP', () => {
+      expect(parseCounter('00000001')).toBe(1);
+      expect(parseCounter('00000123')).toBe(123);
+      expect(parseCounter('0001004523')).toBe(1004523);
+    });
+
+    it('aceita números puros ou strings sem zeros à esquerda', () => {
+      expect(parseCounter(1)).toBe(1);
+      expect(parseCounter(500)).toBe(500);
+      expect(parseCounter('42')).toBe(42);
+    });
+
+    it('retorna 0 para valores vazios, nulos ou não numéricos', () => {
+      expect(parseCounter(null)).toBe(0);
+      expect(parseCounter(undefined)).toBe(0);
+      expect(parseCounter('')).toBe(0);
+      expect(parseCounter('   ')).toBe(0);
+      expect(parseCounter('sem-numero')).toBe(0);
     });
   });
 

@@ -403,24 +403,45 @@ export function prepareBatchConfirmacoesSAP(
   ordem: string;
   operacao: string;
   horas_confirmadas: number;
+  contador_confirmacao: number;
   updated_at: string;
 }> {
-  return rows.map(r => ({
-    matricula: String(r.mat || '').trim(),
-    data_criacao: String(r.cria || '').trim(),
-    data_lancamento: String(r.lanc || '').trim(),
-    data_fim_real: String(r.real || '').trim(),
-    ordem: String(r.ordem || '').trim(),
-    operacao: String(r.op || '').trim(),
-    horas_confirmadas: Number(r.hc) || 0,
-    updated_at: new Date().toISOString()
-  })).sort((a, b) => {
+  const map = new Map<string, any>();
+  rows.forEach(r => {
+    const mat = String(r.mat || '').trim();
+    const cria = String(r.cria || '').trim();
+    const lanc = String(r.lanc || '').trim() || cria;
+    const real = String(r.real || '').trim() || lanc;
+    const ordem = String(r.ordem || '').trim();
+    const op = String(r.op || '').trim();
+    const hc = Number(r.hc) || 0;
+    const contador = Number(r.contador) || 0;
+    if (!mat || !cria || !ordem) return;
+
+    const key = `${mat}_${cria}_${lanc}_${real}_${ordem}_${op}_${hc}_${contador}`;
+    map.set(key, {
+      matricula: mat,
+      data_criacao: cria,
+      data_lancamento: lanc,
+      data_fim_real: real,
+      ordem,
+      operacao: op,
+      horas_confirmadas: hc,
+      contador_confirmacao: contador,
+      updated_at: new Date().toISOString()
+    });
+  });
+
+  return Array.from(map.values()).sort((a, b) => {
     const cmpMat = a.matricula.localeCompare(b.matricula);
     if (cmpMat !== 0) return cmpMat;
     const cmpOrd = a.ordem.localeCompare(b.ordem);
     if (cmpOrd !== 0) return cmpOrd;
     const cmpOp = a.operacao.localeCompare(b.operacao);
     if (cmpOp !== 0) return cmpOp;
+    if (a.contador_confirmacao !== b.contador_confirmacao) {
+      return a.contador_confirmacao - b.contador_confirmacao;
+    }
     return a.data_lancamento.localeCompare(b.data_lancamento);
   });
 }

@@ -63,5 +63,14 @@ export const parseFlexibleHours = (v: unknown): number | null => {
   return isNaN(n) ? null : n;
 };
 
+export const parseCounter = (v: unknown): number => {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : Math.floor(v);
+  const s = String(v).trim().replace(/\D/g, '');
+  if (!s) return 0;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? 0 : n;
+};
+
 export const plural = (n: number, sing: string, plur: string): string =>
   n + ' ' + (n === 1 ? sing : plur);

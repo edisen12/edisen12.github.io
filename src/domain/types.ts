@@ -137,6 +137,7 @@ export interface ConfirmacaoSAP {
   ordem: string;
   operacao: string;
   horas_confirmadas: number;
+  contador_confirmacao?: number;
   id_embarque?: string;
   status_reconciliacao?: 'Pendente' | 'Em Carteira' | 'Fora da Carteira' | 'Sem Embarque' | string;
   created_at?: string;

@@ -706,6 +706,7 @@ export const ImportarDadosView: React.FC = () => {
                     <th>Fim Real</th>
                     <th>Ordem</th>
                     <th>Operação</th>
+                    <th>Contador</th>
                     <th style={{ textAlign: 'right' }}>Horas confirmadas</th>
                   </tr>
                 )}
@@ -773,6 +774,7 @@ export const ImportarDadosView: React.FC = () => {
                       <td>{formatBr(r.real)}</td>
                       <td style={{ fontWeight: 600 }}>{r.ordem}</td>
                       <td>{r.op || '—'}</td>
+                      <td>{r.contador != null && r.contador !== 0 ? r.contador : '—'}</td>
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatHours(r.hc)}</td>
                     </tr>
                   );

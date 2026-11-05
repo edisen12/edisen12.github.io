@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 14:50 (BRT) · Suíte: 24 arquivos / 468 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-Di58MTVD.js`)
+> Última atualização: 2026-11-05 14:51 (BRT) · HEAD: c923476 · Suíte: 24 arquivos / 468 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-Di58MTVD.js`)
 
 ## 1. Resumo Executivo
 

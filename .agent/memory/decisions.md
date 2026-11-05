@@ -179,3 +179,9 @@
 - **2026-11-05** — Refinamento de UMS do Armador (HH vs Diária):
   - Definido pelo usuário que apenas **`UMAR`**, **`UMCP`** e **`UMPA`** são medidas por HH de Armador.
   - Todas as demais UMS operam por **diária** por não possuírem carteira programada, recebendo a isenção de apontamento negativo ("Não chegou") quando a programação for nula ou zero.
+- **2026-11-05** — Visibilidade e Confronto de Ordens do SAP fora da Carteira do Portal Offshore:
+  - *Diagnóstico da divergência:* No Portal Offshore, a programação cadastrada pode conter poucas horas ou uma única ordem (ex.: 4h), enquanto no SAP o técnico confirmou 10 a 11 horas diariamente em dezenas de ordens executadas a bordo que nunca foram cadastradas no planejamento do Portal Offshore.
+  - *Ingestão e Indexação Client-Side:* Inclusão de `confirmacoesSap` no `AppDataset` para registros vinculados a embarques (`id_embarque <> ''`). Indexador `buildSapIndex` (`byTechDate`, `byEmbarkation`, `byTech`) para resolução instantânea em O(1).
+  - *Painel do Dia (`PainelDiaView`):* Identificação na coluna Executado com botão de ordens e alerta `⚠️` para ordens fora da carteira; modal completo de detalhamento diário discriminando situação no Portal (`Cadastrada no Portal (Em Carteira)` vs `Não Cadastrada no Portal (Fora da Carteira)`); novo botão de exportação `Exportar Apontamentos do Dia (Excel)`.
+  - *Ficha do Técnico (`FichaTecnicoDrawer`):* Histórico diário expansível com detalhamento de ordens do SAP por dia e badges de situação no Portal; exportador do técnico (`exportTecnicoXlsx`) atualizado com a aba dedicada "Confirmações SAP".
+  - *Confronto SAP vs Portal (`MedicaoUsoffView`):* Função `mergeConfrontoOperations` consolida na tabela de confronto tanto as operações da carteira do Portal quanto as ordens confirmadas no SAP fora da carteira (`status_divergencia = 'Não Cadastrado no Portal'`), com filtro dedicado e exportação completa via `exportConfrontoSAPXlsx`.

@@ -18,6 +18,7 @@ import { formatBr, formatBrShort } from '../../utils/date';
 import {
   computeDataAte,
   isPersonResponsible,
+  mergeConfrontoOperations,
   passesFilter,
   resolvePlace,
   statusOf
@@ -358,8 +359,16 @@ export function MedicaoUsoffView() {
     }
   ];
 
-  // Operações da Carteira filtradas para o período e escopo (Confronto SAP)
-  const rawCarteiraOps = dataset.carteiraOperacoes || [];
+  // Operações combinadas da Carteira do Portal + Confirmações do SAP fora da carteira
+  const rawCarteiraOps = useMemo(() => {
+    return mergeConfrontoOperations(
+      dataset.carteiraOperacoes || [],
+      dataset.confirmacoesSap || [],
+      dataset.carteira || [],
+      dataset.tecnicos || {}
+    );
+  }, [dataset.carteiraOperacoes, dataset.confirmacoesSap, dataset.carteira, dataset.tecnicos]);
+
   const confrontoOps = useMemo(() => {
     return rawCarteiraOps.filter(op => {
       if (isEnc) {
@@ -376,7 +385,9 @@ export function MedicaoUsoffView() {
   const filteredConfrontoOps = useMemo(() => {
     if (confrontoStatusFilter === 'todos') return confrontoOps;
     if (confrontoStatusFilter === 'divergentes') {
-      return confrontoOps.filter(op => op.status_divergencia && op.status_divergencia !== 'OK' && op.status_divergencia !== 'Não Confirmado');
+      return confrontoOps.filter(
+        op => op.status_divergencia && op.status_divergencia !== 'OK' && op.status_divergencia !== 'Não Confirmado'
+      );
     }
     if (confrontoStatusFilter === 'ok') {
       return confrontoOps.filter(op => op.status_divergencia === 'OK');
@@ -391,7 +402,11 @@ export function MedicaoUsoffView() {
       return confrontoOps.filter(op => op.status_divergencia === 'Não Apontado no SAP');
     }
     if (confrontoStatusFilter === 'nao_portal') {
-      return confrontoOps.filter(op => op.status_divergencia === 'Não Confirmado no Portal');
+      return confrontoOps.filter(
+        op =>
+          op.status_divergencia === 'Não Confirmado no Portal' ||
+          op.status_divergencia === 'Não Cadastrado no Portal'
+      );
     }
     if (confrontoStatusFilter === 'nao_conf') {
       return confrontoOps.filter(op => op.status_divergencia === 'Não Confirmado');
@@ -422,7 +437,7 @@ export function MedicaoUsoffView() {
       } else if (s === 'Não Apontado no SAP') {
         naoApontadoSapCount++;
         divCount++;
-      } else if (s === 'Não Confirmado no Portal') {
+      } else if (s === 'Não Confirmado no Portal' || s === 'Não Cadastrado no Portal') {
         naoConfirmadoPortalCount++;
         divCount++;
       } else if (s && s.startsWith('Divergente')) {
@@ -577,12 +592,16 @@ export function MedicaoUsoffView() {
                 ? 'var(--blue-soft)'
                 : r.status_programacao === 'Fora da carteira'
                 ? 'var(--orange-soft)'
+                : r.status_programacao === 'Não Cadastrado no Portal'
+                ? 'var(--bad-soft, #fee2e2)'
                 : 'var(--surface-alt)',
             color:
               r.status_programacao === 'Carteira'
                 ? 'var(--blue)'
                 : r.status_programacao === 'Fora da carteira'
                 ? 'var(--orange-dark)'
+                : r.status_programacao === 'Não Cadastrado no Portal'
+                ? 'var(--bad, #b91c1c)'
                 : 'var(--ink-muted)'
           }}
         >
@@ -654,7 +673,7 @@ export function MedicaoUsoffView() {
         else if (s === 'Divergente (Portal > SAP)') meta = 'warn';
         else if (s === 'Divergente (SAP > Portal)') meta = 'bad';
         else if (s === 'Não Apontado no SAP') meta = 'warn';
-        else if (s === 'Não Confirmado no Portal') meta = 'info';
+        else if (s === 'Não Confirmado no Portal' || s === 'Não Cadastrado no Portal') meta = 'info';
 
         return <StatusPill status={meta} text={s} />;
       }
@@ -933,7 +952,7 @@ export function MedicaoUsoffView() {
                       <option value="div_portal_sap">Divergente (Portal &gt; SAP)</option>
                       <option value="div_sap_portal">Divergente (SAP &gt; Portal)</option>
                       <option value="nao_sap">Não Apontado no SAP ({confrontoSummary.naoApontadoSapCount})</option>
-                      <option value="nao_portal">Não Confirmado no Portal ({confrontoSummary.naoConfirmadoPortalCount})</option>
+                      <option value="nao_portal">Não Confirmado / Não Cadastrado no Portal ({confrontoSummary.naoConfirmadoPortalCount})</option>
                       <option value="nao_conf">Não Confirmado ({confrontoSummary.naoConfirmadoCount})</option>
                     </select>
                   </div>

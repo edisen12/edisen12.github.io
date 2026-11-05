@@ -322,6 +322,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       tecRows,
       cartRows,
       cartOpRows,
+      confirmacaoSapRows,
       hhRows,
       justRows,
       wmRes,
@@ -360,6 +361,13 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
           .gte('data_fim', queryIni)
           .lte('data_inicio', queryFim)
           .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages<any>((from, to) =>
+        (supabase.from('confirmacoes_sap') as any)
+          .select('*')
+          .neq('id_embarque', '')
+          .order('data_fim_real', { ascending: false })
           .range(from, to)
       ),
       fetchAllPages<any>((from, to) =>
@@ -424,6 +432,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       tecnicoRows: tecRows,
       carteiraRows: cartRows,
       carteiraOperacaoRows: cartOpRows || [],
+      confirmacaoSapRows: confirmacaoSapRows || [],
       hhRows,
       justificativaRows: justRows,
       watermarkRow: wmRes.data,

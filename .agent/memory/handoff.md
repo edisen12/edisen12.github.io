@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-05 13:48 (BRT) · Suíte: 24 arquivos / 462 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DMjeHyda.js`)
+> Última atualização: 2026-11-05 14:28 (BRT) · Suíte: 24 arquivos / 464 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅ (`index-DpUxacBI.js`)
 
 ## 1. Resumo Executivo
 
@@ -70,19 +70,19 @@
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Sanitização de Unidades e Desconsideração de "Não Chegou" em Armador / Diária (Migration 020):**
-  - **Sanitização de Plataformas:** Criado método `sanitizePlatformCode` e dicionário `PLATFORM_ALIASES` em `src/utils/format.ts` para converter determinística e heuristicamente siglas do Portal Offshore (`PMXL1`/`PMXL` -> `MXL`, `PMLZ1` -> `MLZ`, `PMNT1` -> `PMNT`, `PAG-02` -> `PAG2`, `PCR-01` -> `PCR1`, `PCM-9` -> `PCM9`, `PPE-1A` -> `PPE1A`, `PRA-1` -> `PRA1`, `P-09` -> `P09`, etc.).
-  - **Saneamento no Banco (Migration 020):** Aplicada com sucesso no Supabase. As plataformas pendentes duplicadas foram removidas, os 72 apontamentos legados de HH com siglas desnormalizadas foram atualizados para suas siglas e UNs canônicas, e a trigger `trg_sanitize_carteira_plataforma` garante normalização imediata em qualquer inserção em `carteira_operacoes`.
-  - **Regra de Negócio de Armador / Diária:** Implementada função `isArmadorDiariaSemProg`. Quando o técnico está em embarcação de Armador (medida por diária) e tanto a programação quanto a execução forem nulas ou em branco, `resolveRecord` retorna `null`, suprimindo o apontamento negativo falso ("Não chegou" / -11h / status bad) e o alerta de justificativa pendente.
-  - **Exceção de UMS por HH do Armador:** Apenas **`UMAR`**, **`UMCP`** e **`UMPA`** são medidas por HH de Armador. As demais UMS (`UMAC`, `UMGR`, `UMLI`, `UMMA`, `UMPC`, `UMPT`, `UMTJ`, `UMVT`, `UMVV`, etc.) operam por diária visto que não possuem carteira programada, recebendo a isenção de apontamento negativo quando sem programação.
-  - **Base Atualizada:** Os 147 embarques consolidados em `carteira_embarques` (1.830 operações em `carteira_operacoes`) foram reconciliados com o SAP via `reconciliar_confirmacoes_sap()`, gerando 3.045 confirmações vinculadas, 879 batimentos OK e 1.562 dias apontados sincronizados.
+- **Visibilidade e Confronto de Ordens do SAP fora da Carteira do Portal Offshore:**
+  - **Diagnóstico da Divergência:** No caso do técnico Alexandre de Oliveira Sales (e outros como Osmar, Jonhrele, etc.), a planilha do Portal Offshore continha apenas uma linha com 4 horas programadas (`ordem: 002032834400 / 0010`), enquanto no SAP o técnico trabalhou todos os dias do embarque confirmando 10 a 11 horas em mais de 18 ordens diferentes executadas a bordo que **nunca foram cadastradas no planejamento do Portal Offshore**.
+  - **Ingestão e Indexação de Confirmações SAP:** Adicionado `confirmacaoSapRows` em `RawBaaSDatasetPayload` e `confirmacoesSap` em `AppDataset` para todas as confirmações vinculadas a embarques (`id_embarque <> ''`). Implementado `buildSapIndex` para consultas instantâneas O(1) por técnico, data e embarque.
+  - **Painel do Dia (`PainelDiaView`):** Coluna Executado exibe a contagem de ordens confirmadas no SAP (`X ordens`) e alerta `⚠️` quando há ordens fora da carteira do Portal. Clicar abre o modal completo de detalhamento diário discriminando situação (`Cadastrada no Portal (Em Carteira)` vs `Não Cadastrada no Portal (Fora da Carteira)`). Novo botão no topo da tela: `Exportar Apontamentos do Dia (Excel)` via `exportPainelDiaOrdensXlsx`.
+  - **Ficha do Técnico (`FichaTecnicoDrawer`):** Histórico diário conta com detalhamento expansível por dia listando cada ordem e operação confirmada no SAP com badges de situação no Portal. O exportador `.xlsx` do técnico (`exportTecnicoXlsx`) inclui uma aba dedicada "Confirmações SAP".
+  - **Confronto SAP vs Portal (`MedicaoUsoffView`):** Implementada a função `mergeConfrontoOperations` que unifica as operações da carteira com as ordens do SAP executadas fora da carteira (`status_divergencia = 'Não Cadastrado no Portal'`). A visão de confronto agora permite filtrar por `Não Confirmado / Não Cadastrado no Portal` e exportar o confronto completo via `exportConfrontoSAPXlsx`.
 - **Validação de Código:**
   - `npm run typecheck`: 0 erros.
-  - `npm run test:run`: 24 suítes / 462 testes aprovados (100% verdes).
-  - `npm run build`: Bundle de produção gerado com sucesso em 4.09s (`index-DIfabSIB.js`).
+  - `npm run test:run`: 24 suítes / 464 testes aprovados (100% verdes).
+  - `npm run build`: Bundle de produção gerado com sucesso em 5.56s (`index-DpUxacBI.js`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Apresentar diagnóstico ao usuário:** confirmar que a sanitização das unidades e a regra de isenção de diária para armadores sem programação foram implementadas com 100% de cobertura de testes, e que os 147 embarques estão devidamente consolidados no banco de produção.
-2. **Conferência das telas:** validar junto ao usuário a exibição nas visões *Visão Geral*, *Painel do Dia*, *Embarque Atual* e *Confronto SAP vs Portal*.
+1. **Apresentar diagnóstico e novas ferramentas ao usuário:** detalhar por que ocorreu a divergência do Alexandre de Oliveira Sales (apenas 4h cadastradas no Portal vs 113h apontadas no SAP em ordens não planejadas).
+2. **Validar a navegação e exportação:** demonstrar como inspecionar as ordens do dia no *Painel do Dia*, na *Ficha do Técnico* e no *Confronto SAP vs Portal*, bem como os relatórios Excel gerados.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.

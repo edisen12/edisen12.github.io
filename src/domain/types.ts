@@ -397,6 +397,7 @@ export interface AppDataset {
   tecnicos: Record<string, Tecnico>;
   carteira: CarteiraEmbarque[];
   carteiraOperacoes?: CarteiraOperacao[];
+  confirmacoesSap?: ConfirmacaoSAP[];
   hhMap: Record<string, ApontamentoHH>; // chave: `${matricula}|${data}`
   justMap: Record<string, Justificativa>; // chave: `${matricula}|${data}`
   externalCoveredSet: Set<string>; // conjunto `${matricula}|${data}`

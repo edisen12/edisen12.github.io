@@ -4,9 +4,10 @@ import { useToast } from '../components/ToastContext';
 import { KpiCard } from '../components/KpiCard';
 import { StatusPill } from '../components/StatusPill';
 import { MeterBar } from '../components/MeterBar';
+import { Modal } from '../components/Modal';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import type { DayTechRow, StatusMeta } from '../../domain/types';
+import type { ConfirmacaoSAP, DayTechRow, StatusMeta } from '../../domain/types';
 import {
   calcPct,
   formatHours,
@@ -16,6 +17,7 @@ import {
 } from '../../utils/format';
 import { addDays, diffDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
 import {
+  buildSapIndex,
   computeDayRows,
   gestorOfUn,
   groupDaysByField,
@@ -24,6 +26,7 @@ import {
   statusOf
 } from '../../domain/calculations';
 import { buildDailyAlertText } from '../../domain/communications';
+import { exportPainelDiaOrdensXlsx } from '../../services/excel.service';
 
 export function PainelDiaView() {
   const {
@@ -38,6 +41,15 @@ export function PainelDiaView() {
 
   const { showToast } = useToast();
   const [dayViewMode, setDayViewMode] = useState<'abaixo' | 'todos'>('abaixo');
+  const [modalOrdens, setModalOrdens] = useState<{
+    mat: string;
+    nome: string;
+    p: string;
+    items: ConfirmacaoSAP[];
+  } | null>(null);
+  const [isExportingDia, setIsExportingDia] = useState(false);
+
+  const sapIndex = useMemo(() => buildSapIndex(dataset.confirmacoesSap), [dataset.confirmacoesSap]);
 
   const D = filters.fDate;
   const TODAY = todayIso();
@@ -103,6 +115,25 @@ export function PainelDiaView() {
       showToast('Alerta copiado. Cole no e-mail ou no WhatsApp.', 'success');
     } catch {
       showToast('Não foi possível copiar automaticamente para a área de transferência.', 'warn');
+    }
+  };
+
+  // Exportar apontamentos e ordens do dia para Excel
+  const handleExportDia = async () => {
+    if (!D || allRows.length === 0) return;
+    setIsExportingDia(true);
+    try {
+      await exportPainelDiaOrdensXlsx({
+        date: D,
+        dataset,
+        rows: allRows
+      });
+      showToast(`Apontamentos e ordens de ${formatBr(D)} exportados com sucesso!`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao exportar apontamentos: ' + (err?.message || 'Falha'), 'error');
+    } finally {
+      setIsExportingDia(false);
     }
   };
 
@@ -213,18 +244,52 @@ export function PainelDiaView() {
       key: 'exec',
       header: 'Executado',
       align: 'right',
-      width: '110px',
+      width: '130px',
       sortValue: r => (r.sem ? 0 : r.e),
-      render: r => (
-        r.sem ? (
-          <div>
-            <span style={{ color: 'var(--bad)', fontWeight: 700 }}>Não chegou</span>
-            <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>conta 0 h</div>
+      render: r => {
+        if (r.sem) {
+          return (
+            <div>
+              <span style={{ color: 'var(--bad)', fontWeight: 700 }}>Não chegou</span>
+              <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>conta 0 h</div>
+            </div>
+          );
+        }
+
+        const sapKey = `${r.mat}|${D}`;
+        const daySap = sapIndex.byTechDate.get(sapKey) || [];
+        const hasFora = daySap.some(s => s.status_reconciliacao !== 'Em Carteira');
+
+        return (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 600 }}>{formatHours(r.e)}</div>
+            {daySap.length > 0 && (
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => setModalOrdens({ mat: r.mat, nome: r.nome, p: r.p, items: daySap })}
+                style={{
+                  fontSize: '0.74rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  color: hasFora ? 'var(--orange-dark)' : 'var(--blue)',
+                  marginTop: '2px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: 'none',
+                  background: 'none',
+                  padding: 0
+                }}
+                title={hasFora ? 'Contém ordens confirmadas no SAP fora da carteira do Portal (clique para ver)' : 'Ver ordens confirmadas no SAP'}
+              >
+                {daySap.length} {plural(daySap.length, 'ordem', 'ordens')}
+                {hasFora ? ' ⚠️' : ''}
+              </button>
+            )}
           </div>
-        ) : (
-          formatHours(r.e)
-        )
-      )
+        );
+      }
     },
     {
       key: 'pc',
@@ -347,7 +412,16 @@ export function PainelDiaView() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleExportDia}
+            disabled={isExportingDia || allRows.length === 0}
+            title="Exportar planilha Excel com todas as ordens e operações confirmadas no SAP neste dia"
+          >
+            {isExportingDia ? 'Exportando...' : 'Exportar Apontamentos do Dia (Excel)'}
+          </button>
           {lowPlats.length > 0 && (
             <button
               type="button"
@@ -553,6 +627,138 @@ export function PainelDiaView() {
           }
         />
       </div>
+
+      {/* Modal de Detalhamento de Ordens e Confirmações do SAP */}
+      {modalOrdens && (
+        <Modal
+          open={!!modalOrdens}
+          onClose={() => setModalOrdens(null)}
+          title={`Ordens e Operações no SAP · ${formatBr(D)}`}
+          subtitle={`${modalOrdens.nome} · Matrícula ${modalOrdens.mat} · Plataforma ${modalOrdens.p}`}
+          maxWidth={750}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setModalOrdens(null)}
+              >
+                Fechar
+              </button>
+            </div>
+          }
+        >
+          <div>
+            {/* Resumo do Dia */}
+            {(() => {
+              const totalH = modalOrdens.items.reduce((acc, it) => acc + (it.horas_confirmadas || 0), 0);
+              const totalEmCart = modalOrdens.items
+                .filter(it => it.status_reconciliacao === 'Em Carteira')
+                .reduce((acc, it) => acc + (it.horas_confirmadas || 0), 0);
+              const totalForaCart = modalOrdens.items
+                .filter(it => it.status_reconciliacao !== 'Em Carteira')
+                .reduce((acc, it) => acc + (it.horas_confirmadas || 0), 0);
+
+              return (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                    gap: '12px',
+                    padding: '12px 14px',
+                    background: 'var(--surface-alt)',
+                    borderRadius: 'var(--radius-md)',
+                    marginBottom: '16px'
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Total confirmado no dia</span>
+                    <b style={{ fontSize: '1.1rem', color: 'var(--blue)' }}>{formatHours(totalH)}</b>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Cadastradas no Portal</span>
+                    <b style={{ fontSize: '1.1rem', color: 'var(--ok)' }}>{formatHours(totalEmCart)}</b>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Não cadastradas (Fora)</span>
+                    <b style={{ fontSize: '1.1rem', color: totalForaCart > 0 ? 'var(--orange-dark)' : 'var(--ink)' }}>
+                      {formatHours(totalForaCart)}
+                    </b>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Aviso quando há ordens fora da carteira */}
+            {modalOrdens.items.some(it => it.status_reconciliacao !== 'Em Carteira') && (
+              <div
+                style={{
+                  background: 'var(--orange-soft, rgba(245, 158, 11, 0.1))',
+                  border: '1px solid var(--orange, #f59e0b)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 14px',
+                  marginBottom: '14px',
+                  fontSize: '0.82rem',
+                  color: 'var(--orange-dark, #b45309)'
+                }}
+              >
+                ⚠️ <b>Atenção:</b> Existem ordens confirmadas no SAP neste dia que <b>não constam na carteira programada do Portal Offshore</b> para este embarque. Elas são contabilizadas como horas executadas a bordo, mas geram divergência em relação ao planejamento cadastrado.
+              </div>
+            )}
+
+            {/* Tabela de Ordens */}
+            <div className="table-responsive" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+              <table className="table-base" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--line)', textAlign: 'left', background: 'var(--surface)' }}>
+                    <th style={{ padding: '8px' }}>Ordem</th>
+                    <th style={{ padding: '8px' }}>Operação</th>
+                    <th style={{ padding: '8px', textAlign: 'right' }}>Horas Confirmadas</th>
+                    <th style={{ padding: '8px' }}>Situação no Portal Offshore</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>Contador</th>
+                    <th style={{ padding: '8px' }}>ID Embarque</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modalOrdens.items.map((it, idx) => {
+                    const isEmCart = it.status_reconciliacao === 'Em Carteira';
+                    return (
+                      <tr key={it.id || `${it.ordem}_${it.operacao}_${idx}`} style={{ borderBottom: '1px solid var(--line)' }}>
+                        <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 600 }}>{it.ordem}</td>
+                        <td style={{ padding: '8px', fontFamily: 'monospace' }}>{it.operacao}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>
+                          {formatHours(it.horas_confirmadas)}
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              fontSize: '0.74rem',
+                              fontWeight: 600,
+                              background: isEmCart ? 'var(--green-soft, #dcfce7)' : 'var(--orange-soft, #fef3c7)',
+                              color: isEmCart ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
+                            }}
+                          >
+                            {isEmCart ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                          {it.contador_confirmacao || '—'}
+                        </td>
+                        <td style={{ padding: '8px', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                          {it.id_embarque ? `ID ${it.id_embarque}` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

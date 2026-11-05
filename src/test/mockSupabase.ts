@@ -51,6 +51,11 @@ export class MockQueryBuilder {
     return this;
   }
 
+  neq(column: string, value: any) {
+    this.filters.push(row => row[column] !== value);
+    return this;
+  }
+
   gte(column: string, value: any) {
     this.filters.push(row => row[column] != null && row[column] >= value);
     return this;

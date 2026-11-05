@@ -7,7 +7,9 @@ import type {
   AppDataset,
   CarteiraEmbarque,
   CarteiraOperacao,
+  ConfirmacaoSAP,
   ContractConfig,
+  DayTechRow,
   ImportKind,
   PeriodDayEntry,
   PeriodWindow,
@@ -1086,6 +1088,35 @@ export async function exportTecnicoXlsx(
   applyPercentageFormatting(XLSX, { SheetNames: ['Relatório'], Sheets: { Relatório: ws } });
   XLSX.utils.book_append_sheet(wb, ws, 'Relatório');
 
+  // Aba 2: Detalhamento de Confirmações e Ordens do SAP
+  const sapList = (dataset.confirmacoesSap || []).filter(cs => cs.matricula === mat);
+  if (sapList.length > 0) {
+    const sapHeaders = [
+      'Data Fim Real',
+      'Ordem',
+      'Operação',
+      'Horas Confirmadas (SAP)',
+      'Contador Confirmação',
+      'ID Embarque',
+      'Situação no Portal Offshore',
+      'Data de Criação',
+      'Data de Lançamento'
+    ];
+    const sapRows = sapList.map(cs => [
+      formatBr(cs.data_fim_real),
+      cs.ordem,
+      cs.operacao,
+      cs.horas_confirmadas,
+      cs.contador_confirmacao || 0,
+      cs.id_embarque || '',
+      cs.status_reconciliacao === 'Em Carteira' ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)',
+      formatBr(cs.data_criacao),
+      formatBr(cs.data_lancamento)
+    ]);
+    const sapWs = createSheet(XLSX, [sapHeaders, ...sapRows], [16, 16, 10, 16, 14, 14, 34, 16, 16]);
+    XLSX.utils.book_append_sheet(wb, sapWs, 'Confirmações SAP');
+  }
+
   const fileSuffix = periodFileSlug(period);
   saveWorkbook(XLSX, wb, `HH Offshore ${fileSuffix} ${techName}.xlsx`);
 }
@@ -1287,9 +1318,106 @@ export async function exportConfrontoSAPXlsx(
     op.status_divergencia || 'Não Confirmado'
   ]);
 
-  const widths = [12, 32, 12, 18, 14, 14, 16, 10, 18, 14, 16, 16, 18, 26];
+  const widths = [14, 12, 30, 14, 18, 14, 14, 16, 10, 22, 14, 16, 16, 18, 26];
   const ws = createSheet(XLSX, [headers, ...dataRows], widths);
   XLSX.utils.book_append_sheet(wb, ws, 'Confronto SAP x Portal');
 
   saveWorkbook(XLSX, wb, `confronto_sap_portal_${slugify(periodLabel)}.xlsx`);
+}
+
+/**
+ * Exporta o relatório detalhado de apontamentos e ordens confirmadas no SAP em uma data específica.
+ */
+export async function exportPainelDiaOrdensXlsx(params: {
+  date: string;
+  dataset: AppDataset;
+  rows: DayTechRow[];
+}): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+
+  const { date, dataset, rows } = params;
+  const sapList = dataset.confirmacoesSap || [];
+  const sapByTechDate = new Map<string, ConfirmacaoSAP[]>();
+  sapList.forEach(cs => {
+    if (cs.matricula && cs.data_fim_real) {
+      const key = `${cs.matricula}|${cs.data_fim_real}`;
+      const list = sapByTechDate.get(key) || [];
+      list.push(cs);
+      sapByTechDate.set(key, list);
+    }
+  });
+
+  const headers = [
+    'Data',
+    'Matrícula',
+    'Técnico',
+    'Plataforma',
+    'Unidade de Negócio',
+    'ID Embarque',
+    'Ordem',
+    'Operação',
+    'Horas SAP',
+    'Contador',
+    'Situação no Portal',
+    'Horas Totais do Dia',
+    'Disponível do Dia',
+    'Status do Dia',
+    'Justificativa'
+  ];
+
+  const dataRows: any[][] = [];
+
+  rows.forEach(r => {
+    const key = `${r.mat}|${date}`;
+    const confirmations = sapByTechDate.get(key) || [];
+
+    if (confirmations.length > 0) {
+      confirmations.forEach(c => {
+        dataRows.push([
+          formatBr(date),
+          r.mat,
+          r.nome,
+          r.p,
+          r.r,
+          c.id_embarque || (r.emb ? (r.emb as any).id_embarque : '') || '',
+          c.ordem,
+          c.operacao,
+          c.horas_confirmadas,
+          c.contador_confirmacao || 0,
+          c.status_reconciliacao === 'Em Carteira'
+            ? 'Cadastrada no Portal (Em Carteira)'
+            : 'Não Cadastrada no Portal (Fora da Carteira)',
+          r.e,
+          r.d,
+          r.st.toUpperCase(),
+          r.j ? `${r.j.motivo}${r.j.descricao ? ' - ' + r.j.descricao : ''}` : ''
+        ]);
+      });
+    } else {
+      dataRows.push([
+        formatBr(date),
+        r.mat,
+        r.nome,
+        r.p,
+        r.r,
+        r.emb ? (r.emb as any).id_embarque || '' : '',
+        '—',
+        '—',
+        0,
+        0,
+        r.sem ? 'Sem apontamento (Não Chegou)' : 'Sem ordens no extrato SAP',
+        r.e,
+        r.d,
+        r.st.toUpperCase(),
+        r.j ? `${r.j.motivo}${r.j.descricao ? ' - ' + r.j.descricao : ''}` : ''
+      ]);
+    }
+  });
+
+  const widths = [12, 12, 28, 14, 18, 14, 16, 10, 12, 12, 34, 14, 14, 14, 30];
+  const ws = createSheet(XLSX, [headers, ...dataRows], widths);
+  XLSX.utils.book_append_sheet(wb, ws, `Apontamentos ${date}`);
+
+  saveWorkbook(XLSX, wb, `apontamentos_ordens_dia_${date}.xlsx`);
 }

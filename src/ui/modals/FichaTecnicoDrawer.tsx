@@ -6,6 +6,7 @@ import { Sparkline120 } from '../components/Sparkline120';
 import { StatusPill } from '../components/StatusPill';
 import {
   accumulateEmbarkation,
+  buildSapIndex,
   findCarteira,
   inferEmbarkation,
   resolveLocation,
@@ -13,13 +14,15 @@ import {
   resolveTechName,
   statusOf
 } from '../../domain/calculations';
+import type { ConfirmacaoSAP } from '../../domain/types';
 import { eachDay, periodDisplayName } from '../../domain/periods';
 import { formatBr, formatBrShort } from '../../utils/date';
 import {
   calcPct,
   formatHours,
   formatPct,
-  formatSignedHours
+  formatSignedHours,
+  plural
 } from '../../utils/format';
 import { exportTecnicoXlsx } from '../../services/excel.service';
 
@@ -31,6 +34,7 @@ interface FichaDayItem {
   emb: ReturnType<typeof inferEmbarkation>;
   acc: ReturnType<typeof accumulateEmbarkation> | null;
   j: any;
+  sapItems: ConfirmacaoSAP[];
 }
 
 export function FichaTecnicoDrawer() {
@@ -46,9 +50,12 @@ export function FichaTecnicoDrawer() {
 
   const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState(false);
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
   const mat = fichaMat || '';
   const P = activePeriod;
+
+  const sapIndex = useMemo(() => buildSapIndex(dataset.confirmacoesSap), [dataset.confirmacoesSap]);
 
   // Busca dados de cada dia do período para este técnico
   const dayItems = useMemo(() => {
@@ -64,12 +71,13 @@ export function FichaTecnicoDrawer() {
       const acc = emb && r ? accumulateEmbarkation(mat, D, emb, dataset) : null;
       const l = resolveLocation(mat, D, dataset, pidx);
       const j = dataset.justMap[`${mat}|${D}`] || null;
+      const sapItems = sapIndex.byTechDate.get(`${mat}|${D}`) || [];
 
-      out.push({ D, r, c, l, emb, acc, j });
+      out.push({ D, r, c, l, emb, acc, j, sapItems });
     });
 
     return out;
-  }, [mat, P, dataset, pidx]);
+  }, [mat, P, dataset, pidx, sapIndex]);
 
   // Agregações do técnico no período
   const summary = useMemo(() => {
@@ -82,7 +90,9 @@ export function FichaTecnicoDrawer() {
         p: null as number | null,
         gw: 0,
         jus: 0,
-        pend: 0
+        pend: 0,
+        totSap: 0,
+        totSapFora: 0
       };
     }
 
@@ -92,6 +102,8 @@ export function FichaTecnicoDrawer() {
     let totGw = 0;
     let totJus = 0;
     let totPend = 0;
+    let totSap = 0;
+    let totSapFora = 0;
 
     // Dias na carteira dentro do período
     dataset.carteira.forEach(c => {
@@ -118,6 +130,12 @@ export function FichaTecnicoDrawer() {
       if (x.j?.horas_gangway) {
         totGw += Number(x.j.horas_gangway) || 0;
       }
+      (x.sapItems || []).forEach(cs => {
+        totSap += cs.horas_confirmadas || 0;
+        if (cs.status_reconciliacao !== 'Em Carteira') {
+          totSapFora += cs.horas_confirmadas || 0;
+        }
+      });
     });
 
     const progHours = totCartDias * dataset.config.hh_dia;
@@ -131,7 +149,9 @@ export function FichaTecnicoDrawer() {
       p,
       gw: totGw,
       jus: totJus,
-      pend: totPend
+      pend: totPend,
+      totSap,
+      totSapFora
     };
   }, [mat, P, dataset, dayItems]);
 
@@ -239,6 +259,19 @@ export function FichaTecnicoDrawer() {
               {summary.pend}
             </b>
           </div>
+          {summary.totSap > 0 && (
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', display: 'block' }}>Extrato SAP</span>
+              <b style={{ fontSize: '0.95rem', color: 'var(--blue)' }}>
+                {formatHours(summary.totSap)}
+                {summary.totSapFora > 0 && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--orange-dark)', marginLeft: '4px' }}>
+                    ({formatHours(summary.totSapFora)} fora)
+                  </span>
+                )}
+              </b>
+            </div>
+          )}
         </div>
 
         {/* Gráfico Sparkline 120% */}
@@ -279,7 +312,8 @@ export function FichaTecnicoDrawer() {
                     const need = x.r && x.r.e < x.r.d - 0.001;
 
                     return (
-                      <tr key={x.D} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <React.Fragment key={x.D}>
+                        <tr style={{ borderBottom: '1px solid var(--line)' }}>
                         <td style={{ padding: '8px', fontWeight: 600 }}>{formatBr(x.D)}</td>
                         <td style={{ padding: '8px' }}>
                           <b>{x.l.p}</b>
@@ -294,7 +328,40 @@ export function FichaTecnicoDrawer() {
                           {x.r ? formatHours(x.r.d) : <span className="sub">fora do embarque</span>}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right' }}>
-                          {x.r ? (x.r.sem ? <span style={{ color: 'var(--bad)' }}>Não chegou</span> : formatHours(x.r.e)) : ''}
+                          {x.r ? (
+                            x.r.sem ? (
+                              <span style={{ color: 'var(--bad)', fontWeight: 700 }}>Não chegou</span>
+                            ) : (
+                              <div>
+                                <span style={{ fontWeight: 600 }}>{formatHours(x.r.e)}</span>
+                                {x.sapItems && x.sapItems.length > 0 && (
+                                  <div>
+                                    <button
+                                      type="button"
+                                      className="btn-link"
+                                      onClick={() => setExpandedDays(prev => ({ ...prev, [x.D]: !prev[x.D] }))}
+                                      style={{
+                                        fontSize: '0.72rem',
+                                        color: x.sapItems.some(s => s.status_reconciliacao !== 'Em Carteira')
+                                          ? 'var(--orange-dark)'
+                                          : 'var(--blue)',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        background: 'none',
+                                        border: 'none',
+                                        padding: 0
+                                      }}
+                                    >
+                                      {x.sapItems.length} {x.sapItems.length === 1 ? 'ordem' : 'ordens'}
+                                      {x.sapItems.some(s => s.status_reconciliacao !== 'Em Carteira') ? ' ⚠️' : ''}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          ) : (
+                            ''
+                          )}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'center' }}>
                           {x.r && <StatusPill status={statusOf(p, dataset.config)} text={formatPct(p)} />}
@@ -333,6 +400,64 @@ export function FichaTecnicoDrawer() {
                           )}
                         </td>
                       </tr>
+                      {expandedDays[x.D] && x.sapItems && x.sapItems.length > 0 && (
+                        <tr key={`expand_${x.D}`} style={{ background: 'var(--surface-alt)' }}>
+                          <td colSpan={8} style={{ padding: '10px 14px' }}>
+                            <div style={{ fontSize: '0.78rem' }}>
+                              <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--blue)' }}>
+                                Ordens e Operações confirmadas no SAP em {formatBr(x.D)}:
+                              </div>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                                <thead>
+                                  <tr style={{ borderBottom: '1px solid var(--line)', color: 'var(--ink-muted)' }}>
+                                    <th style={{ textAlign: 'left', padding: '4px' }}>Ordem</th>
+                                    <th style={{ textAlign: 'left', padding: '4px' }}>Operação</th>
+                                    <th style={{ textAlign: 'right', padding: '4px' }}>Horas Confirmadas</th>
+                                    <th style={{ textAlign: 'left', padding: '4px' }}>Situação na Carteira do Portal</th>
+                                    <th style={{ textAlign: 'center', padding: '4px' }}>Contador</th>
+                                    <th style={{ textAlign: 'left', padding: '4px' }}>ID Embarque</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {x.sapItems.map((cs, idx) => {
+                                    const isEm = cs.status_reconciliacao === 'Em Carteira';
+                                    return (
+                                      <tr key={cs.id || `${cs.ordem}_${cs.operacao}_${idx}`} style={{ borderBottom: '1px dotted var(--line)' }}>
+                                        <td style={{ padding: '4px', fontFamily: 'monospace', fontWeight: 600 }}>{cs.ordem}</td>
+                                        <td style={{ padding: '4px', fontFamily: 'monospace' }}>{cs.operacao}</td>
+                                        <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>
+                                          {formatHours(cs.horas_confirmadas)}
+                                        </td>
+                                        <td style={{ padding: '4px' }}>
+                                          <span
+                                            style={{
+                                              padding: '1px 6px',
+                                              borderRadius: '10px',
+                                              fontSize: '0.72rem',
+                                              fontWeight: 600,
+                                              background: isEm ? 'var(--green-soft, #dcfce7)' : 'var(--orange-soft, #fef3c7)',
+                                              color: isEm ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
+                                            }}
+                                          >
+                                            {isEm ? 'Cadastrada no Portal (Em Carteira)' : 'Não Cadastrada no Portal (Fora da Carteira)'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '4px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                                          {cs.contador_confirmacao || '—'}
+                                        </td>
+                                        <td style={{ padding: '4px', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                                          {cs.id_embarque ? `ID ${cs.id_embarque}` : '—'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                     );
                   })}
                 </tbody>

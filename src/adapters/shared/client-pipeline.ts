@@ -9,6 +9,7 @@ import type {
   ApontamentoHH,
   CarteiraEmbarque,
   CarteiraOperacao,
+  ConfirmacaoSAP,
   ContractConfig,
   FluxoImportacao,
   Justificativa,
@@ -660,6 +661,23 @@ export async function assembleAppDataset(
     fonte: String(row.fonte || 'portal_offshore')
   };});
 
+  // 6.2. Confirmações do SAP vinculadas a embarques
+  const confirmacoesSap: ConfirmacaoSAP[] = (raw.confirmacaoSapRows || []).map(row => ({
+    id: String(row.id || ''),
+    matricula: String(row.matricula || ''),
+    data_criacao: String(row.data_criacao || ''),
+    data_lancamento: String(row.data_lancamento || ''),
+    data_fim_real: String(row.data_fim_real || ''),
+    ordem: String(row.ordem || ''),
+    operacao: String(row.operacao || ''),
+    horas_confirmadas: Number(row.horas_confirmadas) || 0,
+    contador_confirmacao: row.contador_confirmacao != null ? Number(row.contador_confirmacao) : 0,
+    id_embarque: parseIdEmbarque((row as any).id_embarque || ''),
+    status_reconciliacao: (row.status_reconciliacao as any) || 'Pendente',
+    created_at: String(row.created_at || ''),
+    updated_at: String(row.updated_at || '')
+  }));
+
   // 7. Apontamentos HH
   const hhMap: Record<string, ApontamentoHH> = {};
   (raw.hhRows || []).forEach(row => {
@@ -840,6 +858,7 @@ export async function assembleAppDataset(
     tecnicos,
     carteira,
     carteiraOperacoes,
+    confirmacoesSap,
     hhMap,
     justMap,
     externalCoveredSet,

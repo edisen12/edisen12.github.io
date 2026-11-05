@@ -2,7 +2,9 @@ import type {
   AggregatedMetrics,
   AppDataset,
   CarteiraEmbarque,
+  CarteiraOperacao,
   CobrancaStats,
+  ConfirmacaoSAP,
   ContractConfig,
   DayTechRow,
   EmbarkationAccum,
@@ -15,7 +17,8 @@ import type {
   Plataforma,
   ResolvedPlace,
   ResolvedRecord,
-  StatusMeta
+  StatusMeta,
+  Tecnico
 } from './types';
 import {
   addDays,
@@ -1108,4 +1111,132 @@ export const listAvailablePlatforms = (
     }
   });
   return [...s].sort();
+};
+
+export interface SapIndex {
+  byTechDate: Map<string, ConfirmacaoSAP[]>;
+  byEmbarkation: Map<string, ConfirmacaoSAP[]>;
+  byTech: Map<string, ConfirmacaoSAP[]>;
+}
+
+export const buildSapIndex = (confirmacoes?: ConfirmacaoSAP[]): SapIndex => {
+  const byTechDate = new Map<string, ConfirmacaoSAP[]>();
+  const byEmbarkation = new Map<string, ConfirmacaoSAP[]>();
+  const byTech = new Map<string, ConfirmacaoSAP[]>();
+
+  (confirmacoes || []).forEach(cs => {
+    if (!cs.matricula) return;
+
+    // Indexar por matrícula
+    const techList = byTech.get(cs.matricula) || [];
+    techList.push(cs);
+    byTech.set(cs.matricula, techList);
+
+    // Indexar por matrícula + data_fim_real
+    if (cs.data_fim_real) {
+      const tdKey = `${cs.matricula}|${cs.data_fim_real}`;
+      const tdList = byTechDate.get(tdKey) || [];
+      tdList.push(cs);
+      byTechDate.set(tdKey, tdList);
+    }
+
+    // Indexar por id_embarque
+    if (cs.id_embarque) {
+      const embList = byEmbarkation.get(cs.id_embarque) || [];
+      embList.push(cs);
+      byEmbarkation.set(cs.id_embarque, embList);
+    }
+  });
+
+  return { byTechDate, byEmbarkation, byTech };
+};
+
+export const mergeConfrontoOperations = (
+  carteiraOps: CarteiraOperacao[],
+  sapConfirmacoes: ConfirmacaoSAP[] = [],
+  carteiraEmbarques: CarteiraEmbarque[] = [],
+  tecnicos: Record<string, Tecnico> = {}
+): CarteiraOperacao[] => {
+  // Chaves existentes na carteira do Portal: matricula|ordem|operacao|id_embarque
+  const portalKeySet = new Set<string>();
+  carteiraOps.forEach(op => {
+    const idEmb = op.id_embarque || op.portal_id || '';
+    portalKeySet.add(`${op.matricula}|${op.ordem}|${op.operacao}|${idEmb}`);
+  });
+
+  // Mapear embarques por id_embarque
+  const embById = new Map<string, CarteiraEmbarque>();
+  carteiraEmbarques.forEach(ce => {
+    if (ce.id_embarque) {
+      embById.set(ce.id_embarque, ce);
+    }
+  });
+
+  // Agrupar confirmações do SAP que não estão cadastradas na carteira do Portal
+  const extraSapMap = new Map<string, {
+    matricula: string;
+    ordem: string;
+    operacao: string;
+    id_embarque: string;
+    totalHcSap: number;
+    dataMin: string;
+    dataMax: string;
+  }>();
+
+  sapConfirmacoes.forEach(cs => {
+    const idEmb = cs.id_embarque || '';
+    const key = `${cs.matricula}|${cs.ordem}|${cs.operacao}|${idEmb}`;
+    if (!portalKeySet.has(key)) {
+      const existing = extraSapMap.get(key) || {
+        matricula: cs.matricula,
+        ordem: cs.ordem,
+        operacao: cs.operacao,
+        id_embarque: idEmb,
+        totalHcSap: 0,
+        dataMin: cs.data_fim_real || '',
+        dataMax: cs.data_fim_real || ''
+      };
+      existing.totalHcSap += cs.horas_confirmadas || 0;
+      if (cs.data_fim_real) {
+        if (!existing.dataMin || cs.data_fim_real < existing.dataMin) existing.dataMin = cs.data_fim_real;
+        if (!existing.dataMax || cs.data_fim_real > existing.dataMax) existing.dataMax = cs.data_fim_real;
+      }
+      extraSapMap.set(key, existing);
+    }
+  });
+
+  const extraOps: CarteiraOperacao[] = Array.from(extraSapMap.values()).map(item => {
+    const emb = embById.get(item.id_embarque) || carteiraEmbarques.find(ce => ce.matricula === item.matricula);
+    const tec = tecnicos[item.matricula];
+    const totalSap = Math.round(item.totalHcSap * 100) / 100;
+
+    return {
+      id: `sap-extra-${item.matricula}-${item.ordem}-${item.operacao}-${item.id_embarque}`,
+      portal_id: item.id_embarque,
+      id_embarque: item.id_embarque,
+      matricula: item.matricula,
+      chave_petrobras: '',
+      nome: tec?.nome || emb?.nome || item.matricula,
+      empresa: 'Infotec Brasil',
+      estrutura: '',
+      unidade_negocio: emb?.unidade_negocio || 'UN-DESCONHECIDA',
+      plataforma_sigla: emb?.plataforma_sigla || '',
+      data_inicio: emb?.data_inicio || item.dataMin,
+      data_fim: emb?.data_fim || item.dataMax,
+      ordem: item.ordem,
+      operacao: item.operacao,
+      status_processamento: 'Concluído',
+      prioridade: 'Regular',
+      status_programacao: 'Não Cadastrado no Portal',
+      hh_programado: 0,
+      hh_confirmado: 0,
+      hh_confirmado_sap: totalSap,
+      divergencia_sap: -totalSap,
+      status_divergencia: 'Não Cadastrado no Portal',
+      recursos: 1,
+      fonte: 'sap_fora_carteira'
+    };
+  });
+
+  return [...carteiraOps, ...extraOps];
 };

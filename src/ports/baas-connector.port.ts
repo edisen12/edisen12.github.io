@@ -26,6 +26,7 @@ export interface RawBaaSDatasetPayload {
   tecnicoRows: Array<Record<string, unknown>>;
   carteiraRows: Array<Record<string, unknown>>;
   carteiraOperacaoRows?: Array<Record<string, unknown>> | null;
+  confirmacaoSapRows?: Array<Record<string, unknown>> | null;
   hhRows: Array<Record<string, unknown>>;
   justificativaRows: Array<Record<string, unknown>>;
   watermarkRow?:

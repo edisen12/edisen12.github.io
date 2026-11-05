@@ -15,6 +15,7 @@ import {
   aggregateDays,
   armadorOf,
   buildPlatformIndex,
+  buildSapIndex,
   calcCarteiraHP,
   calcHpInInterval,
   computeCobrancaStats,
@@ -38,6 +39,7 @@ import {
   listAvailablePlatforms,
   listAvailableUnits,
   lookupPlatform,
+  mergeConfrontoOperations,
   UMS_PROGRAMADAS_SIGLAS,
   passesFilter,
   prazoOf,
@@ -1093,6 +1095,112 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(byPlat).toHaveLength(2);
       expect(byPlat.map(g => g.k)).toContain('P58');
       expect(byPlat.map(g => g.k)).toContain('P74');
+    });
+
+    it('buildSapIndex indexa confirmações por matrícula, dia e embarque', () => {
+      const sapItems = [
+        {
+          id: 's1',
+          matricula: '1001',
+          data_criacao: '2026-10-30',
+          data_lancamento: '2026-10-30',
+          data_fim_real: '2026-10-30',
+          ordem: 'ORD-1',
+          operacao: '0010',
+          horas_confirmadas: 4,
+          id_embarque: '5001',
+          status_reconciliacao: 'Em Carteira'
+        },
+        {
+          id: 's2',
+          matricula: '1001',
+          data_criacao: '2026-10-30',
+          data_lancamento: '2026-10-30',
+          data_fim_real: '2026-10-30',
+          ordem: 'ORD-2',
+          operacao: '0010',
+          horas_confirmadas: 6,
+          id_embarque: '5001',
+          status_reconciliacao: 'Fora da Carteira'
+        }
+      ];
+
+      const idx = buildSapIndex(sapItems);
+      expect(idx.byTech.get('1001')).toHaveLength(2);
+      expect(idx.byTechDate.get('1001|2026-10-30')).toHaveLength(2);
+      expect(idx.byEmbarkation.get('5001')).toHaveLength(2);
+    });
+
+    it('mergeConfrontoOperations unifica operações da carteira com ordens SAP fora da carteira', () => {
+      const carteiraOps = [
+        {
+          id: 'co1',
+          portal_id: '5001',
+          id_embarque: '5001',
+          matricula: '1001',
+          chave_petrobras: '',
+          nome: 'Técnico Teste',
+          empresa: 'Infotec',
+          estrutura: '',
+          unidade_negocio: 'UN-BS',
+          plataforma_sigla: 'P19',
+          data_inicio: '2026-10-23',
+          data_fim: '2026-11-05',
+          ordem: 'ORD-1',
+          operacao: '0010',
+          status_processamento: 'Concluído',
+          prioridade: 'Regular',
+          status_programacao: 'Fora da carteira',
+          hh_programado: 4,
+          hh_confirmado: 4,
+          hh_confirmado_sap: 4,
+          divergencia_sap: 0,
+          status_divergencia: 'OK',
+          recursos: 1,
+          fonte: 'carteira'
+        }
+      ];
+
+      const sapItems = [
+        {
+          id: 's1',
+          matricula: '1001',
+          data_criacao: '2026-10-30',
+          data_lancamento: '2026-10-30',
+          data_fim_real: '2026-10-30',
+          ordem: 'ORD-1',
+          operacao: '0010',
+          horas_confirmadas: 4,
+          id_embarque: '5001',
+          status_reconciliacao: 'Em Carteira'
+        },
+        {
+          id: 's2',
+          matricula: '1001',
+          data_criacao: '2026-10-30',
+          data_lancamento: '2026-10-30',
+          data_fim_real: '2026-10-30',
+          ordem: 'ORD-2',
+          operacao: '0010',
+          horas_confirmadas: 6,
+          id_embarque: '5001',
+          status_reconciliacao: 'Fora da Carteira'
+        }
+      ];
+
+      const merged = mergeConfrontoOperations(carteiraOps, sapItems, [], {
+        '1001': { matricula: '1001', nome: 'Técnico Teste', funcao: 'Eletricista' }
+      });
+
+      expect(merged).toHaveLength(2);
+      const extraOp = merged.find(o => o.ordem === 'ORD-2');
+      expect(extraOp).toBeDefined();
+      expect(extraOp?.status_programacao).toBe('Não Cadastrado no Portal');
+      expect(extraOp?.status_divergencia).toBe('Não Cadastrado no Portal');
+      expect(extraOp?.hh_confirmado_sap).toBe(6);
+      expect(extraOp?.hh_programado).toBe(0);
+      expect(extraOp?.hh_confirmado).toBe(0);
+      expect(extraOp?.divergencia_sap).toBe(-6);
     });
   });
 });

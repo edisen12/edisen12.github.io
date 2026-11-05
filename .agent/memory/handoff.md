@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-04 17:18 (BRT) · HEAD `1617c53` (main sincronizada com origin e deploy Pages disparado) · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
+> Última atualização: 2026-11-05 09:12 (BRT) · Branch `main` sincronizada com `origin/main` · Suíte: 24 arquivos / 449 testes ✅ · `npm run typecheck` ✅ · `npm run build` ✅
 
 ## 1. Resumo Executivo
 
@@ -32,15 +32,16 @@
 - `src/config/env.ts`, `src/config/topology-guard.ts`, `src/services/provider.registry.ts` — resolução de topologia (`baas` vs `self-hosted`) e travas de build/runtime contra bancos puros em BaaS, segredos `VITE_*` e deploy estático indevido.
 - `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com checagem explícita de `{ error }` em 100% das chamadas (incluindo plataformas/técnicos pendentes, deleção de escopos, `fluxo_importacoes` e fallback `user_onboarding`).
 - `src/adapters/self-hosted/{http.client,self-hosted.provider,index}.ts` — cliente HTTP `credentials: 'same-origin'` com `X-CSRF-Token` apenas em memória (zero tokens em `localStorage`) + SSE Realtime (`/api/v1/realtime/events`).
-- `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser, 4 exportadores, sanitização anti-fórmula).
+- `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com regex heurística robusta para Portal Offshore e SAP, 4 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `014` — **imutáveis**.
+- `supabase/migrations/001` → `015` — **imutáveis**.
   - `010_fix_user_onboarding_rls_recursion.sql`: recursão RLS e RPC `complete_first_login_password_change`.
   - `011_carteira_operacoes.sql`: tabela granular `carteira_operacoes`, trigger `trg_sync_carteira_embarques` que consolida fisicamente em `carteira_embarques`.
   - `012_carteira_id_embarque.sql`: inclusão de `id_embarque text NOT NULL DEFAULT ''`.
   - `013_carteira_programada_e_id_embarque.sql`: regra dos 12 dias (`horas_programadas` = `Carteira` + `Fora da carteira`), colunas `hh_carteira`, `hh_fora_carteira` e `hh_cancelado`, e remoção da coluna física redundante `operacao` de `carteira_embarques`.
   - `014_confirmacoes_sap_e_reconciliacao.sql`: tabela `confirmacoes_sap`, colunas de conciliação em `carteira_operacoes` e `carteira_embarques`, RPC `reconciliar_confirmacoes_sap` (cascata de 5 prioridades, tolerância de +4 dias PMB e estornos retroativos).
+  - `015_realtime_configuracoes_e_cadastros.sql`: triggers de sincronização instantânea em tempo real (heartbeat) sobre `configuracoes`, `config_usoff_un`, `plataformas` e `pessoas`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 (create, update-role, reset-password, toggle-active, delete-user + travas anti-lockout + auditoria WORM).
 - `src/types/database.types.ts` — gerado; só regenerar via MCP `generate_typescript_types`, nunca editar à mão.
 
@@ -48,64 +49,40 @@
 - `server/package.json`, `server/tsconfig.json` — servidor Node 22/TS puro (`node:http`, `node:crypto`), zero dependências npm obrigatórias.
 - `server/src/ports/universal-storage.port.ts` — `UniversalStorageDriverPort` (7 primitivas universais: `init`, `close`, `findOne`, `findMany`, `upsertMany`, `deleteMany`, `appendImmutable` + `runInTransaction` opcional).
 - `server/src/drivers/{registry,in-memory.driver,generic-sql.driver,generic-document.driver}.ts` — registry aberto (`registerStorageDriver` / `DB_DRIVER_MODULE`) + `GenericSqlDialectDriver` parametrizado (Postgres, MariaDB/MySQL, SQLite, MSSQL, Oracle, CockroachDB) + `GenericDocumentDriver` (MongoDB, CouchDB, DynamoDB) + `InMemoryStorageDriver`.
-- `server/src/core/{crypto,realtime-hub,domain-engine.service}.ts`, `server/src/{app,index}.ts` — aplicação server-side de 100% das regras de negócio e segurança (sessões stateful `scrypt` + Cookie `HttpOnly; Secure; SameSite=Strict` + CSRF, corte 0ms de inativo, gate de 1º login, RBAC por carteira, Zero-Knowledge `externalCoveredDays`, anti-oráculo `sharedOps`, SLA imutável em `justificativas`, auditoria WORM `system_audit_logs`, travas anti-lockout de `admin-users` e SSE Realtime).
-- `docker/{frontend,backend}.Dockerfile`, `docker/nginx/nginx.conf`, `docker-compose.yml` (2 redes isoladas: `frontend-net` pública e `backend-net` `internal: true` sem portas de banco no host + profiles plugáveis) · `.env.example` · `.env.vps.example` · `docs/DATABASE_ABSTRACTION.md`.
+- `server/src/core/{crypto,realtime-hub,domain-engine.service}.ts`, `server/src/{app,index}.ts` — aplicação server-side de 100% das regras de negócio e segurança.
+- `docker/{frontend,backend}.Dockerfile`, `docker/nginx/nginx.conf`, `docker-compose.yml` · `.env.example` · `.env.vps.example` · `docs/DATABASE_ABSTRACTION.md`.
 
 ### Segurança e infraestrutura de testes
 - `src/security/__tests__/*` (rbac, rls-policies, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization).
-- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (34 testes cobrindo travas de topologia, registry BaaS, drivers universais SQL/NoSQL e integração real HTTP Cookie `HttpOnly` + CSRF + RBAC + WORM).
+- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (34 testes).
 - `src/services/__tests__/{auth,data,excel}.service.test.ts`.
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
-### UI consolidada (com testes dedicados)
-- Componentes: `DataTable`, `SegmentedControl`, `Sidebar` (+ `__tests__`), e os primitivos `AppShell`, `Drawer`, `KpiCard`, `MeterBar`, `Modal`, `ScopeBanner`, `Sparkline120`, `StatusPill`, `StickyFilterBar`, `ToastContext`, `TopHeader`.
-- Views: `LoginView`, `FirstLoginGate`, `UserSettingsView`, `ConfiguracoesView`, `AdminAuditView` (+ `__tests__`).
-- `src/App.tsx` (gate de auth + roteador de abas), `src/main.tsx`, `src/ui/state/AppContext.tsx`.
-
-### Estilos, build e CI/CD
-- `src/styles/{reset,tokens,layout,components}.css` — design system Infotec (azul `#1E4E9C` / laranja `#F5A100`, light/dark).
-- `vite.config.ts` (alias condicional `@active-adapter`, CSP dinâmica por topologia e auditoria pós-build `closeBundle()` zero-leak em `self-hosted`), `vitest.config.ts`, `tsconfig.json`, `index.html` (CSP + frame-busting), `.gitignore`.
-- `.github/workflows/deploy.yml` (typecheck → test → build → Pages) e `supabase-keepalive.yml`.
-
-### Modais do Sistema (Design System Infotec Elevado)
-- `Modal.tsx` — primitivo acessível com suporte a `icon`, `subtitle`, elevação `--shadow-modal`, close button com hover e backdrop blur.
-- `UserLoginModal` (`PessoasPlataformasView.tsx`) — provisionamento zero-touch e redefinição com inputs de ícone, alternador de senha (`Eye`/`EyeOff`), requisitos em tempo real e seleção de papel via cards operacionais explicativos.
-- `NovoAdminModal` (`PessoasPlataformasView.tsx` e `AdminAuditView.tsx`) — criação com campos estilizados, ícones e feedback.
-- `ResetPasswordModal`, `ToggleActiveModal`, `DeleteUserModal` (`AdminAuditView.tsx` e `PessoasPlataformasView.tsx`).
-- `PessoaModal` e `PlataformaModal` (`PessoasPlataformasView.tsx`).
-- `JustificativaModal`, `EmailComposerModal`, `ManualEntryModals` (`ManualHHModal`, `ManualEscalaModal`).
+### UI consolidada
+- Componentes: `DataTable`, `SegmentedControl`, `Sidebar` (+ `__tests__`), `AppShell`, `Drawer`, `KpiCard`, `MeterBar`, `Modal`, `ScopeBanner`, `Sparkline120`, `StatusPill`, `StickyFilterBar`, `ToastContext`, `TopHeader`.
+- Views: `LoginView`, `FirstLoginGate`, `UserSettingsView`, `ConfiguracoesView`, `AdminAuditView` (+ `__tests__`), `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoUsoffView`, `ImportarDadosView` (com auto-scroll, CTA no topo e alerta de 0 linhas).
+- `src/App.tsx`, `src/main.tsx`, `src/ui/state/AppContext.tsx`.
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Confirmações do SAP, Conciliação com Portal Offshore e Sincronização Diária de HH (Consolidado ✅):**
-  - **Migration 014 aplicada com sucesso:**
-    - Tabela `public.confirmacoes_sap` criada com chave natural única `(matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas)`.
-    - Colunas de conciliação adicionadas em `public.carteira_operacoes` (`hh_confirmado_sap`, `divergencia_sap`, `status_divergencia`) e `public.carteira_embarques` (`hh_confirmado_portal`, `hh_confirmado_sap`, `divergencia_confirmada`).
-    - Políticas RLS e índices de performance em `(matricula, ordem, operacao)` e `id_embarque`.
-  - **Ingestão Completa:** Todas as **8.784 confirmações do SAP** (17.387,60h) importadas em `public.confirmacoes_sap`.
-  - **Motor de Reconciliação em Cascata (`reconciliar_confirmacoes_sap`):**
-    - 2.596 apontamentos vinculados diretamente aos embarques físicos do contrato.
-    - **605 operações da carteira com batimento 100% perfeito** (2.710,50h Portal = 2.710,50h SAP).
-    - **42 operações com divergência de horas** (25 SAP > Portal com -101,00h; 17 Portal > SAP com +107,00h).
-    - 344 operações apontadas no SAP mas não confirmadas no Portal (2.125,40h).
-    - 59 operações confirmadas no Portal mas não apontadas no SAP (258,00h).
-    - 727 operações não confirmadas (0h em ambos).
-    - **1.499 apontamentos diários de HH sincronizados** em `public.apontamentos_hh` agregando `data_fim_real` por técnico, com atualização de `fluxo_importacoes` e marca d'água (`ultima_data_hh = '2026-11-03'`).
-  - **Frontend Integrado e Sincronizado:**
-    - Auto-alinhamento inteligente de `fDate` com a marca d'água (`2026-11-03`) em `AppContext.tsx`, garantindo que o usuário veja os dados imediatamente ao abrir o sistema sem cair em dias futuros vazios.
-    - Botão "Último dado (03/11)" adicionado na barra de filtros superior (`StickyFilterBar.tsx`).
-    - **Todas as telas ativadas com dados reais:**
-      - *Visão Geral:* KPIs operacionais de contrato, aderência diária, aderência do período, lista de plataformas e prepostos.
-      - *Painel do Dia:* Técnicos a bordo, horas apontadas por técnico no dia (11h, 10h, etc.), alertas e status.
-      - *Embarque Atual:* HH programado, HH disponível, HH executado acumulado do embarque, % Exec./Disponível e % Exec./Programado.
-      - *Justificativas:* Caixa de entrada com dias que tiveram déficit (`e < 11h`) ou "Não chegou".
-      - *Medição USOFF:* Apuração USOFF com HC real e aba de Confronto SAP vs Portal.
-  - **Higienização de Scratch:** Todos os arquivos e diretórios temporários de carga foram eliminados.
-  - **Validação de Código:** `npm run typecheck`, `npm run test:run` (24 suítes / 449 testes) e `npm run build` 100% verdes.
+- **Diagnóstico e Correção da Importação de Dados (Portal Offshore e SAP):**
+  - **Diagnóstico do problema relatado:**
+    1. *Heurística `guessImportKind`:* O arquivo do Portal Offshore possui cabeçalhos como `Início`, `Fim`, `Ordem`, `Operação`, `Status Programação`, `HH Programado`. A regex anterior buscava especificamente a palavra `embarque` ou `desembarque`; sem encontrá-las, caía no fallback de `hh` (HH diário). Como `hh` procura a coluna `Data` (inexistente no Portal), gerava **0 linhas** na prévia.
+    2. *Toast falso-positivo prematuro:* O código chamava `showToast('Planilha ... processada com sucesso!')` assim que o SheetJS fazia a leitura em memória do arquivo (prévia), induzindo o usuário a acreditar que os dados já haviam sido persistidos no Supabase.
+    3. *Botão de gravação oculto e desabilitado:* O botão "Salvar X linhas" ficava apenas no final da página (abaixo de 5 cartões, 15 seletores e da tabela de prévia). Quando 0 linhas eram geradas, o botão ficava como `Salvar 0 linhas` (desabilitado). Mesmo com as 8.784 linhas do SAP carregadas, o usuário não rolava até o final para clicar.
+  - **Soluções Implementadas:**
+    1. *Detecção Heurística Precisa:* Regex em `src/services/excel.service.ts` atualizada para cobrir `status.*prog`, `hh.*prog`, `id_embarque`, `portal`, `inicio` + `fim`, `ordem` + `operacao` + `hh`, garantindo classificação imediata como `cart` (Carteira de embarque) com mapeamento completo das 15 colunas.
+    2. *CTA no Topo e Auto-Scroll:* Adicionado botão proeminente `Gravar X linhas no Banco` diretamente no cabeçalho do painel de prévia em `ImportarDadosView.tsx`, além de rolagem automática suave (`scrollIntoView`) ao selecionar o arquivo.
+    3. *Mensagens Claras de Toast & Alerta de 0 Linhas:* Toast atualizado para informar que a planilha foi carregada na prévia e orientar o clique em gravação. Adicionado card de aviso caso o usuário carregue um tipo incompatível.
+    4. *Sincronização em Tempo Real (Migration 015):* Aplicada trigger de heartbeat nas tabelas de configurações e pessoas/plataformas, permitindo sincronização instantânea entre múltiplos navegadores sem F5.
+- **Validação de Código:**
+  - `npm run typecheck`: 0 erros.
+  - `npm run test:run`: 24 suítes / 449 testes aprovados.
+  - `npm run build`: Bundle de produção gerado com sucesso em 3.80s.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Apresentar o resultado da conciliação ao usuário:** conferir as 42 operações divergentes e os apontamentos não confirmados no Portal Offshore.
-2. **Decisão pendente do usuário — visibilidade da aba `adm`:** o código libera para `admin` **e** `gestor` (`App.tsx` usa `isGlobal`; `Sidebar.tsx:78` faz `isGlobal || role==='admin'`). Confirmar se gestor mantém acesso à aba ADM.
-3. **Evolução de Técnicos (Backlog):** avaliar inclusão de tabela de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.
-4. **Sincronizar `CONTEXT_MEMORY.md` com o código** (lista de desvios em `gotchas.md` §6).
+1. **Apresentar diagnóstico e orientações ao usuário:** explicar a causa raiz do não salvamento e como a nova experiência com botão no topo e auto-scroll soluciona o fluxo.
+2. **Conferência da conciliação:** conferir os resultados na aba *Confronto SAP vs Portal* em *Medição USOFF* após as gravações.
+3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+4. **Evolução de Técnicos (Backlog):** avaliar inclusão de busca e cadastro manual isolado de técnicos em *Pessoas, Plataformas e Acessos*.

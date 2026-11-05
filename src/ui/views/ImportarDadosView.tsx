@@ -38,6 +38,7 @@ export const ImportarDadosView: React.FC = () => {
 
   // Hidden file inputs
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
   const currentUploadKindRef = useRef<ImportKind>('hh');
 
   const handleTriggerFileInput = (kind: ImportKind) => {
@@ -55,7 +56,14 @@ export const ImportarDadosView: React.FC = () => {
       const parsed = await parseSpreadsheetFile(file, forcedKind || currentUploadKindRef.current);
       const built = rebuildPreviewRows(parsed, pidx);
       setPreview(built);
-      showToast(`Planilha "${file.name}" processada com sucesso!`, 'info');
+      if (built.rows.length > 0) {
+        showToast(`Planilha "${file.name}" carregada: ${built.rows.length} registros identificados. Confira a prévia e clique em "Gravar no Banco" abaixo.`, 'info');
+      } else {
+        showToast(`Atenção: Nenhuma linha válida encontrada para o tipo "${built.kind}". Verifique o tipo ou o mapeamento de colunas.`, 'warn');
+      }
+      setTimeout(() => {
+        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
     } catch (err: any) {
       showToast(err?.message || 'Erro ao processar planilha.', 'error');
     } finally {
@@ -166,7 +174,7 @@ export const ImportarDadosView: React.FC = () => {
         style={{ display: 'none' }}
         onChange={e => {
           if (e.target.files && e.target.files[0]) {
-            handleFileSelected(e.target.files[0]);
+            handleFileSelected(e.target.files[0], currentUploadKindRef.current);
           }
         }}
       />
@@ -542,33 +550,54 @@ export const ImportarDadosView: React.FC = () => {
       )}
 
       {preview && (
-        <div className="card stack" style={{ gap: '16px', border: '2px solid var(--blue)' }}>
+        <div ref={previewRef} className="card stack" style={{ gap: '16px', border: '2px solid var(--blue)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--blue)' }}>
                 Revisão: {preview.fileName} ({preview.sheetName})
               </h2>
               <p className="sub" style={{ margin: '4px 0 0' }}>
-                Confira o mapeamento de colunas antes de confirmar a gravação no banco de dados.
+                Confira o mapeamento de colunas e clique em "Gravar no Banco de Dados" para sincronizar.
               </p>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <label style={{ fontSize: '0.88rem', fontWeight: 600 }}>Tipo de dado:</label>
-              <select
-                id="pTipo"
-                value={preview.kind}
-                onChange={e => handleKindChange(e.target.value as ImportKind)}
-                style={{ padding: '6px 12px', fontWeight: 600 }}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ fontSize: '0.88rem', fontWeight: 600 }}>Tipo de dado:</label>
+                <select
+                  id="pTipo"
+                  value={preview.kind}
+                  onChange={e => handleKindChange(e.target.value as ImportKind)}
+                  style={{ padding: '6px 12px', fontWeight: 600 }}
+                >
+                  <option value="hh">HH executado do dia</option>
+                  <option value="cart">Carteira de embarque</option>
+                  <option value="plat">Plataformas</option>
+                  <option value="pes">Pessoas e responsabilidades</option>
+                  <option value="sap">Confirmações do SAP</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSavePreview}
+                disabled={saving || preview.rows.length === 0}
+                style={{ fontWeight: 700 }}
               >
-                <option value="hh">HH executado do dia</option>
-                <option value="cart">Carteira de embarque</option>
-                <option value="plat">Plataformas</option>
-                <option value="pes">Pessoas e responsabilidades</option>
-                <option value="sap">Confirmações do SAP</option>
-              </select>
+                {saving ? 'Gravando…' : `Gravar ${preview.rows.length} linhas no Banco`}
+              </button>
             </div>
           </div>
+
+          {preview.rows.length === 0 && (
+            <div className="card note note-bad" style={{ margin: 0, padding: '12px 16px' }}>
+              <strong>⚠️ Nenhuma linha válida pôde ser lida com o tipo "{preview.kind === 'hh' ? 'HH executado do dia' : preview.kind === 'cart' ? 'Carteira de embarque' : preview.kind === 'sap' ? 'Confirmações do SAP' : preview.kind}"!</strong>
+              <p style={{ margin: '4px 0 0', fontSize: '0.88rem' }}>
+                Se esta planilha é uma Carteira do Portal Offshore ou Confirmações do SAP, selecione a opção correta no campo <b>"Tipo de dado"</b> acima para recarregar as colunas automaticamente.
+              </p>
+            </div>
+          )}
 
           {/* Seletores de Colunas */}
           <div

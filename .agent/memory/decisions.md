@@ -119,3 +119,12 @@
      - Divergência: `hh_confirmado - hh_confirmado_sap`.
      - Status classificados: `'OK'` (100% igual), `'Divergente (Portal > SAP)'`, `'Divergente (SAP > Portal)'`, `'Não Apontado no SAP'` (confirmado no Portal mas 0h no SAP), `'Não Confirmado no Portal'` (apontado no SAP mas 0h no Portal), `'Não Confirmado'` (0h em ambos).
   4. *Visualização Integrada no Frontend:* Aba "Confronto SAP vs Portal" dentro de `MedicaoUsoffView.tsx` com filtros de status, KPIs de divergência, grid com destaques coloridos de divergência e exportador Excel dedicado (`exportConfrontoSAPXlsx`). Upload de extrato do SAP adicionado como Card 5 na tela de `ImportarDadosView.tsx`.
+
+
+- **2026-11-05** — Sincronização em Tempo Real de Configurações e Diretório Mestre (Migration 015):
+  - Criadas triggers `AFTER INSERT OR UPDATE OR DELETE` em `configuracoes`, `config_usoff_un`, `plataformas` e `pessoas` executando `fn_touch_heartbeat()`.
+  - Qualquer alteração cadastral ou contratual feita por qualquer usuário pulsa o canal `sync_heartbeat`, sincronizando abas e navegadores abertos sem necessidade de F5 manual.
+- **2026-11-05** — UX e Robustez na Importação de Dados (`ImportarDadosView.tsx` / `excel.service.ts`):
+  - Detecção heurística (`guessImportKind`) expandida para mapear com precisão cabeçalhos do Portal Offshore (`Início`, `Fim`, `Ordem`, `Operação`, `HH Programado`, `Status Programação`) sem falsos positivos em `hh`.
+  - Inclusão de botão proeminente "Gravar no Banco de Dados" no topo da seção de prévia com rolagem suave automática (`scrollIntoView`) ao carregar o arquivo.
+  - Alerta explícito no painel caso 0 linhas sejam lidas e toast informativo orientando o clique em gravação.

@@ -28,6 +28,10 @@ Antes de qualquer commit: `typecheck` + `test:run` + `build`. O deploy (`deploy.
 - **Lookback de 45 dias:** remover o `-45` em `neededQueryWindow`/`loadAppDataset` faz embarques que cruzam o corte perderem dias no critério `enc`.
 - **"Não chegou" falso** em preposto: acontece se `externalCoveredSet` não for populado (RPC `get_external_covered_days`).
 - **Deadlock `40P01` em importação:** acontece se os chunks não forem ordenados por chave natural antes do upsert.
+- **Importação do Portal Offshore / SAP não grava no banco ("processada com sucesso" falso):**
+  - *Sintoma:* O usuário seleciona o arquivo do Portal Offshore ou do SAP, vê a mensagem de sucesso, mas nenhuma linha é gravada no Supabase.
+  - *Causa:* 1) A heurística `guessImportKind` em `excel.service.ts` não reconhecia cabeçalhos com "Início" e "Fim" sem a palavra "embarque", caindo no tipo `'hh'` e gerando 0 linhas por ausência da coluna `Data`; 2) O toast informava "Planilha processada com sucesso" logo após o SheetJS ler o arquivo em memória, dando a ilusão de que a gravação já havia ocorrido; 3) O botão "Salvar linhas" ficava apenas no rodapé da página.
+  - *Solução:* Ajustar regex de detecção em `guessImportKind`, adicionar botão "Gravar X linhas no Banco" no topo do painel de prévia com scroll suave automático, alertar explicitamente caso 0 linhas sejam lidas e ajustar o texto do toast para orientar o clique em gravação.
 - **FK em importação:** técnicos e plataformas pendentes precisam ser gravados antes dos apontamentos. Hoje esses upserts não checam `error` (dívida — handoff, Próximos Passos #2).
 - **Modo demo:** com o banco sem HH, carteira e watermark, o app mostra dados sintéticos (`isDemo`). Não confundir com bug nem com vazamento.
 - **Gangway:** só abate quando o motivo é exatamente `'Gangway desconectada'` (string igual à de `MOTIVOS_JUSTIFICATIVA`).

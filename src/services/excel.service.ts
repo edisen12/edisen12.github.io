@@ -244,8 +244,18 @@ export function guessImportKind(headers: string[]): ImportKind {
   if (/data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b/.test(joined)) {
     return 'sap';
   }
-  if (/desembarque|embarque/.test(joined) && !/execut/.test(joined)) {
+  if (
+    /(desembarque|embarque|status.*prog|hh.*prog|id_embarque|\bportal\b)/.test(joined) ||
+    (/inicio/.test(joined) && /fim/.test(joined) && !/execut/.test(joined)) ||
+    (/ordem/.test(joined) && /operacao/.test(joined) && /hh/.test(joined))
+  ) {
     return 'cart';
+  }
+  if (/armador/.test(joined) || (/sigla/.test(joined) && /tipo/.test(joined))) {
+    return 'plat';
+  }
+  if (/papel/.test(joined) || (/email/.test(joined) && /plat/.test(joined))) {
+    return 'pes';
   }
   return 'hh';
 }

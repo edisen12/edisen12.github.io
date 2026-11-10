@@ -37,6 +37,7 @@ export function PainelDiaView() {
     openFichaDrawer,
     openJustModal,
     openEmailModal,
+    openCarteiraModal,
     isGlobal,
     scopeLabel
   } = useApp();
@@ -229,6 +230,19 @@ export function PainelDiaView() {
               Dia {r.emb.dia} de {r.emb.n}
               {r.emb.fonte === 'apontamentos' && ' · sem carteira'}
             </div>
+            {r.emb.id_embarque && (
+              <div>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => openCarteiraModal(r.mat, r.emb?.id_embarque, D)}
+                  style={{ fontSize: '0.74rem', color: 'var(--blue)', fontWeight: 600, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                  title="Visualizar Carteira do Embarque (Confronto SAP vs Portal)"
+                >
+                  📋 ID {r.emb.id_embarque}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <span className="sub">—</span>
@@ -640,10 +654,21 @@ export function PainelDiaView() {
           subtitle={`${modalOrdens.nome} · Matrícula ${modalOrdens.mat} · Plataforma ${modalOrdens.p}`}
           maxWidth={750}
           footer={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '10px', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const idEmb = modalOrdens.items[0]?.id_embarque;
+                  openCarteiraModal(modalOrdens.mat, idEmb, D);
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>📋 Ver Carteira Completa do Embarque</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
                 onClick={() => setModalOrdens(null)}
               >
                 Fechar
@@ -710,6 +735,22 @@ export function PainelDiaView() {
             )}
 
             {/* Tabela de Ordens */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink)' }}>
+                Apontamentos confirmados pelo técnico no dia:
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const idEmb = modalOrdens.items[0]?.id_embarque;
+                  openCarteiraModal(modalOrdens.mat, idEmb, D);
+                }}
+                style={{ fontSize: '0.78rem', padding: '3px 10px' }}
+              >
+                📋 Ver Carteira Completa do Embarque
+              </button>
+            </div>
             <div className="table-responsive" style={{ maxHeight: '380px', overflowY: 'auto', overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
               <table className="table-base" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>

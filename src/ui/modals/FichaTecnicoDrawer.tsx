@@ -45,6 +45,7 @@ export function FichaTecnicoDrawer() {
     pidx,
     activePeriod,
     openJustModal,
+    openCarteiraModal,
     scopeLabel
   } = useApp();
 
@@ -202,6 +203,14 @@ export function FichaTecnicoDrawer() {
           </button>
           <button
             type="button"
+            className="btn btn-secondary"
+            onClick={() => openCarteiraModal(mat, undefined, P.ini)}
+            title="Visualizar a Carteira do Embarque com confronto SAP vs Portal"
+          >
+            📋 Ver Carteira do Embarque
+          </button>
+          <button
+            type="button"
             className="btn btn-primary"
             onClick={handleExport}
             disabled={isExporting}
@@ -286,7 +295,18 @@ export function FichaTecnicoDrawer() {
 
         {/* Tabela dia a dia */}
         <div>
-          <h4 style={{ fontFamily: 'var(--f-display)', marginBottom: '8px' }}>Histórico diário</h4>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+            <h4 style={{ fontFamily: 'var(--f-display)', margin: 0 }}>Histórico diário</h4>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => openCarteiraModal(mat, undefined, P.ini)}
+              style={{ fontSize: '0.78rem', padding: '3px 10px' }}
+              title="Visualizar a Carteira do Embarque com confronto SAP vs Portal"
+            >
+              📋 Ver Carteira do Embarque
+            </button>
+          </div>
           {!dayItems.length ? (
             <div className="note" style={{ textAlign: 'center', padding: '20px' }}>
               Sem dias neste período.
@@ -322,7 +342,22 @@ export function FichaTecnicoDrawer() {
                           </div>
                         </td>
                         <td style={{ padding: '8px' }}>
-                          {x.emb ? `Dia ${x.emb.dia}/${x.emb.n}` : '—'}
+                          {x.emb ? (
+                            <div>
+                              <div>Dia {x.emb.dia}/{x.emb.n}</div>
+                              {x.emb.id_embarque && (
+                                <button
+                                  type="button"
+                                  className="btn-link"
+                                  onClick={() => openCarteiraModal(mat, x.emb?.id_embarque, x.D)}
+                                  style={{ fontSize: '0.72rem', color: 'var(--blue)', fontWeight: 600, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                                  title="Ver Carteira deste Embarque (Confronto SAP vs Portal)"
+                                >
+                                  ID {x.emb.id_embarque}
+                                </button>
+                              )}
+                            </div>
+                          ) : '—'}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right' }}>
                           {x.r ? formatHours(x.r.d) : <span className="sub">fora do embarque</span>}
@@ -447,7 +482,17 @@ export function FichaTecnicoDrawer() {
                                             {cs.contador_confirmacao || '—'}
                                           </td>
                                           <td style={{ padding: '4px', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
-                                            {cs.id_embarque ? `ID ${cs.id_embarque}` : '—'}
+                                            {cs.id_embarque ? (
+                                              <button
+                                                type="button"
+                                                className="btn-link"
+                                                onClick={() => openCarteiraModal(mat, cs.id_embarque, x.D)}
+                                                style={{ fontFamily: 'monospace', fontWeight: 600, color: 'var(--blue)', fontSize: '0.74rem', padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                                                title="Ver Carteira deste Embarque (Confronto SAP vs Portal)"
+                                              >
+                                                ID {cs.id_embarque}
+                                              </button>
+                                            ) : '—'}
                                           </td>
                                         </tr>
                                       );

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-10 09:55 (BRT) · Suíte Completa: 28 arquivos / 551 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 4.66s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-10 14:30 (BRT) · Suíte Completa: 29 arquivos / 556 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 4.42s ✅ · Server Typecheck: 0 erros ✅
 
 ## 1. Resumo Executivo
 
@@ -28,6 +28,7 @@
 - `src/ui/modals/AdminAccountModals.tsx` — desduplicação de ~550 linhas de modais administrativos (`NovoAdminModal`, `AdminResetPasswordModal`, `AdminToggleActiveModal`, `AdminDeleteUserModal`), registrando auditoria WORM `logSystemEvent` e layouts fluidos.
 - `src/ui/views/*` — todas as 13 views reestruturadas sem larguras fixas rígidas ou grids quebradas: `LoginView`, `FirstLoginGate`, `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoRelatoriosView`, `MedicaoUsoffView`, `PessoasPlataformasView`, `ImportarDadosView`, `ConfiguracoesView`, `UserSettingsView`, `AdminAuditView`.
 - `src/ui/modals/{EmailComposerModal,FichaTecnicoDrawer,JustificativaModal,ManualEntryModals}.tsx` — adaptados para mobile e padronizados com `.form-grid-2`.
+- `src/ui/modals/CarteiraEmbarqueModal.tsx` — modal de alta densidade corporativa para visualização da carteira do embarque, confronto determinístico entre ordens do Portal Offshore e apontamentos do SAP ($HC$ vs $HH_{\text{SAP}}$), filtros rápidos e exportação `.xlsx`.
 
 ### Motor de domínio (puro, coberto por testes — invariantes contratuais)
 - `src/domain/periods.ts` — ciclos de corte 1/16/21/26 + janela de lookback de 45 dias.
@@ -68,26 +69,37 @@
 - `src/services/__tests__/{auth,data,excel}.service.test.ts` (70 testes cobrindo autenticação, importação em lote, parsing e exportadores Excel com anti-formula injection e escopo parcial).
 - `src/ui/components/__tests__/*` (30 testes em DataTable, SegmentedControl, Sidebar e ResponsiveShellAndPwa).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
+- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (5 testes).
 - `src/ui/views/__tests__/*` (54 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView e OperationalViews).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
 ## 3. Estado Atual (Work in Progress)
 
-- **Frentes Solicitadas Concluídas e Validadas:**
-  - **Frente 1 (Mobile, Multi-Tela & PWA Instalável):**
-    - 100% das telas e modais readaptados para celulares (`320px`–`480px`), tablets (`768px`–`1024px`), notebooks HD (`1366×768`) e ultrawide (`≥ 1560px`).
-    - PWA instalável sem APK implementado (manifesto, ícones dedicados gerados a partir do logo oficial, Service Worker estático seguro e sem cache de dados, modal interativo com guia para iOS Safari e botão de instalação para Android/Chrome/Edge).
-  - **Frente 2 (Revisão Geral, Sanitização, Limpeza & Suíte de Testes):**
-    - Código morto removido de ponta a ponta (imports não usados, variáveis órfãs, ~550 linhas de modais duplicados extraídas para `AdminAccountModals.tsx`).
-    - Paridade total entre as topologias `baas` e `self-hosted` para carteira granular, reconciliação SAP, contadores e reset de carteira.
-    - Suíte de testes automatizados expandida: **28 arquivos / 547 testes aprovados (100% verdes)**.
+- **Frentes Concluídas e Validadas:**
+  - **Frente 1: Motor de Cálculo USOFF Refinado (Commit `90b1027` em `main`):**
+    - Apuração granular por tupla de ordem/operação via `mergeConfrontoOperations`.
+    - Trava de execução zero: $HC = 0 \implies USOFF = 0$.
+    - Ponderações isoladas: Carteira (30% PE + 70% EX) e Fora da carteira (apenas 70% EX).
+    - Exceção de anotação de Gangway: $0{,}30 \times HP$.
+    - Unidades de Diária: $(\text{dias} + 1) \times 10$, protegendo unidades Petrobras/próprias de classificação indevida.
+  - **Frente 2: Visualização da Carteira do Embarque (Confronto SAP vs Portal Offshore):**
+    - Novo componente `CarteiraEmbarqueModal.tsx` integrado no fluxo global com `openCarteiraModal(matricula, idEmbarque?, dataRef?)`.
+    - Resumo institucional: Técnico, Matrícula, Função, Plataforma, UN, Período de Embarque e Contagem de Dias.
+    - Confronto de Horas: HH Programado (com separação Carteira vs Fora), HC Portal Offshore, HH Confirmado SAP, Saldo de Divergência ($HC_{\text{Portal}} - HH_{\text{SAP}}$).
+    - Notificação/Alerta visual quando há apontamentos confirmados no SAP não cadastrados no Portal.
+    - Filtros por busca textual e abas rápidas (Todas, Carteira, Fora da carteira, Não Cadastrado no Portal, Divergentes).
+    - Tabela de confronto detalhada por Ordem e Operação com status do confronto (`✓ OK`, `⚠️ Portal > SAP`, `ℹ️ SAP > Portal`, `Não Apontado no SAP`, `Não Cadastrada no Portal`).
+    - Exportação dedicada para Excel (.xlsx).
+    - Integrações ativas: `PainelDiaView` (modal e tabela diária), `EmbarqueAtualView` (coluna ID Embarque clicável) e `FichaTecnicoDrawer` (cabeçalho, footer, histórico diário e extrato SAP).
+  - **Resultados de Qualidade:**
+    - Suíte de testes: **29 arquivos / 556 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 8.66s**.
-    - `server/tsconfig.json`: **0 erros**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 4.42s**.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Testar a experiência em celular real / DevTools:** abrir a aplicação emulando telas de smartphone (ex.: 360×740, 390×844) e testar a instalação do PWA e a navegação pelas abas.
-2. **Revisar alterações antes de commit:** verificar o diff gerado para aprovação do commit no git.
+1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da tela de Carteira do Embarque e integrações.
+2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pelo painel diário, quem está embarcado e drawer técnico para testar a abertura do modal da carteira com diferentes técnicos.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+
 

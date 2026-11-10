@@ -31,6 +31,12 @@ export interface EmailModalState {
   targetRespId?: string;
 }
 
+export interface CarteiraModalState {
+  matricula: string;
+  idEmbarque?: string;
+  dataRef?: string;
+}
+
 export type UserSettingsSection = 'perfil' | 'aparencia' | 'seguranca';
 
 export interface AppContextValue {
@@ -90,6 +96,10 @@ export interface AppContextValue {
   emailModal: EmailModalState | null;
   openEmailModal: (opts: EmailModalState) => void;
   closeEmailModal: () => void;
+
+  carteiraModal: CarteiraModalState | null;
+  openCarteiraModal: (matricula: string, idEmbarque?: string, dataRef?: string) => void;
+  closeCarteiraModal: () => void;
 }
 
 const INITIAL_DATASET: AppDataset = {
@@ -271,6 +281,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [justModal, setJustModal] = useState<{ mat: string; date: string } | null>(null);
   const [fichaMat, setFichaMat] = useState<string | null>(null);
   const [emailModal, setEmailModal] = useState<EmailModalState | null>(null);
+  const [carteiraModal, setCarteiraModal] = useState<CarteiraModalState | null>(null);
 
   const openJustModal = useCallback((mat: string, date: string) => setJustModal({ mat, date }), []);
   const closeJustModal = useCallback(() => setJustModal(null), []);
@@ -280,6 +291,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const openEmailModal = useCallback((opts: EmailModalState) => setEmailModal(opts), []);
   const closeEmailModal = useCallback(() => setEmailModal(null), []);
+
+  const openCarteiraModal = useCallback((matricula: string, idEmbarque?: string, dataRef?: string) => {
+    setCarteiraModal({ matricula, idEmbarque, dataRef });
+  }, []);
+  const closeCarteiraModal = useCallback(() => setCarteiraModal(null), []);
 
   // Escopo de Papel & Primeiro Login
   const isGlobal = useMemo(() => {
@@ -371,6 +387,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setJustModal(null);
       setFichaMat(null);
       setEmailModal(null);
+      setCarteiraModal(null);
     }
   }, []);
 
@@ -511,7 +528,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     closeFichaDrawer,
     emailModal,
     openEmailModal,
-    closeEmailModal
+    closeEmailModal,
+    carteiraModal,
+    openCarteiraModal,
+    closeCarteiraModal
   }), [
     authInitialized,
     userProfile,
@@ -550,7 +570,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     closeFichaDrawer,
     emailModal,
     openEmailModal,
-    closeEmailModal
+    closeEmailModal,
+    carteiraModal,
+    openCarteiraModal,
+    closeCarteiraModal
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

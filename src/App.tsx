@@ -18,6 +18,7 @@ import { AdminAuditView } from './ui/views/AdminAuditView';
 import { JustificativaModal } from './ui/modals/JustificativaModal';
 import { FichaTecnicoDrawer } from './ui/modals/FichaTecnicoDrawer';
 import { EmailComposerModal } from './ui/modals/EmailComposerModal';
+import { CarteiraEmbarqueModal } from './ui/modals/CarteiraEmbarqueModal';
 
 function ActiveTabRouter() {
   const { activeTab, isGlobal } = useApp();
@@ -87,6 +88,7 @@ function AppGate() {
       <JustificativaModal />
       <FichaTecnicoDrawer />
       <EmailComposerModal />
+      <CarteiraEmbarqueModal />
     </AppShell>
   );
 }

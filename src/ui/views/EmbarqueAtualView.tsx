@@ -37,7 +37,7 @@ interface EmbarqueRowItem {
 }
 
 export function EmbarqueAtualView() {
-  const { dataset, pidx, filters, openFichaDrawer } = useApp();
+  const { dataset, pidx, filters, openFichaDrawer, openCarteiraModal } = useApp();
 
   const [statusFilter, setStatusFilter] = useState<'todos' | 'negativo' | 'ok'>('todos');
   const D = filters.fDate || todayIso();
@@ -157,24 +157,32 @@ export function EmbarqueAtualView() {
     {
       key: 'id_embarque',
       header: 'ID Embarque',
-      width: '120px',
+      width: '130px',
       sortValue: r => r.emb.id_embarque || '',
       render: r => r.emb.id_embarque ? (
-        <span
+        <button
+          type="button"
+          onClick={() => openCarteiraModal(r.mat, r.emb.id_embarque, D)}
+          className="btn-link"
           style={{
             fontFamily: 'monospace',
             fontWeight: 700,
             fontSize: '0.85rem',
             padding: '2px 8px',
             borderRadius: '4px',
-            background: 'var(--surface-muted, #f1f5f9)',
-            border: '1px solid var(--border-subtle, #cbd5e1)',
-            color: 'var(--ink, #1e293b)'
+            background: 'var(--blue-soft, #e0f2fe)',
+            border: '1px solid var(--blue, #0284c7)',
+            color: 'var(--blue-dark, #0369a1)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
           }}
-          title={`Identificador único do embarque no Portal Offshore: ${r.emb.id_embarque}`}
+          title={`Visualizar Carteira do Embarque ${r.emb.id_embarque} (Confronto SAP vs Portal)`}
         >
-          {r.emb.id_embarque}
-        </span>
+          <span aria-hidden="true">📋</span>
+          <span>{r.emb.id_embarque}</span>
+        </button>
       ) : (
         <span className="sub" style={{ color: 'var(--ink-muted)' }}>—</span>
       )

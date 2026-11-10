@@ -4,6 +4,7 @@ import { useToast } from '../components/ToastContext';
 import { Drawer } from '../components/Drawer';
 import { Sparkline120 } from '../components/Sparkline120';
 import { StatusPill } from '../components/StatusPill';
+import { Briefcase } from 'lucide-react';
 import {
   accumulateEmbarkation,
   buildSapIndex,
@@ -206,8 +207,10 @@ export function FichaTecnicoDrawer() {
             className="btn btn-secondary"
             onClick={() => openCarteiraModal(mat, undefined, P.ini)}
             title="Visualizar a Carteira do Embarque com confronto SAP vs Portal"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
-            📋 Ver Carteira do Embarque
+            <Briefcase size={14} />
+            <span>Carteira do Embarque</span>
           </button>
           <button
             type="button"
@@ -295,18 +298,7 @@ export function FichaTecnicoDrawer() {
 
         {/* Tabela dia a dia */}
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-            <h4 style={{ fontFamily: 'var(--f-display)', margin: 0 }}>Histórico diário</h4>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => openCarteiraModal(mat, undefined, P.ini)}
-              style={{ fontSize: '0.78rem', padding: '3px 10px' }}
-              title="Visualizar a Carteira do Embarque com confronto SAP vs Portal"
-            >
-              📋 Ver Carteira do Embarque
-            </button>
-          </div>
+          <h4 style={{ fontFamily: 'var(--f-display)', marginBottom: '8px' }}>Histórico diário</h4>
           {!dayItems.length ? (
             <div className="note" style={{ textAlign: 'center', padding: '20px' }}>
               Sem dias neste período.

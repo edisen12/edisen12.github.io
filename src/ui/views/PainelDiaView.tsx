@@ -27,6 +27,7 @@ import {
 } from '../../domain/calculations';
 import { buildDailyAlertText } from '../../domain/communications';
 import { exportPainelDiaOrdensXlsx } from '../../services/excel.service';
+import { Briefcase, ExternalLink, AlertTriangle } from 'lucide-react';
 
 export function PainelDiaView() {
   const {
@@ -236,10 +237,11 @@ export function PainelDiaView() {
                   type="button"
                   className="btn-link"
                   onClick={() => openCarteiraModal(r.mat, r.emb?.id_embarque, D)}
-                  style={{ fontSize: '0.74rem', color: 'var(--blue)', fontWeight: 600, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                  style={{ fontSize: '0.74rem', color: 'var(--blue)', fontWeight: 600, padding: 0, border: 'none', background: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                   title="Visualizar Carteira do Embarque (Confronto SAP vs Portal)"
                 >
-                  📋 ID {r.emb.id_embarque}
+                  <span>ID {r.emb.id_embarque}</span>
+                  <ExternalLink size={10} style={{ opacity: 0.7 }} />
                 </button>
               </div>
             )}
@@ -721,6 +723,9 @@ export function PainelDiaView() {
             {modalOrdens.items.some(it => it.status_reconciliacao !== 'Em Carteira') && (
               <div
                 style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '8px',
                   background: 'var(--orange-soft, rgba(245, 158, 11, 0.1))',
                   border: '1px solid var(--orange, #f59e0b)',
                   borderRadius: 'var(--radius-sm)',
@@ -730,7 +735,10 @@ export function PainelDiaView() {
                   color: 'var(--orange-dark, #b45309)'
                 }}
               >
-                ⚠️ <b>Atenção:</b> Existem ordens confirmadas no SAP neste dia que <b>não constam na carteira programada do Portal Offshore</b> para este embarque. Elas são contabilizadas como horas executadas a bordo, mas geram divergência em relação ao planejamento cadastrado.
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <b>Atenção:</b> Existem ordens confirmadas no SAP neste dia que <b>não constam na carteira programada do Portal Offshore</b> para este embarque. Elas são contabilizadas como horas executadas a bordo, mas geram divergência em relação ao planejamento cadastrado.
+                </div>
               </div>
             )}
 
@@ -746,9 +754,10 @@ export function PainelDiaView() {
                   const idEmb = modalOrdens.items[0]?.id_embarque;
                   openCarteiraModal(modalOrdens.mat, idEmb, D);
                 }}
-                style={{ fontSize: '0.78rem', padding: '3px 10px' }}
+                style={{ fontSize: '0.78rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                📋 Ver Carteira Completa do Embarque
+                <Briefcase size={13} />
+                <span>Ver Carteira Completa do Embarque</span>
               </button>
             </div>
             <div className="table-responsive" style={{ maxHeight: '380px', overflowY: 'auto', overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>

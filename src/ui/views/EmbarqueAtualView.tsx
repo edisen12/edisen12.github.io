@@ -4,6 +4,7 @@ import { KpiCard } from '../components/KpiCard';
 import { StatusPill } from '../components/StatusPill';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { ExternalLink } from 'lucide-react';
 import type {
   EmbarkationAccum,
   EmbarkationInfo
@@ -167,21 +168,21 @@ export function EmbarqueAtualView() {
           style={{
             fontFamily: 'monospace',
             fontWeight: 700,
-            fontSize: '0.85rem',
+            fontSize: '0.84rem',
             padding: '2px 8px',
             borderRadius: '4px',
             background: 'var(--blue-soft, #e0f2fe)',
-            border: '1px solid var(--blue, #0284c7)',
+            border: '1px solid var(--border-subtle, #cbd5e1)',
             color: 'var(--blue-dark, #0369a1)',
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '4px'
+            gap: '5px'
           }}
           title={`Visualizar Carteira do Embarque ${r.emb.id_embarque} (Confronto SAP vs Portal)`}
         >
-          <span aria-hidden="true">📋</span>
           <span>{r.emb.id_embarque}</span>
+          <ExternalLink size={11} style={{ opacity: 0.65 }} />
         </button>
       ) : (
         <span className="sub" style={{ color: 'var(--ink-muted)' }}>—</span>

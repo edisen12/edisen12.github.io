@@ -12,7 +12,7 @@ import {
 import type { CarteiraOperacao, ConfirmacaoSAP } from '../../domain/types';
 import { addDays, diffDays, formatBr, formatBrShort } from '../../utils/date';
 import { formatHours, formatSignedHours } from '../../utils/format';
-import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink } from 'lucide-react';
+import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, Briefcase } from 'lucide-react';
 
 export function CarteiraEmbarqueModal() {
   const {
@@ -261,6 +261,7 @@ export function CarteiraEmbarqueModal() {
       maxWidth="1020px"
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Briefcase size={20} style={{ color: 'var(--brand-primary, #0ea5e9)', flexShrink: 0 }} />
           <span>Carteira do Embarque</span>
           {idEmbFinal && (
             <span

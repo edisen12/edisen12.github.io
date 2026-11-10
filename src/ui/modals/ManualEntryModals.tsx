@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useId } from 'react';
-import { Calendar, Hash, User, Anchor, Clock, Briefcase, FileText, Sun, Ship } from 'lucide-react';
+import { Calendar, Hash, User, Anchor, Clock, Briefcase, FileText, Ship } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { batchImportHH, batchImportCarteira } from '../../services/data.service';
@@ -130,7 +130,7 @@ export const ManualHHModal: React.FC<ManualHHModalProps> = ({
       subtitle="Registro individual de apontamento em plataforma"
       maxWidth="540px"
       footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Cancelar
           </button>
@@ -151,7 +151,7 @@ export const ManualHHModal: React.FC<ManualHHModalProps> = ({
           Registre o HH executado de um técnico diretamente no sistema. Se a plataforma não constar no cadastro, será cadastrada automaticamente para revisão.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Data</span>
@@ -212,7 +212,7 @@ export const ManualHHModal: React.FC<ManualHHModalProps> = ({
           </div>
         </label>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Plataforma</span>
@@ -421,7 +421,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
       subtitle="Inclusão direta de período na escala contratual"
       maxWidth="640px"
       footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Cancelar
           </button>
@@ -442,7 +442,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           Cadastre um período de embarque na carteira. Se horas programadas não forem especificadas, o sistema calculará automaticamente com base nos dias × {formatHours(dataset.config.hh_dia)}.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Matrícula</span>
@@ -487,7 +487,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Nome do colaborador</span>
@@ -527,7 +527,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Data de embarque (início)</span>
@@ -567,7 +567,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Horas programadas HP</span>
@@ -609,7 +609,7 @@ export const ManualCartModal: React.FC<ManualCartModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2">
           <label className="fld">
             <span>
               <span>Ponderação PE</span>

@@ -16,14 +16,12 @@ import {
   Eye,
   EyeOff,
   Check,
-  CheckCircle2,
   Building2,
   Ship,
   MapPin,
   Anchor,
   User,
   Briefcase,
-  Shield,
   HardHat,
   ClipboardCheck,
   Layers
@@ -38,7 +36,8 @@ import {
   deletePlataforma,
   deleteUserAccount,
   batchImportPlataformas,
-  batchImportPessoas
+  batchImportPessoas,
+  logSystemEvent
 } from '../../services/data.service';
 import {
   parseSpreadsheetFile,
@@ -54,6 +53,12 @@ import { normalizeText, platformKey } from '../../utils/format';
 import { Modal } from '../components/Modal';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl';
+import {
+  NovoAdminModal,
+  AdminResetPasswordModal,
+  AdminToggleActiveModal,
+  AdminDeleteUserModal
+} from '../modals/AdminAccountModals';
 
 type SubTab = 'pessoas' | 'plataformas';
 type PapelFilter = 'todos' | 'preposto' | 'controlador' | 'gestor';
@@ -74,7 +79,6 @@ export const PessoasPlataformasView: React.FC = () => {
 
   // Confirmações de exclusão em 2 cliques
   const [delPesId, setDelPesId] = useState<string | null>(null);
-  const [delPlatSigla, setDelPlatSigla] = useState<string | null>(null);
 
   // Modais
   const [pesModalOpen, setPesModalOpen] = useState(false);
@@ -438,7 +442,7 @@ export const PessoasPlataformasView: React.FC = () => {
                 placeholder="Buscar pessoa, e-mail ou plataforma"
                 value={pesBusca}
                 onChange={e => setPesBusca(e.target.value)}
-                style={{ minWidth: '240px', padding: '6px 12px' }}
+                style={{ minWidth: 'min(100%, 220px)', flex: '1 1 200px', padding: '6px 12px' }}
               />
               <button
                 type="button"
@@ -662,7 +666,7 @@ export const PessoasPlataformasView: React.FC = () => {
             <h3 style={{ margin: '0 0 10px', fontSize: '1rem', color: 'var(--ink)' }}>
               Contas Administrativas Globais ({adminProfiles.length})
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '10px' }}>
               {adminProfiles.map(admProf => {
                 const isSelf = userProfile?.id === admProf.id;
                 const admOnb = dataset.onboardingMap?.[admProf.id];
@@ -674,6 +678,8 @@ export const PessoasPlataformasView: React.FC = () => {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '10px',
                       padding: '10px 14px',
                       background: 'var(--surface-alt)'
                     }}
@@ -817,7 +823,7 @@ export const PessoasPlataformasView: React.FC = () => {
                   placeholder="Buscar sigla, nome ou armador"
                   value={platBusca}
                   onChange={e => setPlatBusca(e.target.value)}
-                  style={{ minWidth: '220px', padding: '6px 12px' }}
+                  style={{ minWidth: 'min(100%, 220px)', flex: '1 1 200px', padding: '6px 12px' }}
                 />
 
                 <button
@@ -843,6 +849,10 @@ export const PessoasPlataformasView: React.FC = () => {
                     className="card"
                     style={{ padding: '10px 14px', cursor: 'pointer', background: platUn === u ? 'var(--blue-soft)' : undefined }}
                     onClick={() => setPlatUn(platUn === u ? '' : u)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setPlatUn(platUn === u ? '' : u)}
+                    aria-label={`Filtrar por unidade ${u}`}
                   >
                     <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--blue)' }}>{count}</div>
                     <div className="sub" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -874,7 +884,7 @@ export const PessoasPlataformasView: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+        <div className="grid2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '16px' }}>
           {/* Card: Importar Plataformas */}
           <div className="card stack" style={{ gap: '8px' }}>
             <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Importar plataformas</h3>
@@ -884,6 +894,10 @@ export const PessoasPlataformasView: React.FC = () => {
             <div
               className="dropzone"
               onClick={() => handleTriggerFile('plat')}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleTriggerFile('plat')}
+              aria-label="Upload de planilha de plataformas"
               style={{
                 padding: '24px 12px',
                 border: '2px dashed var(--line-strong)',
@@ -908,6 +922,10 @@ export const PessoasPlataformasView: React.FC = () => {
             <div
               className="dropzone"
               onClick={() => handleTriggerFile('pes')}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleTriggerFile('pes')}
+              aria-label="Upload de planilha de pessoas e carteiras"
               style={{
                 padding: '24px 12px',
                 border: '2px dashed var(--line-strong)',
@@ -924,15 +942,22 @@ export const PessoasPlataformasView: React.FC = () => {
           </div>
         </div>
 
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => exportModeloXlsx('cad', dataset)}
+            onClick={async () => {
+              try {
+                await exportModeloXlsx('cad', dataset);
+                showToast('Modelo de cadastros exportado com sucesso!', 'success');
+              } catch (err: any) {
+                showToast(err?.message || 'Erro ao exportar modelo.', 'error');
+              }
+            }}
           >
             Baixar modelo com o cadastro atual (.xlsx)
           </button>
-          <span className="sub" style={{ display: 'inline-block', marginLeft: '12px', fontSize: '0.85rem' }}>
+          <span className="sub" style={{ fontSize: '0.85rem' }}>
             A planilha já traz todas as plataformas e pessoas atuais pré-populadas em abas separadas.
           </span>
         </div>
@@ -944,7 +969,7 @@ export const PessoasPlataformasView: React.FC = () => {
 
         {cadPreview && (
           <div className="card stack" style={{ gap: '14px', border: '2px solid var(--blue)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
               <h3 style={{ margin: 0, color: 'var(--blue)' }}>
                 Revisão: {cadPreview.fileName} ({cadPreview.rows.length} registros prontos)
               </h3>
@@ -984,7 +1009,7 @@ export const PessoasPlataformasView: React.FC = () => {
               ))}
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className="btn btn-primary"
@@ -1227,7 +1252,7 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
       subtitle="Definição de perfil, papel operacional e carteira de plataformas"
       maxWidth="680px"
       footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap', width: '100%' }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
             Cancelar
           </button>
@@ -1238,7 +1263,7 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
       }
     >
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2" style={{ gap: '12px' }}>
           <label className="fld">
             <span>
               <span>Nome completo</span>
@@ -1339,7 +1364,7 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
 
         {/* Checklist Agrupada de Plataformas */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
             <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
               Plataformas individuais · <b>{selectedPlats.length}</b> marcadas
             </span>
@@ -1348,7 +1373,7 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
               placeholder="Filtrar plataformas..."
               value={filterPlat}
               onChange={e => setFilterPlat(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '4px 8px', width: '180px' }}
+              style={{ fontSize: '0.8rem', padding: '4px 8px', width: 'min(100%, 200px)', flex: '1 1 150px' }}
             />
           </div>
 
@@ -1512,7 +1537,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
       subtitle="Cadastro operacional de unidade offshore e armador"
       maxWidth="540px"
       footer={
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             {initialPlat && (
               <button
@@ -1527,7 +1552,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
               </button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
               Cancelar
             </button>
@@ -1539,7 +1564,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
       }
     >
       <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '12px' }}>
+        <div className="form-grid-2" style={{ gap: '12px' }}>
           <label className="fld">
             <span>
               <span>Sigla</span>
@@ -1582,7 +1607,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2" style={{ gap: '12px' }}>
           <label className="fld">
             <span>
               <span>Unidade de negócio</span>
@@ -1624,7 +1649,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
           </label>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div className="form-grid-2" style={{ gap: '12px' }}>
           <label className="fld">
             <span>
               <span>Tipo de unidade</span>
@@ -1721,6 +1746,19 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
       if (!res.ok) {
         throw new Error(res.message || 'Falha ao excluir credenciais.');
       }
+
+      try {
+        await logSystemEvent({
+          action: 'delete-user',
+          category: 'usuarios',
+          target_id: profile.id,
+          target_label: `${pessoa.nome} (${profile.email})`,
+          details: { pessoaId: pessoa.id, role: profile.role }
+        });
+      } catch (logErr) {
+        console.warn('Falha secundária ao registrar log de auditoria:', logErr);
+      }
+
       showToast('Credenciais de acesso excluídas com sucesso!', 'success');
       await onChanged();
     } catch (err: any) {
@@ -1762,6 +1800,18 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
         throw new Error(res.message || 'Falha ao provisionar login.');
       }
 
+      try {
+        await logSystemEvent({
+          action: 'create-user-login',
+          category: 'usuarios',
+          target_id: res.userId || null,
+          target_label: `${pessoa.nome} (${email.trim().toLowerCase()})`,
+          details: { role, pessoaId: pessoa.id }
+        });
+      } catch (logErr) {
+        console.warn('Falha secundária ao registrar log de auditoria:', logErr);
+      }
+
       showToast('Conta de acesso criada com sucesso!', 'success');
       await onChanged();
     } catch (err: any) {
@@ -1784,11 +1834,24 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
       const res = await adminManageUser({
         action: 'reset-password',
         userId: profile.id,
-        newPassword: password
+        newPassword: password,
+        forceChange: true
       });
 
       if (!res.ok) {
         throw new Error(res.message || 'Falha ao redefinir senha.');
+      }
+
+      try {
+        await logSystemEvent({
+          action: 'reset-password',
+          category: 'seguranca',
+          target_id: profile.id,
+          target_label: `${pessoa.nome} (${profile.email})`,
+          details: { forceChange: true }
+        });
+      } catch (logErr) {
+        console.warn('Falha secundária ao registrar log de auditoria:', logErr);
       }
 
       showToast('Senha redefinida com sucesso!', 'success');
@@ -1813,6 +1876,18 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
 
       if (!res.ok) {
         throw new Error(res.message || 'Falha ao alterar status de acesso.');
+      }
+
+      try {
+        await logSystemEvent({
+          action: !profile.ativo ? 'activate-user' : 'deactivate-user',
+          category: 'usuarios',
+          target_id: profile.id,
+          target_label: `${pessoa.nome} (${profile.email})`,
+          details: { novo_status: !profile.ativo }
+        });
+      } catch (logErr) {
+        console.warn('Falha secundária ao registrar log de auditoria:', logErr);
       }
 
       showToast(`Acesso ${!profile.ativo ? 'ativado' : 'desativado'} com sucesso!`, 'success');
@@ -1973,7 +2048,7 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
                 <button
                   type="button"
                   className={`btn ${confirmDeleteCred ? 'btn-danger' : 'btn-ghost'}`}
-                  style={{ color: confirmDeleteCred ? 'var(--white)' : 'var(--bad)', marginLeft: 'auto' }}
+                  style={{ color: confirmDeleteCred ? 'var(--white)' : 'var(--bad)' }}
                   onClick={handleDeleteCredentials}
                   disabled={loading}
                   title="Remove definitivamente o login e as credenciais desta pessoa"
@@ -2137,591 +2212,6 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
               {loading ? 'Provisionando acesso…' : 'Criar login de acesso'}
             </button>
           </form>
-        )}
-
-        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
-      </div>
-    </Modal>
-  );
-};
-
-interface NovoAdminModalProps {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => Promise<void>;
-}
-
-const NovoAdminModal: React.FC<NovoAdminModalProps> = ({ open, onClose, onCreated }) => {
-  const { showToast } = useToast();
-
-  const [nome, setNome] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const isPasswordValid = password.length >= 8;
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setErrorMsg('');
-    if (!nome.trim()) {
-      setErrorMsg('Informe o nome.');
-      return;
-    }
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMsg('Informe um e-mail válido.');
-      return;
-    }
-    if (!password || password.length < 8) {
-      setErrorMsg('A senha deve ter no mínimo 8 caracteres.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await adminManageUser({
-        action: 'create',
-        nome: nome.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-        role: 'admin'
-      });
-
-      if (!res.ok) {
-        throw new Error(res.message || 'Falha ao criar administrador.');
-      }
-
-      showToast('Novo administrador criado com sucesso!', 'success');
-      await onCreated();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro ao criar administrador.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      icon={<ShieldCheck size={20} />}
-      title="Novo Administrador do Sistema"
-      subtitle="Acesso e governança global irrestrita"
-      maxWidth="500px"
-      footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => handleSubmit()}
-            disabled={loading || password.length < 8}
-          >
-            <ShieldCheck size={16} />
-            {loading ? 'Criando…' : 'Criar administrador'}
-          </button>
-        </div>
-      }
-    >
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
-          Administradores possuem permissão total no sistema: visão global, configurações, importação e gestão de todos os usuários.
-        </p>
-
-        <div className="note note-warn" style={{ fontSize: '0.82rem', margin: 0 }}>
-          Esta é uma senha provisória. No primeiro acesso, o novo administrador será obrigado a definir sua senha pessoal definitiva.
-        </div>
-
-        <label className="fld">
-          <span>
-            <span>Nome completo</span>
-            <span className="fld-hint">Obrigatório</span>
-          </span>
-          <div className="input-with-icon">
-            <span className="input-icon-left">
-              <User size={16} />
-            </span>
-            <input
-              type="text"
-              value={nome}
-              onChange={e => setNome(e.target.value)}
-              placeholder="Nome do administrador"
-              required
-              disabled={loading}
-              autoComplete="name"
-            />
-          </div>
-        </label>
-
-        <label className="fld">
-          <span>
-            <span>E-mail institucional</span>
-            <span className="fld-hint">Login de governança</span>
-          </span>
-          <div className="input-with-icon">
-            <span className="input-icon-left">
-              <Mail size={16} />
-            </span>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="admin@empresa.com.br"
-              required
-              disabled={loading}
-              autoComplete="email"
-            />
-          </div>
-        </label>
-
-        <label className="fld">
-          <span>
-            <span>Senha inicial provisória</span>
-            <span className="fld-hint">Mínimo 8 caracteres</span>
-          </span>
-          <div className="input-with-icon">
-            <span className="input-icon-left">
-              <Lock size={16} />
-            </span>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Defina uma senha temporária forte"
-              required
-              disabled={loading}
-              autoComplete="new-password"
-            />
-            <button
-              type="button"
-              className="input-action-right"
-              onClick={() => setShowPassword(p => !p)}
-              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </label>
-
-        {password.length > 0 && (
-          <div className="password-requirements-card">
-            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
-              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
-              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
-            </div>
-          </div>
-        )}
-
-        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
-      </form>
-    </Modal>
-  );
-};
-
-// ==============================================================================
-// SUB-MODAL: REDEFINIR SENHA DE ADMINISTRADOR
-// ==============================================================================
-interface AdminResetPasswordModalProps {
-  user: UserProfile;
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}
-
-const AdminResetPasswordModal: React.FC<AdminResetPasswordModalProps> = ({
-  user,
-  onClose,
-  onSuccess
-}) => {
-  const { showToast } = useToast();
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const isPasswordValid = password.length >= 8;
-
-  const handleReset = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (password.length < 8) {
-      setErrorMsg('A senha provisória deve conter no mínimo 8 caracteres.');
-      return;
-    }
-
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      const res = await adminManageUser({
-        action: 'reset-password',
-        userId: user.id,
-        newPassword: password,
-        forceChange: true
-      });
-
-      if (!res.ok) {
-        throw new Error(res.message || 'Falha ao redefinir senha do administrador.');
-      }
-
-      showToast(`Senha provisória de ${user.nome} redefinida com sucesso!`, 'success');
-      await onSuccess();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro ao redefinir senha.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      icon={<KeyRound size={20} />}
-      title={`Redefinir Senha · ${user.nome}`}
-      subtitle={`Credencial provisória para ${user.email}`}
-      maxWidth="480px"
-      footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => handleReset()}
-            disabled={loading || password.length < 8}
-          >
-            <KeyRound size={16} />
-            {loading ? 'Redefinindo…' : 'Salvar Nova Senha'}
-          </button>
-        </div>
-      }
-    >
-      <form onSubmit={handleReset} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div className="note note-warn" style={{ margin: 0, fontSize: '0.82rem' }}>
-          Esta é uma credencial provisória. O administrador será obrigado a definir uma nova senha pessoal no próximo login.
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 14px',
-            background: 'var(--surface-alt)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)'
-          }}
-        >
-          <User size={18} style={{ color: 'var(--blue)' }} />
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{user.nome}</div>
-            <div className="sub" style={{ fontSize: '0.78rem' }}>{user.email}</div>
-          </div>
-        </div>
-
-        <label className="fld">
-          <span>
-            <span>Nova senha temporária</span>
-            <span className="fld-hint">Mínimo 8 caracteres</span>
-          </span>
-          <div className="input-with-icon">
-            <span className="input-icon-left">
-              <Lock size={16} />
-            </span>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="Digite a nova senha provisória"
-              autoFocus
-              required
-              disabled={loading}
-              autoComplete="new-password"
-            />
-            <button
-              type="button"
-              className="input-action-right"
-              onClick={() => setShowPassword(p => !p)}
-              title={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-              aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </label>
-
-        {password.length > 0 && (
-          <div className="password-requirements-card">
-            <div className={`password-req-item ${isPasswordValid ? 'met' : ''}`}>
-              <Check size={13} style={{ color: isPasswordValid ? 'var(--ok)' : 'var(--ink-muted)' }} />
-              <span>Mínimo de 8 caracteres {isPasswordValid ? '(OK)' : `(faltam ${8 - password.length})`}</span>
-            </div>
-          </div>
-        )}
-
-        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
-      </form>
-    </Modal>
-  );
-};
-
-// ==============================================================================
-// SUB-MODAL: ATIVAR / DESATIVAR ADMINISTRADOR (ANTI-LOCKOUT)
-// ==============================================================================
-interface AdminToggleActiveModalProps {
-  user: UserProfile;
-  activeAdminsCount: number;
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}
-
-const AdminToggleActiveModal: React.FC<AdminToggleActiveModalProps> = ({
-  user,
-  activeAdminsCount,
-  onClose,
-  onSuccess
-}) => {
-  const { showToast } = useToast();
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const willDeactivate = user.ativo;
-  const isLastActiveAdmin = willDeactivate && activeAdminsCount <= 1;
-
-  const handleToggle = async () => {
-    if (isLastActiveAdmin) {
-      setErrorMsg('Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.');
-      return;
-    }
-
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      const res = await adminManageUser({
-        action: 'toggle-active',
-        userId: user.id,
-        ativo: !user.ativo
-      });
-
-      if (!res.ok) {
-        throw new Error(res.message || 'Falha ao alterar status do administrador.');
-      }
-
-      showToast(`Acesso de ${user.nome} ${willDeactivate ? 'desativado' : 'ativado'} com sucesso!`, 'success');
-      await onSuccess();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro ao processar alteração.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      icon={willDeactivate ? <UserX size={20} color="var(--bad)" /> : <UserCheck size={20} color="var(--ok)" />}
-      title={`${willDeactivate ? 'Desativar Acesso' : 'Reativar Acesso'} · ${user.nome}`}
-      subtitle={`Gestão do status de autenticação (${user.email})`}
-      maxWidth="480px"
-      footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className={`btn ${willDeactivate ? 'btn-danger' : 'btn-primary'}`}
-            onClick={handleToggle}
-            disabled={loading || isLastActiveAdmin}
-          >
-            {willDeactivate ? <UserX size={16} /> : <UserCheck size={16} />}
-            {loading ? 'Processando…' : willDeactivate ? 'Confirmar Desativação' : 'Confirmar Reativação'}
-          </button>
-        </div>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {isLastActiveAdmin ? (
-          <div className="note note-bad" style={{ margin: 0 }}>
-            <strong>Salvaguarda Anti-Lockout Ativa:</strong>
-            <p style={{ margin: '4px 0 0' }}>
-              Este é o único Administrador ativo no sistema. Desativá-lo bloquearia permanentemente o painel administrativo.
-            </p>
-          </div>
-        ) : willDeactivate ? (
-          <div className="note note-warn" style={{ margin: 0 }}>
-            <strong>Atenção:</strong> Ao desativar o acesso de <b>{user.nome}</b>, a sessão será cortada imediatamente e a conta não poderá mais autenticar no sistema.
-          </div>
-        ) : (
-          <div className="note note-info" style={{ margin: 0 }}>
-            Ao reativar o acesso, <b>{user.nome}</b> terá seus privilégios de administrador restaurados.
-          </div>
-        )}
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            padding: '12px 14px',
-            background: 'var(--surface-alt)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-sm)'
-          }}
-        >
-          <User size={20} style={{ color: 'var(--blue)' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{user.nome}</div>
-            <div className="sub" style={{ fontSize: '0.8rem' }}>{user.email}</div>
-          </div>
-          <span className={`pill ${user.ativo ? 'pill-ok' : 'pill-bad'}`}>
-            {user.ativo ? 'Ativo' : 'Inativo'}
-          </span>
-        </div>
-
-        {errorMsg && <div className="note note-bad">{errorMsg}</div>}
-      </div>
-    </Modal>
-  );
-};
-
-// ==============================================================================
-// SUB-MODAL: EXCLUIR ADMINISTRADOR (SALVAGUARDA ANTI-LOCKOUT)
-// ==============================================================================
-interface AdminDeleteUserModalProps {
-  user: UserProfile;
-  activeAdminsCount: number;
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}
-
-const AdminDeleteUserModal: React.FC<AdminDeleteUserModalProps> = ({
-  user,
-  activeAdminsCount,
-  onClose,
-  onSuccess
-}) => {
-  const { showToast } = useToast();
-  const [confirmInput, setConfirmInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-
-  const isLastActiveAdmin = activeAdminsCount <= 1;
-  const isMatch = confirmInput.trim().toLowerCase() === user.email.toLowerCase() ||
-                  confirmInput.trim().toLowerCase() === user.nome.toLowerCase();
-
-  const handleDelete = async () => {
-    if (isLastActiveAdmin) {
-      setErrorMsg('Operação bloqueada: o sistema precisa manter ao menos um Administrador ativo.');
-      return;
-    }
-
-    if (!isMatch) {
-      setErrorMsg('A confirmação digitada não confere com o e-mail ou nome do administrador.');
-      return;
-    }
-
-    setLoading(true);
-    setErrorMsg('');
-    try {
-      const res = await deleteUserAccount(user.id);
-      if (!res.ok) {
-        throw new Error(res.message || 'Falha ao excluir administrador.');
-      }
-
-      showToast(`Administrador ${user.nome} excluído definitivamente.`, 'success');
-      await onSuccess();
-    } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro ao excluir administrador.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={true}
-      onClose={onClose}
-      icon={<AlertTriangle size={20} color="var(--bad)" />}
-      title="Excluir Administrador Global"
-      subtitle={`Remoção definitiva de credenciais para ${user.nome}`}
-      maxWidth="500px"
-      footer={
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={handleDelete}
-            disabled={loading || isLastActiveAdmin || !isMatch}
-          >
-            <Trash2 size={16} />
-            {loading ? 'Excluindo…' : 'Excluir Definitivamente'}
-          </button>
-        </div>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {isLastActiveAdmin ? (
-          <div className="note note-bad" style={{ margin: 0 }}>
-            <strong>Salvaguarda Anti-Lockout Ativa:</strong>
-            <p style={{ margin: '4px 0 0' }}>
-              Este é o único Administrador ativo no sistema. A exclusão desta conta bloquearia a governança do sistema. Cadastre outro administrador antes de prosseguir.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="note note-bad" style={{ margin: 0 }}>
-              <strong>Atenção: Ação Irreversível!</strong>
-              <p style={{ margin: '4px 0 0' }}>
-                A exclusão removerá permanentemente as credenciais e acessos do administrador <b>{user.nome}</b> ({user.email}).
-              </p>
-            </div>
-
-            <label className="fld">
-              <span>
-                <span>Para confirmar a exclusão, digite o e-mail ou nome exato:</span>
-                <span className="fld-hint">Confirmação de segurança</span>
-              </span>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 10px',
-                  background: 'var(--surface-alt)',
-                  borderRadius: 'var(--radius-sm)',
-                  fontFamily: 'monospace',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  color: 'var(--ink)'
-                }}
-              >
-                <Mail size={14} style={{ color: 'var(--ink-muted)' }} />
-                {user.email}
-              </div>
-              <div className="input-with-icon">
-                <span className="input-icon-left">
-                  <Trash2 size={16} />
-                </span>
-                <input
-                  type="text"
-                  value={confirmInput}
-                  onChange={e => setConfirmInput(e.target.value)}
-                  placeholder="Digite o e-mail para confirmar"
-                  autoFocus
-                  disabled={loading}
-                />
-              </div>
-            </label>
-          </>
         )}
 
         {errorMsg && <div className="note note-bad">{errorMsg}</div>}

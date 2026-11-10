@@ -3,7 +3,6 @@ import { Mail, FileText, Copy, ExternalLink, Send } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
-import { StatusPill } from '../components/StatusPill';
 import { PAPEIS_LABEL } from '../../config/constants';
 import type { Pessoa } from '../../domain/types';
 import {
@@ -128,7 +127,7 @@ export function EmailComposerModal() {
       maxWidth={720}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '8px' }}>
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
@@ -147,7 +146,7 @@ export function EmailComposerModal() {
             </button>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn btn-ghost"

@@ -21,7 +21,9 @@ import {
   LayoutList,
   CheckCircle2,
   ShieldCheck,
-  Clock
+  Clock,
+  Smartphone,
+  Download
 } from 'lucide-react';
 import { useApp, type UserSettingsSection } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
@@ -29,6 +31,8 @@ import { SegmentedControl, type SegmentedOption } from '../components/SegmentedC
 import { ROLES_LABEL, NAV_TABS } from '../../config/constants';
 import { saveOwnProfileAndPreferences, updateOwnPassword } from '../../services/auth.service';
 import type { ThemeMode, TableDensity, TabId } from '../../domain/types';
+import { usePwaInstall } from '../../utils/pwa';
+import { PwaInstallModal } from '../modals/PwaInstallModal';
 
 function getInitials(name?: string): string {
   if (!name || !name.trim()) return 'IB';
@@ -69,6 +73,8 @@ export function UserSettingsView() {
   } = useApp();
 
   const { showToast } = useToast();
+  const { isStandalone, isInstalled, canPromptDirectly, triggerInstall } = usePwaInstall();
+  const [pwaModalOpen, setPwaModalOpen] = useState(false);
 
   // Estados locais da aba Perfil
   const [nomeInput, setNomeInput] = useState(userProfile?.nome || '');
@@ -259,7 +265,7 @@ export function UserSettingsView() {
             gap: '16px'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0, flexWrap: 'wrap' }}>
             {/* Avatar com Iniciais */}
             <div
               style={{
@@ -357,7 +363,7 @@ export function UserSettingsView() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
             gap: '20px'
           }}
         >
@@ -429,7 +435,7 @@ export function UserSettingsView() {
 
               <div className="login-field">
                 <label className="login-label">Papel no sistema</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span
                     className="pill pill-info"
                     style={{ fontSize: '0.82rem', padding: '4px 10px' }}
@@ -633,7 +639,7 @@ export function UserSettingsView() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
                 gap: '14px'
               }}
             >
@@ -865,7 +871,7 @@ export function UserSettingsView() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
               gap: '20px'
             }}
           >
@@ -1025,6 +1031,56 @@ export function UserSettingsView() {
               </div>
             </div>
           </div>
+
+          {/* Card: Aplicativo no Dispositivo (PWA) */}
+          <div className="card" style={{ marginTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0, flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    width: '44px',
+                    height: '44px',
+                    borderRadius: 'var(--radius-md)',
+                    background: isStandalone ? 'var(--ok-soft)' : 'var(--blue-soft)',
+                    color: isStandalone ? 'var(--ok)' : 'var(--blue)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}
+                >
+                  <Smartphone size={22} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--ink)' }}>
+                      Aplicativo no Dispositivo (PWA)
+                    </h3>
+                    <span className={`pill ${isStandalone ? 'pill-ok' : 'pill-info'}`}>
+                      {isStandalone ? 'Instalado no Dispositivo' : 'Executando no Navegador'}
+                    </span>
+                  </div>
+                  <p className="sub" style={{ margin: '4px 0 0', fontSize: '0.84rem' }}>
+                    {isStandalone
+                      ? 'O aplicativo está instalado em modo nativo independente com suporte offline e carregamento acelerado.'
+                      : 'Instale o HH Offshore como aplicativo nativo no Windows, Mac, Android ou iOS para acesso rápido sem barra de navegação.'}
+                  </p>
+                </div>
+              </div>
+
+              {!isStandalone && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setPwaModalOpen(true)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <Download size={16} />
+                  Instalar Aplicativo
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1035,7 +1091,7 @@ export function UserSettingsView() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
             gap: '20px'
           }}
         >
@@ -1109,7 +1165,12 @@ export function UserSettingsView() {
                       background: 'transparent',
                       color: 'var(--ink-muted)',
                       cursor: 'pointer',
-                      padding: '4px'
+                      padding: '8px',
+                      minWidth: '36px',
+                      minHeight: '36px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                     title={showNewPassword ? 'Ocultar senha' : 'Ver senha'}
                     aria-label={showNewPassword ? 'Ocultar senha' : 'Ver senha'}
@@ -1159,7 +1220,12 @@ export function UserSettingsView() {
                       background: 'transparent',
                       color: 'var(--ink-muted)',
                       cursor: 'pointer',
-                      padding: '4px'
+                      padding: '8px',
+                      minWidth: '36px',
+                      minHeight: '36px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                     title={showConfirmPassword ? 'Ocultar confirmação' : 'Ver confirmação'}
                     aria-label={showConfirmPassword ? 'Ocultar confirmação' : 'Ver confirmação'}
@@ -1211,9 +1277,8 @@ export function UserSettingsView() {
 
               {/* Checklist em 2 Colunas */}
               <div
+                className="form-grid-2"
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
                   gap: '6px 12px',
                   marginTop: '4px',
                   background: 'var(--surface-alt)',
@@ -1410,6 +1475,10 @@ export function UserSettingsView() {
             </div>
           </div>
         </div>
+      )}
+
+      {pwaModalOpen && (
+        <PwaInstallModal open={pwaModalOpen} onClose={() => setPwaModalOpen(false)} />
       )}
     </div>
   );

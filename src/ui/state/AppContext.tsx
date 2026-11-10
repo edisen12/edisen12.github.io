@@ -22,6 +22,7 @@ import {
 } from '../../services/auth.service';
 import { loadAppDataset } from '../../services/data.service';
 import { subscribeToRealtimeUpdates } from '../../services/realtime.service';
+import { useToast, type ToastVariant } from '../components/ToastContext';
 
 export interface EmailModalState {
   mode: 'daily' | 'cobranca';
@@ -101,6 +102,8 @@ const INITIAL_DATASET: AppDataset = {
   onboardingMap: {},
   tecnicos: {},
   carteira: [],
+  carteiraOperacoes: [],
+  confirmacoesSap: [],
   hhMap: {},
   justMap: {},
   externalCoveredSet: new Set<string>(),
@@ -140,7 +143,21 @@ function readLocalPreferences(): UserPreferences {
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
+function useOptionalShowToast(): ((message: string, type?: ToastVariant | 'warning') => void) | null {
+  try {
+    const { showToast } = useToast();
+    return (message: string, type?: ToastVariant | 'warning') => {
+      const variant: ToastVariant = type === 'warning' ? 'warn' : (type || 'info');
+      showToast(message, variant);
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const showToast = useOptionalShowToast();
+
   // Autenticação, Onboarding e Usuário
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [userOnboarding, setUserOnboarding] = useState<UserOnboarding | null>(null);
@@ -350,6 +367,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUserProfile(null);
       setPessoaScope(null);
       setUserOnboarding(null);
+      setRealtimeStatus('disconnected');
+      setJustModal(null);
+      setFichaMat(null);
+      setEmailModal(null);
     }
   }, []);
 
@@ -359,7 +380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Garante que perfis restritos não permaneçam em abas administrativas (mas permite 'perfil' para todos)
   useEffect(() => {
-    if (userProfile && !isGlobal && (activeTab === 'pes' || activeTab === 'imp' || activeTab === 'cfg')) {
+    if (userProfile && !isGlobal && (activeTab === 'pes' || activeTab === 'imp' || activeTab === 'cfg' || activeTab === 'adm')) {
       setActiveTab('ger');
     }
   }, [userProfile, isGlobal, activeTab, setActiveTab]);
@@ -390,7 +411,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const toggleTheme = useCallback(() => {
     const nextMode: ThemeMode = theme === 'light' ? 'dark' : 'light';
-    void updateUserPreferences({ themeMode: nextMode });
+    updateUserPreferences({ themeMode: nextMode }).catch(err => console.warn('Falha ao persistir tema:', err));
   }, [theme, updateUserPreferences]);
 
   // Carregamento de Dados com Janelamento Automático (somente autenticado E com senha definitiva trocada)
@@ -416,10 +437,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error('Erro ao carregar dataset do contrato:', err);
+      showToast?.('Erro ao carregar dados do contrato. Verifique sua conexão.', 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [userProfile, requiresPasswordChange, queryWindow.queryIni, queryWindow.queryFim, isGlobal]);
+  }, [userProfile, requiresPasswordChange, queryWindow.queryIni, queryWindow.queryFim, isGlobal, showToast]);
 
   useEffect(() => {
     if (!authInitialized || !userProfile || requiresPasswordChange) {
@@ -448,7 +470,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authInitialized, userProfile, requiresPasswordChange, reloadDataset]);
 
-  const value: AppContextValue = {
+  const value = useMemo<AppContextValue>(() => ({
     authInitialized,
     userProfile,
     userOnboarding,
@@ -490,7 +512,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     emailModal,
     openEmailModal,
     closeEmailModal
-  };
+  }), [
+    authInitialized,
+    userProfile,
+    userOnboarding,
+    requiresPasswordChange,
+    pessoaScope,
+    isGlobal,
+    isAdmin,
+    scopeLabel,
+    refreshAuth,
+    logout,
+    userPreferences,
+    updateUserPreferences,
+    setThemeMode,
+    theme,
+    toggleTheme,
+    dataset,
+    pidx,
+    activePeriod,
+    isLoading,
+    reloadDataset,
+    filters,
+    setFilters,
+    updateFilter,
+    resetFilters,
+    activeTab,
+    setActiveTab,
+    userSettingsSection,
+    openUserSettings,
+    realtimeStatus,
+    justModal,
+    openJustModal,
+    closeJustModal,
+    fichaMat,
+    openFichaDrawer,
+    closeFichaDrawer,
+    emailModal,
+    openEmailModal,
+    closeEmailModal
+  ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

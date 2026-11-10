@@ -56,7 +56,7 @@ export function Drawer({
       <aside
         ref={boxRef}
         className={`drawer-box ${className}`.trim()}
-        style={{ width }}
+        style={{ width, maxWidth: '100%' }}
         role="dialog"
         aria-modal="true"
       >
@@ -70,7 +70,7 @@ export function Drawer({
             className="btn-icon"
             onClick={onClose}
             aria-label="Fechar painel"
-            style={{ color: 'var(--ink-muted)' }}
+            style={{ color: 'var(--ink-muted)', minWidth: '44px', minHeight: '44px' }}
           >
             <X size={20} />
           </button>

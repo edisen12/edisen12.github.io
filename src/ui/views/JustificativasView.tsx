@@ -6,12 +6,11 @@ import { StatusPill } from '../components/StatusPill';
 import { MeterBar } from '../components/MeterBar';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { PAPEIS_LABEL, PAPEIS_PLURAL } from '../../config/constants';
+import { PAPEIS_LABEL } from '../../config/constants';
 import type {
   CobrancaStats,
   PeriodDayEntry,
-  Pessoa,
-  StatusMeta
+  Pessoa
 } from '../../domain/types';
 import {
   computeCobrancaStats,
@@ -25,7 +24,7 @@ import { periodDisplayName } from '../../domain/periods';
 import {
   buildCobrancaListText
 } from '../../domain/communications';
-import { diffDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
+import { formatBr, formatBrShort, todayIso } from '../../utils/date';
 import {
   calcPct,
   formatHours,
@@ -44,9 +43,7 @@ export function JustificativasView() {
     updateFilter,
     openFichaDrawer,
     openJustModal,
-    openEmailModal,
-    isGlobal,
-    userProfile
+    openEmailModal
   } = useApp();
 
   const { showToast } = useToast();
@@ -106,15 +103,6 @@ export function JustificativasView() {
       };
     });
   }, [daysBelow, dataset.pessoas, dataset.config, TODAY]);
-
-  const semRespDays = useMemo(() => {
-    const pessoasList = Object.values(dataset.pessoas);
-    return daysBelow.filter(x => !pessoasList.some(p => isPersonResponsible(p, { p: x.p, r: x.r })));
-  }, [daysBelow, dataset.pessoas]);
-
-  const semRespStats = useMemo(() => {
-    return computeCobrancaStats(semRespDays, dataset.config, TODAY);
-  }, [semRespDays, dataset.config, TODAY]);
 
   // Pior preposto em cobrança
   const worstResp = useMemo(() => {
@@ -584,7 +572,7 @@ export function JustificativasView() {
 
           {/* Alerta de devedor vencido */}
           {worstResp ? (
-            <div className="note note-bad" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="note note-bad" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <b>{worstResp.p.nome}</b> tem a maior pendência vencida:{' '}
                 {plural(worstResp.M.venc, 'justificativa vencida', 'justificativas vencidas')}, a mais antiga de{' '}
@@ -621,7 +609,7 @@ export function JustificativasView() {
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 {devedores.length > 0 && (
                   <button
                     type="button"

@@ -17,10 +17,13 @@ import {
   mapColumns,
   parseSpreadsheetFile,
   rebuildPreviewRows,
+  sanitizeSpreadsheetCell,
   exportPeriodoXlsx,
   exportTecnicoXlsx,
   exportUsoffXlsx,
-  exportModeloXlsx
+  exportModeloXlsx,
+  exportConfrontoSAPXlsx,
+  exportPainelDiaOrdensXlsx
 } from '../excel.service';
 
 /**
@@ -254,6 +257,28 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       await expect(parseSpreadsheetFile(file, 'hh')).rejects.toThrow(
         'Não encontramos a coluna obrigatória de matrícula nesta planilha'
       );
+      await expect(parseSpreadsheetFile(file, 'sap')).rejects.toThrow(
+        'Não encontramos a coluna obrigatória de matrícula nesta planilha'
+      );
+    });
+
+    it('processa planilha de Confirmações SAP (kind "sap") extraindo contador e suportando estornos negativos', async () => {
+      const dataSap = [
+        ['Matricula', 'Data_criacao', 'Data_lancamento', 'Data_fim_real', 'Ordem', 'Operacao', 'Contador_confirmacao', 'HC'],
+        ['1001', '10/10/2026', '10/10/2026', '10/10/2026', '20260001', '0010', '00000123', '8,5'],
+        ['1001', '11/10/2026', '11/10/2026', '10/10/2026', '20260001', '0010', '00000124', '-2,5']
+      ];
+
+      const file = createExcelFile(dataSap, 'confirmacoes_sap.xlsx');
+      const preview = await parseSpreadsheetFile(file);
+
+      expect(preview.kind).toBe('sap');
+      expect(preview.rows).toHaveLength(2);
+      expect(preview.rows[0].mat).toBe('1001');
+      expect(preview.rows[0].contador).toBe(123);
+      expect(preview.rows[0].hc).toBe(8.5);
+      expect(preview.rows[1].contador).toBe(124);
+      expect(preview.rows[1].hc).toBe(-2.5);
     });
   });
 
@@ -357,6 +382,187 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       expect(downloadedFiles.some(f => f.toLowerCase().includes('cadastro'))).toBe(true);
       expect(downloadedFiles.some(f => f.toLowerCase().includes('hh'))).toBe(true);
       expect(downloadedFiles.some(f => f.toLowerCase().includes('carteira'))).toBe(true);
+    });
+
+    it('sanitizeSpreadsheetCell neutraliza injeção de fórmulas e DDE (OWASP CWE-1236) contra \\t, \\r, \\n e espaços + @/=/+/-', () => {
+      expect(sanitizeSpreadsheetCell('\tcmd')).toBe("'\tcmd");
+      expect(sanitizeSpreadsheetCell('\rpayload')).toBe("'\rpayload");
+      expect(sanitizeSpreadsheetCell('\nDDE')).toBe("'\nDDE");
+      expect(sanitizeSpreadsheetCell('   @SUM(A1)')).toBe("'   @SUM(A1)");
+      expect(sanitizeSpreadsheetCell('=HYPERLINK("http://evil")')).toBe("'=HYPERLINK(\"http://evil\")");
+      expect(sanitizeSpreadsheetCell('+1+1')).toBe("'+1+1");
+      expect(sanitizeSpreadsheetCell('-2+3')).toBe("'-2+3");
+      // Valores normais e numéricos permanecem intactos
+      expect(sanitizeSpreadsheetCell('Texto Seguro Offshore')).toBe('Texto Seguro Offshore');
+      expect(sanitizeSpreadsheetCell(12.5)).toBe(12.5);
+      expect(sanitizeSpreadsheetCell(-4)).toBe(-4);
+    });
+
+    it('exportConfrontoSAPXlsx e exportPainelDiaOrdensXlsx incluem banner de escopo parcial, sanitizam células maliciosas e removem "/" do nome da aba', async () => {
+      const capturedBlobs: Blob[] = [];
+      const capturedNames: string[] = [];
+
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-excel';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      Object.defineProperty(HTMLAnchorElement.prototype, 'download', {
+        configurable: true,
+        set(val: string) {
+          capturedNames.push(val);
+        }
+      });
+
+      // 1. exportConfrontoSAPXlsx com scopeLabel e payload malicioso no nome
+      await exportConfrontoSAPXlsx(
+        [
+          {
+            id: 'op-1',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CHV1',
+            nome: '\t=CMD|"/C calc"!A0',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '   @SUM(A1)',
+            operacao: '0010',
+            status_processamento: 'Concluído',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 12,
+            hh_confirmado: 12,
+            hh_confirmado_sap: 10,
+            divergencia_sap: 2,
+            status_divergencia: 'Divergente (Portal > SAP)',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        'Outubro 2026',
+        'Carteira Preposto Teste'
+      );
+
+      expect(capturedBlobs).toHaveLength(1);
+      const confrontoBuf = await capturedBlobs[0].arrayBuffer();
+      const confrontoWb = XLSX.read(confrontoBuf, { type: 'array' });
+      expect(confrontoWb.SheetNames).toContain('Confronto SAP x Portal');
+      const confrontoAoa = XLSX.utils.sheet_to_json<any[]>(
+        confrontoWb.Sheets['Confronto SAP x Portal'],
+        { header: 1 }
+      );
+      expect(confrontoAoa[0][0]).toBe('[ESCOPO PARCIAL DE CARTEIRA - CARTEIRA PREPOSTO TESTE]');
+      // Células maliciosas receberam prefixo seguro (')
+      const dataRowConfronto = confrontoAoa.find(r => r && r[1] === '1001')!;
+      expect(String(dataRowConfronto[2]).startsWith("'")).toBe(true);
+      expect(String(dataRowConfronto[7]).startsWith("'")).toBe(true);
+
+      // 2. exportPainelDiaOrdensXlsx com "/" na data para validar sanitizeSheetName e células maliciosas
+      const dsComSap = createTestDataset({
+        confirmacoesSap: [
+          {
+            id: 'sap-dia-1',
+            matricula: '1001',
+            data_criacao: '2026/10/01',
+            data_lancamento: '2026/10/01',
+            data_fim_real: '2026/10/01',
+            ordem: '\rpayload_ordem',
+            operacao: '0010',
+            horas_confirmadas: 11,
+            contador_confirmacao: 2,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      await exportPainelDiaOrdensXlsx({
+        date: '2026/10/01',
+        dataset: dsComSap,
+        rows: [
+          {
+            mat: '1001',
+            nome: '\nDDE_TECNICO',
+            D: '2026-10-01',
+            p: 'P50',
+            r: 'Espírito Santo (UN-ES)',
+            d: 12,
+            e: 11,
+            sem: false,
+            pc: 91.6,
+            st: 'ok',
+            emb: null,
+            acc: null,
+            j: null
+          }
+        ],
+        scopeLabel: 'P50'
+      });
+
+      expect(capturedBlobs).toHaveLength(2);
+      const diaBuf = await capturedBlobs[1].arrayBuffer();
+      const diaWb = XLSX.read(diaBuf, { type: 'array' });
+      // "/" na data foi substituído por "-" em sanitizeSheetName
+      expect(diaWb.SheetNames[0]).toBe('Apontamentos 2026-10-01');
+      expect(diaWb.SheetNames[0]).not.toContain('/');
+
+      const diaAoa = XLSX.utils.sheet_to_json<any[]>(diaWb.Sheets[diaWb.SheetNames[0]], { header: 1 });
+      expect(diaAoa[0][0]).toBe('[ESCOPO PARCIAL DE CARTEIRA - P50]');
+      const rowDia = diaAoa.find(r => r && r[1] === '1001')!;
+      expect(String(rowDia[2]).startsWith("'")).toBe(true);
+      expect(String(rowDia[6]).startsWith("'")).toBe(true);
+      expect(rowDia[9]).toBe(2); // Contador
+    });
+
+    it('exportTecnicoXlsx gera 2ª aba "Confirmações SAP" quando há confirmações e exportModeloXlsx("sap") gera template oficial SAP', async () => {
+      const capturedBlobs: Blob[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-sap';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      const dsComSap = createTestDataset({
+        confirmacoesSap: [
+          {
+            id: 'sap-tec-1',
+            matricula: '1001',
+            data_criacao: '2026-10-02',
+            data_lancamento: '2026-10-02',
+            data_fim_real: '2026-10-02',
+            ordem: '40001234',
+            operacao: '0010',
+            horas_confirmadas: 12,
+            contador_confirmacao: 1,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      await exportTecnicoXlsx('1001', dsComSap, period);
+      expect(capturedBlobs).toHaveLength(1);
+      const tecWb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      expect(tecWb.SheetNames).toEqual(['Relatório', 'Confirmações SAP']);
+      const sapSheetRows = XLSX.utils.sheet_to_json<any[]>(tecWb.Sheets['Confirmações SAP'], { header: 1 });
+      expect(sapSheetRows[0]).toContain('Contador Confirmação');
+      expect(sapSheetRows[1]).toContain('40001234');
+      expect(sapSheetRows[1]).toContain('Cadastrada no Portal');
+
+      await exportModeloXlsx('sap', dsComSap);
+      expect(capturedBlobs).toHaveLength(2);
+      const modSapWb = XLSX.read(await capturedBlobs[1].arrayBuffer(), { type: 'array' });
+      expect(modSapWb.SheetNames).toEqual(['Confirmacoes_SAP', 'Instruções']);
+      const modSapRows = XLSX.utils.sheet_to_json<any[]>(modSapWb.Sheets['Confirmacoes_SAP'], { header: 1 });
+      expect(modSapRows[0]).toContain('Contador_confirmacao');
+      expect(modSapRows[1]).toContain('00000001');
     });
   });
 });

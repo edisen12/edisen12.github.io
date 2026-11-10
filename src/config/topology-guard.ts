@@ -54,12 +54,7 @@ export interface TopologyConfigInput {
  * 3. Proíbe uso de bancos de dados puros diretamente no cliente na topologia 'baas';
  * 4. Bloqueia a compilação de 'self-hosted' em pipelines do GitHub Pages.
  */
-export function assertValidTopologyConfig(input: {
-  topology: string;
-  baasProvider?: string;
-  envKeys: string[];
-  isGitHubPagesWorkflow?: boolean;
-}): void {
+export function assertValidTopologyConfig(input: TopologyConfigInput): void {
   // 1. Verificação da topologia
   if (input.topology !== 'baas' && input.topology !== 'self-hosted') {
     throw new Error(

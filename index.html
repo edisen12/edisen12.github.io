@@ -8,9 +8,16 @@
     <!-- Content Security Policy para GitHub Pages e Defesa em Profundidade -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://fwdvrkfootvublicetim.supabase.co wss://fwdvrkfootvublicetim.supabase.co https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self';"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://fwdvrkfootvublicetim.supabase.co wss://fwdvrkfootvublicetim.supabase.co https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self';"
     />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="theme-color" content="#0b2d5c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HH Offshore" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png" />
     <!-- Proteção Anti-Clickjacking (Frame-Busting) -->
     <script>
       if (window.top !== window.self) {

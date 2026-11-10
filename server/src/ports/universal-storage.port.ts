@@ -10,6 +10,8 @@ import type {
   Pessoa,
   Tecnico,
   CarteiraEmbarque,
+  CarteiraOperacao,
+  ConfirmacaoSAP,
   ApontamentoHH,
   Justificativa,
   FluxoImportacao,
@@ -33,6 +35,8 @@ export type LogicalCollection =
   | 'user_onboarding'
   | 'pessoas'
   | 'carteira_embarques'
+  | 'carteira_operacoes'
+  | 'confirmacoes_sap'
   | 'apontamentos_hh'
   | 'justificativas'
   | 'justificativas_audit_log'
@@ -47,6 +51,7 @@ export type FieldCondition<V = unknown> =
   | V
   | {
       eq?: V;
+      neq?: V;
       in?: V[];
       gte?: string | number;
       lte?: string | number;
@@ -135,6 +140,8 @@ export interface CollectionRowTypeMap {
   user_onboarding: UserOnboarding;
   pessoas: Pessoa;
   carteira_embarques: CarteiraEmbarque;
+  carteira_operacoes: CarteiraOperacao;
+  confirmacoes_sap: ConfirmacaoSAP;
   apontamentos_hh: ApontamentoHH;
   justificativas: Justificativa;
   justificativas_audit_log: JustificativaAuditLogRow;

@@ -723,7 +723,7 @@ export function MedicaoUsoffView() {
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px 16px', fontSize: '0.82rem', color: 'var(--ink-muted)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 250px), 1fr))', gap: '8px 16px', fontSize: '0.82rem', color: 'var(--ink-muted)' }}>
           <div>
             <b>OP<sub>i</sub></b>: cada operação dos embarques do período. No app, cada embarque do Portal Offshore
             {isEnc ? ' com desembarque no período' : ''}, ou o código de operação da planilha.
@@ -800,7 +800,7 @@ export function MedicaoUsoffView() {
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--line)',
               borderLeft: '4px solid var(--blue)',
-              padding: '20px',
+              padding: 'clamp(14px, 4vw, 20px)',
               marginBottom: '28px'
             }}
           >
@@ -809,7 +809,7 @@ export function MedicaoUsoffView() {
                 <div className="sub" style={{ fontSize: '0.88rem', color: 'var(--ink-muted)', fontWeight: 600 }}>
                   US<sub>off</sub> apurado no período
                 </div>
-                <div style={{ fontFamily: 'var(--f-display)', fontSize: '2.4rem', fontWeight: 800, color: 'var(--blue)', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ fontFamily: 'var(--f-display)', fontSize: 'clamp(1.65rem, 6vw, 2.4rem)', fontWeight: 800, color: 'var(--blue)', fontVariantNumeric: 'tabular-nums' }}>
                   {T.us == null ? '—' : formatUs(T.us)}
                 </div>
               </div>
@@ -817,7 +817,7 @@ export function MedicaoUsoffView() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
                   gap: '12px 24px',
                   background: 'var(--surface-alt)',
                   padding: '12px 18px',
@@ -937,14 +937,15 @@ export function MedicaoUsoffView() {
                     gap: '12px'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', maxWidth: '100%' }}>
                     <label style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--ink)' }}>
                       Filtrar por Status:
                     </label>
                     <select
                       value={confrontoStatusFilter}
                       onChange={e => setConfrontoStatusFilter(e.target.value)}
-                      style={{ padding: '6px 12px', fontWeight: 600, borderRadius: 'var(--radius-sm)' }}
+                      aria-label="Filtrar por Status do Confronto"
+                      style={{ padding: '6px 12px', fontWeight: 600, borderRadius: 'var(--radius-sm)', maxWidth: '100%', width: 'min(100%, 360px)' }}
                     >
                       <option value="todos">Todos os registros ({confrontoSummary.totalOps})</option>
                       <option value="divergentes">Apenas com divergência ({confrontoSummary.divCount})</option>

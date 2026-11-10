@@ -72,13 +72,23 @@ export class GenericDocumentDriver implements UniversalStorageDriverPort {
     if (cond === undefined) return undefined;
 
     if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
-      const obj = cond as { eq?: unknown; in?: unknown[]; gte?: string | number; lte?: string | number };
-      const hasOps = 'eq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
+      const obj = cond as {
+        eq?: unknown;
+        neq?: unknown;
+        in?: unknown[];
+        gte?: string | number;
+        lte?: string | number;
+      };
+      const hasOps =
+        'eq' in obj || 'neq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
 
       if (hasOps) {
         const docCond: Record<string, unknown> = {};
         if ('eq' in obj && obj.eq !== undefined) {
           docCond.$eq = obj.eq;
+        }
+        if ('neq' in obj && obj.neq !== undefined) {
+          docCond.$ne = obj.neq;
         }
         if ('in' in obj && Array.isArray(obj.in)) {
           docCond.$in = obj.in;

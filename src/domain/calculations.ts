@@ -163,7 +163,13 @@ export const isArmadorPlatform = (
   }
 
   if (un === 'Armador' || un === 'FPSOs afretados') return true;
-  if (armador !== '' && armador !== 'Não informado') return true;
+  if (
+    armador !== '' &&
+    armador !== 'Não informado' &&
+    armador.toLowerCase() !== 'petrobras' &&
+    armador.toLowerCase() !== 'propria' &&
+    armador.toLowerCase() !== 'própria'
+  ) return true;
   if (tipo.includes('afretad') || tipo.includes('ahts')) return true;
 
   return false;

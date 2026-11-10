@@ -10,6 +10,7 @@ import type {
   SavePessoaInput,
   BatchImportHHRow,
   BatchImportCarteiraRow,
+  BatchImportConfirmacaoSAPRow,
   BatchImportPlataformaRow,
   BatchImportPessoaRow,
   AuditLogFilterInput,
@@ -24,7 +25,7 @@ import type {
   UserPreferences,
   UsoffUnWeight
 } from '../../domain/types';
-import { platformKey, slugify } from '../../utils/format';
+import { platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
 import {
   CHUNK_SIZE,
   assembleAppDataset,
@@ -32,6 +33,7 @@ import {
   filterAuditLogsClientSide,
   normalizeEmail,
   prepareBatchCarteira,
+  prepareBatchConfirmacoesSAP,
   prepareBatchHH,
   prepareBatchPlataformas,
   validateNewPasswordPolicy
@@ -154,7 +156,7 @@ export function createSelfHostedClientProvider(
     },
 
     async savePlataforma(plat: Partial<Plataforma> & { sigla: string }): Promise<void> {
-      const siglaUpper = plat.sigla.trim().toUpperCase();
+      const siglaUpper = sanitizePlatformCode(plat.sigla);
       const chaveNorm = platformKey(siglaUpper);
       await http.put('/plataformas', {
         sigla: siglaUpper,
@@ -268,9 +270,12 @@ export function createSelfHostedClientProvider(
         });
       }
 
-      const total = prepared.cartPayload.length;
+      const targetKind = prepared.isGranular ? 'carteira_operacoes' : 'carteira';
+      const payloadRows = prepared.isGranular ? prepared.opsPayload : prepared.cartPayload;
+      const total = payloadRows.length;
+
       for (let i = 0; i < total; i += CHUNK_SIZE) {
-        const chunk = prepared.cartPayload.slice(i, i + CHUNK_SIZE);
+        const chunk = payloadRows.slice(i, i + CHUNK_SIZE);
         const isLast = i + CHUNK_SIZE >= total;
         const fluxo = isLast
           ? {
@@ -283,12 +288,18 @@ export function createSelfHostedClientProvider(
           : undefined;
 
         await http.post('/imports/batch', {
-          kind: 'carteira',
+          kind: targetKind,
           rows: chunk,
           fluxo
         });
 
         onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+      }
+
+      try {
+        await http.post('/sap/reconcile');
+      } catch (rErr) {
+        console.warn('Reconciliação automática disparada após importação de carteira:', rErr);
       }
     },
 
@@ -322,6 +333,44 @@ export function createSelfHostedClientProvider(
         count++;
         onProgress?.(count, total);
       }
+    },
+
+    async batchImportConfirmacoesSAP(
+      rows: BatchImportConfirmacaoSAPRow[],
+      onProgress?: ProgressCallback
+    ): Promise<any> {
+      if (!rows.length) return;
+      const prepared = prepareBatchConfirmacoesSAP(rows);
+      const total = prepared.length;
+
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+        const chunk = prepared.slice(i, i + CHUNK_SIZE);
+        await http.post('/imports/batch', {
+          kind: 'confirmacoes_sap',
+          rows: chunk
+        });
+        onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+      }
+
+      const recRes = await http.post<{ ok: boolean; result: any }>('/sap/reconcile');
+      return recRes.result;
+    },
+
+    async reconciliarConfirmacoesSAP(): Promise<any> {
+      const recRes = await http.post<{ ok: boolean; result: any }>('/sap/reconcile');
+      return recRes.result;
+    },
+
+    async resetCarteiraEmbarques(): Promise<{ deleted_operacoes: number; deleted_embarques: number }> {
+      const res = await http.post<{
+        ok: boolean;
+        deleted_operacoes?: number;
+        deleted_embarques?: number;
+      }>('/carteira/reset');
+      return {
+        deleted_operacoes: Number(res.deleted_operacoes || 0),
+        deleted_embarques: Number(res.deleted_embarques || 0)
+      };
     },
 
     async fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]> {

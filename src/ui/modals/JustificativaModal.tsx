@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserCheck, Clock, FileText, AlertCircle, Anchor } from 'lucide-react';
+import { UserCheck, Clock, FileText } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
@@ -138,7 +138,7 @@ export function JustificativaModal() {
       subtitle={`Data: ${formatBr(dateIso)} · Plataforma: ${loc.p}`}
       maxWidth={640}
       footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn-ghost"

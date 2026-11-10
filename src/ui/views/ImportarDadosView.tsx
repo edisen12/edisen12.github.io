@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import {
@@ -42,6 +42,24 @@ export const ImportarDadosView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const currentUploadKindRef = useRef<ImportKind>('hh');
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleExportModelo = async (kind: 'cad' | 'cart' | 'hh' | 'sap') => {
+    try {
+      await exportModeloXlsx(kind, dataset);
+      showToast('Planilha modelo baixada com sucesso!', 'success');
+    } catch (err: any) {
+      showToast('Erro ao baixar modelo de planilha: ' + (err?.message || 'Falha'), 'error');
+    }
+  };
 
   const handleTriggerFileInput = (kind: ImportKind) => {
     currentUploadKindRef.current = kind;
@@ -63,7 +81,10 @@ export const ImportarDadosView: React.FC = () => {
       } else {
         showToast(`Atenção: Nenhuma linha válida encontrada para o tipo "${built.kind}". Verifique o tipo ou o mapeamento de colunas.`, 'warn');
       }
-      setTimeout(() => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
         previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     } catch (err: any) {
@@ -297,7 +318,7 @@ export const ImportarDadosView: React.FC = () => {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              onClick={() => exportModeloXlsx('hh', dataset)}
+              onClick={() => handleExportModelo('hh')}
             >
               Baixar modelo de HH
             </button>
@@ -357,7 +378,7 @@ export const ImportarDadosView: React.FC = () => {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              onClick={() => exportModeloXlsx('cart', dataset)}
+              onClick={() => handleExportModelo('cart')}
             >
               Baixar modelo da carteira
             </button>
@@ -417,7 +438,7 @@ export const ImportarDadosView: React.FC = () => {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              onClick={() => exportModeloXlsx('cad', dataset)}
+              onClick={() => handleExportModelo('cad')}
             >
               Baixar modelo cadastral (.xlsx)
             </button>
@@ -477,7 +498,7 @@ export const ImportarDadosView: React.FC = () => {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              onClick={() => exportModeloXlsx('cad', dataset)}
+              onClick={() => handleExportModelo('cad')}
             >
               Baixar modelo cadastral (.xlsx)
             </button>
@@ -537,7 +558,7 @@ export const ImportarDadosView: React.FC = () => {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              onClick={() => exportModeloXlsx('sap', dataset)}
+              onClick={() => handleExportModelo('sap')}
             >
               Baixar modelo SAP (.xlsx)
             </button>
@@ -628,7 +649,7 @@ export const ImportarDadosView: React.FC = () => {
             className="form"
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
               gap: '12px',
               background: 'var(--surface-alt)',
               padding: '14px',
@@ -677,8 +698,8 @@ export const ImportarDadosView: React.FC = () => {
           </div>
 
           {/* Tabela de Prévia (primeiras 10 linhas) */}
-          <div className="tb" style={{ maxHeight: '380px', overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <div className="table-wrap" style={{ maxHeight: '380px', overflowY: 'auto', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table className="tb" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 {preview.kind === 'hh' && (
                   <tr>

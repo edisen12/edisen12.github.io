@@ -5,6 +5,8 @@
 // ==============================================================================
 
 import { describe, expect, it, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   mockUsers,
   mockProfiles,
@@ -24,7 +26,7 @@ import {
 } from '../../test/testFixtures';
 
 // ------------------------------------------------------------------------------
-// Lista Exaustiva das 15 Tabelas Públicas do Sistema com RLS Obrigatório
+// Lista Exaustiva das 18 Tabelas Públicas do Sistema com RLS Obrigatório
 // ------------------------------------------------------------------------------
 export const ALL_PUBLIC_TABLES = [
   'profiles',
@@ -34,6 +36,9 @@ export const ALL_PUBLIC_TABLES = [
   'pessoa_unidades',
   'tecnicos',
   'carteira_embarques',
+  'carteira_operacoes',
+  'confirmacoes_sap',
+  'system_audit_logs',
   'apontamentos_hh',
   'justificativas',
   'configuracoes',
@@ -200,6 +205,27 @@ export function evaluateRlsSelect(
         auth_allowed_uns(state, uid).includes(row.unidade_negocio)
       );
 
+    case 'carteira_operacoes':
+      return (
+        isGlobal ||
+        auth_allowed_platforms(state, uid).includes(row.plataforma_sigla) ||
+        auth_allowed_uns(state, uid).includes(row.unidade_negocio)
+      );
+
+    case 'confirmacoes_sap': {
+      if (isGlobal) return true;
+      const allowedPlats = auth_allowed_platforms(state, uid);
+      const allowedUns = auth_allowed_uns(state, uid);
+      return (state.tables.carteira_embarques || []).some(
+        (ce: any) =>
+          ce.matricula === row.matricula &&
+          (allowedPlats.includes(ce.plataforma_sigla) || allowedUns.includes(ce.unidade_negocio))
+      );
+    }
+
+    case 'system_audit_logs':
+      return isGlobal; // Restrito exclusivamente a perfis globais (admin/gestor)
+
     case 'apontamentos_hh':
       return (
         isGlobal ||
@@ -258,6 +284,8 @@ export function evaluateRlsInsert(
     case 'pessoa_unidades':
     case 'tecnicos':
     case 'carteira_embarques':
+    case 'carteira_operacoes':
+    case 'confirmacoes_sap':
     case 'apontamentos_hh':
     case 'configuracoes':
     case 'config_usoff_un':
@@ -267,6 +295,9 @@ export function evaluateRlsInsert(
       return isGlobal
         ? { allowed: true }
         : { allowed: false, reason: `Inserção em ${table} restrita a perfis globais (admin/gestor)` };
+
+    case 'system_audit_logs':
+      return { allowed: true }; // Sessões autenticadas podem registrar logs de auditoria
 
     case 'justificativas': {
       const canAccess = isGlobal || auth_can_access_justificativa(state, uid, payload.matricula, payload.data);
@@ -313,6 +344,8 @@ export function evaluateRlsUpdate(
     case 'pessoa_unidades':
     case 'tecnicos':
     case 'carteira_embarques':
+    case 'carteira_operacoes':
+    case 'confirmacoes_sap':
     case 'apontamentos_hh':
     case 'configuracoes':
     case 'config_usoff_un':
@@ -322,6 +355,9 @@ export function evaluateRlsUpdate(
       return isGlobal
         ? { allowed: true }
         : { allowed: false, reason: `Atualização em ${table} restrita a perfis globais (admin/gestor)` };
+
+    case 'system_audit_logs':
+      return { allowed: false, reason: 'Política WORM: registros de system_audit_logs são estritamente imutáveis (UPDATE negado)' };
 
     case 'justificativas': {
       const canAccessExisting = isGlobal || auth_can_access_justificativa(state, uid, existingRow.matricula, existingRow.data);
@@ -373,6 +409,8 @@ export function evaluateRlsDelete(
     case 'pessoa_unidades':
     case 'tecnicos':
     case 'carteira_embarques':
+    case 'carteira_operacoes':
+    case 'confirmacoes_sap':
     case 'apontamentos_hh':
     case 'justificativas':
     case 'configuracoes':
@@ -383,6 +421,9 @@ export function evaluateRlsDelete(
       return isGlobal
         ? { allowed: true }
         : { allowed: false, reason: `Exclusão em ${table} restrita a perfis globais (admin/gestor)` };
+
+    case 'system_audit_logs':
+      return { allowed: false, reason: 'Política WORM: registros de system_audit_logs são estritamente imutáveis (DELETE negado)' };
 
     default:
       return { allowed: false, reason: `Tabela ${table} não possui política de exclusão definida` };
@@ -613,7 +654,7 @@ export function createRlsClient(state: DatabaseState, currentUser: SecurityUserC
 // Suíte de Testes Exaustiva
 // ------------------------------------------------------------------------------
 
-describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tabelas Públicas', () => {
+describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tabelas Públicas', () => {
   let dbState: DatabaseState;
 
   beforeEach(() => {
@@ -621,6 +662,9 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
     dbState = {
       tables: {
         ...raw.tables,
+        carteira_operacoes: [],
+        confirmacoes_sap: [],
+        system_audit_logs: [],
         // Garante que sync_heartbeat possui registro inicial
         sync_heartbeat: [{ id: 1, updated_at: '2026-10-06T18:30:00Z' }]
       }
@@ -633,7 +677,7 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
   describe('1. Papel anon (Não autenticado / Zero-Trust Total)', () => {
     const anonClient = () => createRlsClient(dbState, null);
 
-    it('assegura que todas as 15 tabelas públicas rejeitam terminantemente SELECT para anon', async () => {
+    it('assegura que todas as 18 tabelas públicas rejeitam terminantemente SELECT para anon', async () => {
       const client = anonClient();
       for (const table of ALL_PUBLIC_TABLES) {
         const { data, error } = await client.from(table).select('*');
@@ -643,7 +687,7 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
       }
     });
 
-    it('assegura que todas as 15 tabelas públicas rejeitam terminantemente INSERT para anon', async () => {
+    it('assegura que todas as 18 tabelas públicas rejeitam terminantemente INSERT para anon', async () => {
       const client = anonClient();
       for (const table of ALL_PUBLIC_TABLES) {
         const { data, error } = await client.from(table).insert({ id: 'tentativa-anon' });
@@ -653,7 +697,7 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
       }
     });
 
-    it('assegura que todas as 15 tabelas públicas rejeitam terminantemente UPDATE para anon', async () => {
+    it('assegura que todas as 18 tabelas públicas rejeitam terminantemente UPDATE para anon', async () => {
       const client = anonClient();
       for (const table of ALL_PUBLIC_TABLES) {
         const { data, error } = await client.from(table).update({ campo: 'hacked' }).eq('id', 'qualquer');
@@ -663,7 +707,7 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
       }
     });
 
-    it('assegura que todas as 15 tabelas públicas rejeitam terminantemente DELETE para anon', async () => {
+    it('assegura que todas as 18 tabelas públicas rejeitam terminantemente DELETE para anon', async () => {
       const client = anonClient();
       for (const table of ALL_PUBLIC_TABLES) {
         const { data, error } = await client.from(table).delete().eq('id', 'qualquer');
@@ -1115,6 +1159,199 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 15 Tab
       const updHeart = await prepostoClient.from('sync_heartbeat').update({ updated_at: new Date().toISOString() });
       expect(updHeart.error).not.toBeNull();
       expect(updHeart.error.message).toContain('restrita a perfis globais');
+    });
+
+    it('carteira_operacoes: preposto só lê operações das plataformas da sua carteira, escrita restrita a globais', async () => {
+      dbState.tables.carteira_operacoes = [
+        {
+          id: 'op-1',
+          matricula: '1001',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          ordem: 'ORD-1',
+          operacao: 'OP-1'
+        },
+        {
+          id: 'op-2',
+          matricula: '1002',
+          plataforma_sigla: 'P25',
+          unidade_negocio: 'UN-ES',
+          ordem: 'ORD-2',
+          operacao: 'OP-2'
+        }
+      ];
+
+      const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
+      const { data, error } = await prepostoClient.from('carteira_operacoes').select('*');
+      expect(error).toBeNull();
+      expect(data.length).toBe(1);
+      expect(data[0].id).toBe('op-1');
+
+      // Escrita negada para preposto
+      const insRes = await prepostoClient.from('carteira_operacoes').insert({
+        id: 'op-3',
+        matricula: '1001',
+        plataforma_sigla: 'P50',
+        ordem: 'ORD-3'
+      });
+      expect(insRes.error).not.toBeNull();
+      expect(insRes.error.message).toContain('restrita a perfis globais');
+    });
+
+    it('confirmacoes_sap: preposto lê apenas confirmações de técnicos presentes em sua carteira, escrita restrita a globais', async () => {
+      dbState.tables.carteira_embarques = [
+        {
+          id: 'emb-p50',
+          matricula: '1001',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14'
+        }
+      ];
+
+      dbState.tables.confirmacoes_sap = [
+        {
+          id: 'sap-1',
+          matricula: '1001',
+          ordem: 'ORD-1',
+          operacao: 'OP-1',
+          horas_confirmadas: 10
+        },
+        {
+          id: 'sap-2',
+          matricula: '1003', // Técnico de P25 fora do escopo
+          ordem: 'ORD-2',
+          operacao: 'OP-2',
+          horas_confirmadas: 10
+        }
+      ];
+
+      const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
+      const { data, error } = await prepostoClient.from('confirmacoes_sap').select('*');
+      expect(error).toBeNull();
+      expect(data.length).toBe(1);
+      expect(data[0].id).toBe('sap-1');
+
+      const updRes = await prepostoClient.from('confirmacoes_sap').update({ horas_confirmadas: 20 }).eq('id', 'sap-1');
+      expect(updRes.error).not.toBeNull();
+      expect(updRes.error.message).toContain('restrita a perfis globais');
+    });
+
+    it('system_audit_logs: WORM absoluto (INSERT permitido, UPDATE/DELETE terminantemente bloqueados)', async () => {
+      const adminClient = createRlsClient(dbState, { id: mockUsers.admin.id, email: mockUsers.admin.email });
+      const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
+
+      // Preposto recebe 0 linhas ao consultar logs
+      const prepostoSel = await prepostoClient.from('system_audit_logs').select('*');
+      expect(prepostoSel.data).toEqual([]);
+
+      // Sessão autenticada pode inserir log de auditoria
+      const insRes = await prepostoClient.from('system_audit_logs').insert({
+        id: 'log-test-1',
+        action: 'user_action_audit',
+        category: 'seguranca'
+      });
+      expect(insRes.error).toBeNull();
+
+      // UPDATE é bloqueado pela política WORM até para Administrador
+      const updRes = await adminClient.from('system_audit_logs').update({ action: 'tampered' }).eq('id', 'log-test-1');
+      expect(updRes.error).not.toBeNull();
+      expect(updRes.error.message).toMatch(/Política WORM/i);
+
+      // DELETE é bloqueado pela política WORM até para Administrador
+      const delRes = await adminClient.from('system_audit_logs').delete().eq('id', 'log-test-1');
+      expect(delRes.error).not.toBeNull();
+      expect(delRes.error.message).toMatch(/Política WORM/i);
+    });
+  });
+
+  // ============================================================================
+  // DIRETRIZ 8: Análise Estática de Migrations (009, 011, 014 a 020)
+  // ============================================================================
+  describe('8. Análise Estática das Migrations SQL (Triggers, RPCs e WORM)', () => {
+    const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
+
+    function readMigration(filename: string): string {
+      const fullPath = path.join(migrationsDir, filename);
+      expect(fs.existsSync(fullPath), `Arquivo de migration ${filename} deve existir`).toBe(true);
+      return fs.readFileSync(fullPath, 'utf-8');
+    }
+
+    it('Migration 009: assegura tabela system_audit_logs com WORM, trigger anti-mutação e anon revogado', () => {
+      const sql = readMigration('009_system_audit_logs.sql');
+      expect(sql).toMatch(/ALTER TABLE public\.system_audit_logs ENABLE ROW LEVEL SECURITY/i);
+      expect(sql).toMatch(/fn_prevent_system_audit_logs_mutation\(\)/i);
+      expect(sql).toMatch(/trg_prevent_system_audit_logs_mutation/i);
+      expect(sql).toMatch(/BEFORE UPDATE OR DELETE ON public\.system_audit_logs/i);
+      expect(sql).toMatch(/REVOKE ALL ON public\.system_audit_logs FROM anon/i);
+    });
+
+    it('Migration 011: assegura carteira_operacoes com RLS habilitado e anon revogado', () => {
+      const sql = readMigration('011_carteira_operacoes.sql');
+      expect(sql).toMatch(/ALTER TABLE public\.carteira_operacoes ENABLE ROW LEVEL SECURITY/i);
+      expect(sql).toMatch(/carteira_operacoes_select_policy/i);
+      expect(sql).toMatch(/carteira_operacoes_global_write_policy/i);
+      expect(sql).toMatch(/REVOKE ALL ON public\.carteira_operacoes FROM anon/i);
+    });
+
+    it('Migration 014: assegura confirmacoes_sap com RLS, reconciliar_confirmacoes_sap com tolerância PMB +4 dias', () => {
+      const sql = readMigration('014_confirmacoes_sap_e_reconciliacao.sql');
+      expect(sql).toMatch(/ALTER TABLE public\.confirmacoes_sap ENABLE ROW LEVEL SECURITY/i);
+      expect(sql).toMatch(/confirmacoes_sap_select_policy/i);
+      expect(sql).toMatch(/confirmacoes_sap_global_write_policy/i);
+      expect(sql).toMatch(/REVOKE ALL ON public\.confirmacoes_sap FROM anon/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.reconciliar_confirmacoes_sap\(\)/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+      // Janela de tolerância PMB de +4 dias após o desembarque
+      expect(sql).toMatch(/co\.data_fim \+ INTERVAL '4 days'/i);
+    });
+
+    it('Migration 015: assegura triggers de realtime sync_heartbeat em cadastros e configurações', () => {
+      const sql = readMigration('015_realtime_configuracoes_e_cadastros.sql');
+      expect(sql).toMatch(/trg_heartbeat_configuracoes/i);
+      expect(sql).toMatch(/trg_heartbeat_config_usoff_un/i);
+      expect(sql).toMatch(/trg_heartbeat_plataformas/i);
+      expect(sql).toMatch(/trg_heartbeat_pessoas/i);
+      expect(sql).toMatch(/fn_touch_heartbeat\(\)/i);
+    });
+
+    it('Migration 016: assegura trigger trg_sync_carteira_embarques corrigida contra erro SQL 21000', () => {
+      const sql = readMigration('016_fix_sync_carteira_embarques_trigger.sql');
+      expect(sql).toMatch(/sync_carteira_embarques_from_operacoes\(\)/i);
+      // Agrupamento estrito por (co.matricula, co.data_inicio) com agregação MAX
+      expect(sql).toMatch(/GROUP BY co\.matricula, co\.data_inicio/i);
+    });
+
+    it('Migration 017: assegura contador_confirmacao na chave única de confirmacoes_sap', () => {
+      const sql = readMigration('017_contador_confirmacao_sap.sql');
+      expect(sql).toMatch(/contador_confirmacao bigint NOT NULL DEFAULT 0/i);
+      expect(sql).toMatch(/uq_confirmacao_sap_row/i);
+      expect(sql).toMatch(/contador_confirmacao/i);
+    });
+
+    it('Migration 018: assegura trigger trg_normalize_carteira_operacoes_ids e RPC reset_carteira_embarques', () => {
+      const sql = readMigration('018_unify_id_embarque.sql');
+      expect(sql).toMatch(/trg_normalize_carteira_operacoes_ids/i);
+      expect(sql).toMatch(/fn_normalize_carteira_operacoes_ids\(\)/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.reset_carteira_embarques\(\)/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+    });
+
+    it('Migration 019: assegura blindagem safeupdate em reset_carteira_embarques com cláusula WHERE explícita', () => {
+      const sql = readMigration('019_fix_reset_carteira_embarques.sql');
+      expect(sql).toMatch(/DELETE FROM public\.carteira_operacoes WHERE id IS NOT NULL/i);
+      expect(sql).toMatch(/DELETE FROM public\.carteira_embarques WHERE id IS NOT NULL/i);
+      expect(sql).toMatch(/WHERE id_embarque <> '' OR status_reconciliacao <> 'Pendente'/i);
+    });
+
+    it('Migration 020: assegura trigger trg_sanitize_carteira_plataforma para normalização determinística', () => {
+      const sql = readMigration('020_sanitize_plataformas_e_armador.sql');
+      expect(sql).toMatch(/trg_sanitize_carteira_plataforma/i);
+      expect(sql).toMatch(/fn_sanitize_carteira_plataforma\(\)/i);
+      expect(sql).toMatch(/BEFORE INSERT OR UPDATE (OF .+ )?ON public\.carteira_operacoes/i);
     });
   });
 });

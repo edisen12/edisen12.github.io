@@ -15,7 +15,11 @@ import {
   resolveUsoffWeights,
   summarizeUsoff
 } from '../usoff';
-import { buildPlatformIndex } from '../calculations';
+import {
+  buildPlatformIndex,
+  calcHpCarteiraInInterval,
+  calcHpForaCarteiraInInterval
+} from '../calculations';
 
 const createBaseDataset = (overrides?: Partial<AppDataset>): AppDataset => ({
   config: {
@@ -697,6 +701,444 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(ops[0].peHp).toBe(154);
       expect(ops[0].exHc).toBe(11);
       expect(ops[0].us).toBe(165);
+    });
+
+    it('med_criterio = "dias": proporcionaliza calcHpCarteiraInInterval e calcHpForaCarteiraInInterval em embarque cruzando fronteira [P.ini, P.fim]', () => {
+      // Embarque de 14 dias (2026-09-14 a 2026-09-27): 7 dias fora e 7 dias dentro de basePeriod [2026-09-21, 2026-10-20] (50%)
+      const crossingEmb: CarteiraEmbarque = {
+        id: 'c-cross-dias',
+        matricula: '1001',
+        plataforma_sigla: 'P58',
+        unidade_negocio: 'Espírito Santo (UN-ES)',
+        data_inicio: '2026-09-14',
+        data_fim: '2026-09-27',
+        horas_programadas: 140,
+        hh_carteira: 100,
+        hh_fora_carteira: 40,
+        operacao: 'OP-CROSS-DIAS',
+        pe: 1.5,
+        ex: 2.0,
+        fonte: 'portal_offshore'
+      };
+
+      const diasConfig: ContractConfig = {
+        ...DEFAULT_CONFIG,
+        med_criterio: 'dias',
+        hh_dia: 11
+      };
+
+      // Teste unitário direto dos intervalos proporcionalizados (7 de 14 dias = 50%)
+      expect(calcHpCarteiraInInterval(crossingEmb, '2026-09-21', '2026-09-27', diasConfig)).toBeCloseTo(50, 5);
+      expect(calcHpForaCarteiraInInterval(crossingEmb, '2026-09-21', '2026-09-27')).toBeCloseTo(20, 5);
+      // Intervalo invertido a > b retorna 0
+      expect(calcHpCarteiraInInterval(crossingEmb, '2026-09-28', '2026-09-21', diasConfig)).toBe(0);
+      expect(calcHpForaCarteiraInInterval(crossingEmb, '2026-09-28', '2026-09-21')).toBe(0);
+
+      const dataset = createBaseDataset({
+        config: diasConfig,
+        carteira: [crossingEmb],
+        hhMap: {
+          '1001|2026-09-15': {
+            matricula: '1001',
+            data: '2026-09-15', // Fora da janela [2026-09-21, 2026-10-20], deve ser ignorado em med_criterio = 'dias'
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 12
+          },
+          '1001|2026-09-22': {
+            matricula: '1001',
+            data: '2026-09-22', // Dentro da janela
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 10
+          },
+          '1001|2026-09-23': {
+            matricula: '1001',
+            data: '2026-09-23', // Dentro da janela
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 12
+          }
+        }
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.ini).toBe('2026-09-21');
+      expect(op.fim).toBe('2026-09-27');
+      expect(op.dias).toBe(7);
+      expect(op.hp).toBeCloseTo(70, 5); // 50% de 140
+      expect(op.hpCarteira).toBeCloseTo(50, 5); // 50% de 100
+      expect(op.hpForaCarteira).toBeCloseTo(20, 5); // 50% de 40
+      expect(op.hc).toBe(22); // Somente 22/09 (10h) + 23/09 (12h)
+      // PE incide apenas sobre hpCarteira proporcionalizado (50 * 1.5 = 75)
+      expect(op.peHp).toBeCloseTo(75, 5);
+      // EX incide sobre HC executado no período (22 * 2.0 = 44)
+      expect(op.exHc).toBeCloseTo(44, 5);
+      expect(op.us).toBeCloseTo(119, 5);
+    });
+
+    it('OP compartilhada por múltiplos técnicos (Carteira + Fora da carteira + sharedOpsSet)', () => {
+      const dataset = createBaseDataset({
+        sharedOpsSet: new Set(['OP-MULTI-TECH']),
+        carteira: [
+          {
+            id: 'c-multi-1',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 110,
+            hh_carteira: 80,
+            hh_fora_carteira: 30,
+            operacao: 'OP-MULTI-TECH',
+            pe: 1.2,
+            ex: 1.5,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'c-multi-2',
+            matricula: '1002',
+            plataforma_sigla: 'P74',
+            unidade_negocio: 'Búzios (UN-BUZ)',
+            data_inicio: '2026-10-05',
+            data_fim: '2026-10-14',
+            horas_programadas: 60,
+            hh_carteira: 0,
+            hh_fora_carteira: 60, // Técnico 2 entrou com < 12 dias (100% fora da carteira)
+            operacao: 'OP-MULTI-TECH',
+            pe: 1.2,
+            ex: 1.5,
+            fonte: 'portal_offshore'
+          }
+        ],
+        hhMap: {
+          '1001|2026-10-02': {
+            matricula: '1001',
+            data: '2026-10-02',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 10
+          },
+          '1002|2026-10-06': {
+            matricula: '1002',
+            data: '2026-10-06',
+            plataforma_sigla: 'P74',
+            unidade_negocio: 'Búzios (UN-BUZ)',
+            horas_executadas: 12
+          }
+        }
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.mats.size).toBe(2);
+      expect(op.plats.has('P58')).toBe(true);
+      expect(op.plats.has('P74')).toBe(true);
+      expect(op.sharedAcrossPortfolios).toBe(true);
+      expect(op.hp).toBe(170); // 110 + 60
+      expect(op.hpCarteira).toBe(80); // 80 + 0
+      expect(op.hpForaCarteira).toBe(90); // 30 + 60
+      expect(op.hc).toBe(22); // 10 + 12
+      expect(op.peHp).toBeCloseTo(80 * 1.2, 5); // 96
+      expect(op.exHc).toBeCloseTo(22 * 1.5, 5); // 33
+      expect(op.us).toBeCloseTo(129, 5);
+
+      const summary = summarizeUsoff(ops);
+      expect(summary.hp).toBe(170);
+      expect(summary.hpCarteira).toBe(80);
+      expect(summary.hpForaCarteira).toBe(90);
+      expect(summary.us).toBeCloseTo(129, 5);
+    });
+
+    it('fallback legado (hh_carteira === undefined) em med_criterio = "dias" proporcionaliza HP integral na fronteira', () => {
+      const diasConfig: ContractConfig = {
+        ...DEFAULT_CONFIG,
+        med_criterio: 'dias',
+        hh_dia: 11
+      };
+
+      const dataset = createBaseDataset({
+        config: diasConfig,
+        carteira: [
+          {
+            id: 'c-leg-dias',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-16',
+            data_fim: '2026-10-25', // 10 dias totais, 5 dias dentro de [2026-09-21, 2026-10-20]
+            horas_programadas: 110,
+            // hh_carteira === undefined (legado)
+            operacao: 'OP-LEG-DIAS',
+            pe: 1.0,
+            ex: 1.5,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap: {
+          '1001|2026-10-18': {
+            matricula: '1001',
+            data: '2026-10-18',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 10
+          }
+        }
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.hp).toBeCloseTo(55, 5); // 5 de 10 dias = 55h
+      expect(op.hpCarteira).toBeCloseTo(55, 5); // Fallback integral para hp
+      expect(op.hpForaCarteira).toBe(0);
+      expect(op.peHp).toBeCloseTo(55, 5);
+      expect(op.exHc).toBeCloseTo(15, 5);
+      expect(op.us).toBeCloseTo(70, 5);
+    });
+  });
+
+  describe('7. Novas Regras de USOFF: Validação por Operação, Trava de Execução Zero, Gangway e Diária', () => {
+    it('operação sem execução confirmada (HC = 0) e sem gangway tem USOFF = 0 (peHp = 0, exHc = 0, us = 0)', () => {
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-zero-exec',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 154,
+            hh_carteira: 154,
+            hh_fora_carteira: 0,
+            operacao: 'OP-ZERO',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap: {} // Zero horas executadas
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.hc).toBe(0);
+      expect(op.peHp).toBe(0);
+      expect(op.exHc).toBe(0);
+      expect(op.us).toBe(0); // Não calcula USOFF sem execução confirmada
+    });
+
+    it('operação com HC = 0 mas com anotação de Gangway desconectada recebe 30% da programação', () => {
+      const dataset = createBaseDataset({
+        carteira: [
+          {
+            id: 'c-gw',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 100,
+            hh_carteira: 100,
+            hh_fora_carteira: 0,
+            operacao: 'OP-GW',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'carteira'
+          }
+        ],
+        hhMap: {}, // Zero horas executadas
+        justMap: {
+          '1001|2026-10-05': {
+            matricula: '1001',
+            data: '2026-10-05',
+            motivo: 'Gangway desconectada',
+            horas_gangway: 11,
+            descricao: 'Mar revolto',
+            responsavel_nome: 'Fiscal'
+          }
+        }
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      expect(op.hc).toBe(0);
+      // Recebe 30% da programação: 0.30 * 100 = 30
+      expect(op.peHp).toBe(30);
+      expect(op.exHc).toBe(0);
+      expect(op.us).toBe(30);
+    });
+
+    it('unidade classificada por diária (ex: UMS UMAC afretada) calcula USOFF = (dias + 1) * 10', () => {
+      const umsCatalog = {
+        ...createBaseDataset().plataformas,
+        UMAC: {
+          sigla: 'UMAC',
+          chave_norm: 'umac',
+          nome: 'UMS Cidade de Macaé',
+          un: 'Armador',
+          armador: 'GranEnergia',
+          gerencia: 'UO-BC',
+          tipo: 'UMS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        }
+      };
+
+      const dataset = createBaseDataset({
+        plataformas: umsCatalog,
+        carteira: [
+          {
+            id: 'c-diaria',
+            matricula: '1001',
+            plataforma_sigla: 'UMAC',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14', // 14 dias
+            horas_programadas: 0,
+            operacao: 'OP-DIARIA',
+            pe: null,
+            ex: null,
+            fonte: 'carteira'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      expect(ops).toHaveLength(1);
+      const op = ops[0];
+      // 14 dias: (14 + 1) * 10 = 150
+      expect(op.dias).toBe(14);
+      expect(op.us).toBe(150);
+      expect(op.falta).toBe(false);
+      expect(op.fonte).toBe('Diária (Armador)');
+    });
+
+    it('processamento granular com carteiraOperacoes e confirmacoesSap: avalia cada tupla ordem/operação individualmente', () => {
+      const dataset = createBaseDataset({
+        config: {
+          ...DEFAULT_CONFIG,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70
+        },
+        carteira: [
+          {
+            id: 'c-gran',
+            id_embarque: '55001',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 130,
+            hh_carteira: 130,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'carteira'
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'co-1',
+            portal_id: '55001',
+            id_embarque: '55001',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: 'ORD-1000',
+            operacao: 'OP-EXEC',
+            status_processamento: 'Concluído',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 10,
+            hh_confirmado: 10,
+            hh_confirmado_sap: 10,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'co-2',
+            portal_id: '55001',
+            id_embarque: '55001',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: 'ORD-2000',
+            operacao: 'OP-NAO-EXEC',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 120,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Não Confirmado',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx);
+
+      // Duas operações granularizadas
+      expect(ops).toHaveLength(2);
+
+      const opExec = ops.find(o => o.op === 'OP-EXEC');
+      expect(opExec).toBeDefined();
+      expect(opExec!.hc).toBe(10);
+      // Carteira com execução: 0.30 * 10 + 0.70 * 10 = 3 + 7 = 10
+      expect(opExec!.peHp).toBe(3);
+      expect(opExec!.exHc).toBe(7);
+      expect(opExec!.us).toBe(10);
+
+      const opNaoExec = ops.find(o => o.op === 'OP-NAO-EXEC');
+      expect(opNaoExec).toBeDefined();
+      expect(opNaoExec!.hc).toBe(0);
+      // Execução zero sem gangway: não pontua USOFF mesmo com 120h programadas!
+      expect(opNaoExec!.peHp).toBe(0);
+      expect(opNaoExec!.exHc).toBe(0);
+      expect(opNaoExec!.us).toBe(0);
+
+      // Total de USOFF reflete estritamente a soma das operações individuais
+      const summary = summarizeUsoff(ops);
+      expect(summary.us).toBe(10); // Apenas a operação executada pontuou!
     });
   });
 });

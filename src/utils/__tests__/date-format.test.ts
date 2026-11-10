@@ -400,39 +400,59 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
       expect(parseCounter('0001004523')).toBe(1004523);
     });
 
-    it('aceita números puros ou strings sem zeros à esquerda', () => {
+    it('aceita números puros, floats inteiros (12.0) e strings com caracteres mistos', () => {
       expect(parseCounter(1)).toBe(1);
+      expect(parseCounter(12.0)).toBe(12);
+      expect(parseCounter(12.9)).toBe(12);
       expect(parseCounter(500)).toBe(500);
       expect(parseCounter('42')).toBe(42);
+      // String com ponto tem não-dígitos removidos por design de parseCounter
+      expect(parseCounter('12.0')).toBe(120);
     });
 
-    it('retorna 0 para valores vazios, nulos ou não numéricos', () => {
+    it('trata negativos, NaN e valores inválidos de forma determinística sem NaN', () => {
+      expect(parseCounter(-3)).toBe(-3);
+      expect(parseCounter(NaN)).toBe(0);
       expect(parseCounter(null)).toBe(0);
       expect(parseCounter(undefined)).toBe(0);
       expect(parseCounter('')).toBe(0);
       expect(parseCounter('   ')).toBe(0);
       expect(parseCounter('sem-numero')).toBe(0);
+      expect(parseCounter('---')).toBe(0);
     });
   });
 
   describe('parseIdEmbarque', () => {
-    it('mantém inteiros e strings numéricas limpos', () => {
+    it('mantém inteiros, seriais Excel e strings numéricas limpos', () => {
+      expect(parseIdEmbarque(45580)).toBe('45580');
       expect(parseIdEmbarque(55104)).toBe('55104');
       expect(parseIdEmbarque('56299')).toBe('56299');
       expect(parseIdEmbarque('55104.0')).toBe('55104');
+      expect(parseIdEmbarque('55104.000')).toBe('55104');
     });
 
     it('recupera serial numérico de objetos Date gerados pelo SheetJS', () => {
       // 56542 dias a partir de 1899-12-30 é 2054-10-20
       const d = new Date(2054, 9, 20);
       expect(parseIdEmbarque(d)).toBe('56542');
+      // 46327 dias a partir de 1899-12-30 é 2026-11-01
+      const d2 = new Date(2026, 10, 1);
+      expect(parseIdEmbarque(d2)).toBe('46327');
     });
 
-    it('recupera serial numérico de strings corrompidas de data GMT', () => {
+    it('recupera serial numérico de strings corrompidas de data GMT e UTC', () => {
       const gmt1 = 'Tue Oct 20 2054 00:00:00 GMT-0300 (Horário de Verão de Brasília)';
       expect(parseIdEmbarque(gmt1)).toBe('56542');
       const gmt2 = 'Fri Dec 14 2046 00:00:00 GMT-0300 (Horário Padrão de Brasília)';
       expect(parseIdEmbarque(gmt2)).toBe('53675');
+      const utcStr = 'Sun Nov 01 2026 00:00:00 UTC';
+      expect(parseIdEmbarque(utcStr)).toBe('46327');
+    });
+
+    it('preserva códigos de operação/embarque alfanuméricos intactos', () => {
+      expect(parseIdEmbarque('OP-2026-ALPHA')).toBe('OP-2026-ALPHA');
+      expect(parseIdEmbarque('  EMB_P58_009  ')).toBe('EMB_P58_009');
+      expect(parseIdEmbarque('PORTAL-9988A')).toBe('PORTAL-9988A');
     });
 
     it('retorna vazio para nulos e vazios', () => {
@@ -456,26 +476,35 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
   });
 
   describe('sanitizePlatformCode & PLATFORM_ALIASES', () => {
-    it('resolve aliases conhecidos do Portal Offshore e SAP para siglas canônicas', () => {
-      expect(sanitizePlatformCode('PMXL1')).toBe('MXL');
-      expect(sanitizePlatformCode('PMXL')).toBe('MXL');
-      expect(sanitizePlatformCode('PMLZ1')).toBe('MLZ');
-      expect(sanitizePlatformCode('PMLZ')).toBe('MLZ');
-      expect(sanitizePlatformCode('PMNT1')).toBe('PMNT');
-      expect(sanitizePlatformCode('PAG-02')).toBe('PAG2');
-      expect(sanitizePlatformCode('PAG02')).toBe('PAG2');
-      expect(sanitizePlatformCode('PCR-01')).toBe('PCR1');
-      expect(sanitizePlatformCode('PCR01')).toBe('PCR1');
-      expect(sanitizePlatformCode('PCM-9')).toBe('PCM9');
-      expect(sanitizePlatformCode('PPE-1A')).toBe('PPE1A');
-      expect(sanitizePlatformCode('PRA-1')).toBe('PRA1');
+    it('resolve todos os aliases conhecidos do Portal Offshore e SAP (case-insensitive e com hífens)', () => {
+      // Validação explícita dos aliases em caixa baixa / hífens solicitados pela auditoria
+      expect(sanitizePlatformCode('pmxl-1')).toBe('MXL');
+      expect(sanitizePlatformCode('p-09')).toBe('P09');
+      expect(sanitizePlatformCode('pag-02')).toBe('PAG2');
+      expect(sanitizePlatformCode('pcr-01')).toBe('PCR1');
+      expect(sanitizePlatformCode('pmlz1')).toBe('MLZ');
+      expect(sanitizePlatformCode('pmnt1')).toBe('PMNT');
+
+      // Validação exaustiva de 100% do mapa PLATFORM_ALIASES
+      for (const [alias, canonical] of Object.entries(PLATFORM_ALIASES)) {
+        expect(sanitizePlatformCode(alias)).toBe(canonical);
+        expect(sanitizePlatformCode(alias.toLowerCase())).toBe(canonical);
+        expect(sanitizePlatformCode(`  ${alias.toLowerCase()}  `)).toBe(canonical);
+      }
     });
 
-    it('normaliza padrão Petrobras P-XX para PXX', () => {
+    it('normaliza zeros à esquerda em siglas alfanuméricas e padrão Petrobras P-XX -> PXX', () => {
       expect(sanitizePlatformCode('P-09')).toBe('P09');
       expect(sanitizePlatformCode('P-18')).toBe('P18');
       expect(sanitizePlatformCode('P-25')).toBe('P25');
       expect(sanitizePlatformCode('P-70')).toBe('P70');
+      expect(sanitizePlatformCode('PAG-01')).toBe('PAG1');
+      expect(sanitizePlatformCode('PAG-03')).toBe('PAG3');
+      expect(sanitizePlatformCode('PCM-09')).toBe('PCM9');
+      expect(sanitizePlatformCode('PPE-01A')).toBe('PPE1A');
+      expect(sanitizePlatformCode('PRA-01')).toBe('PRA1');
+      expect(sanitizePlatformCode('MOP-01')).toBe('MOP1');
+      expect(sanitizePlatformCode('MOP-1')).toBe('MOP1');
     });
 
     it('mantém inalteradas siglas limpas ou desconhecidas com underscores', () => {

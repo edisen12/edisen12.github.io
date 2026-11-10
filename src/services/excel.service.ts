@@ -5,19 +5,15 @@
 
 import type {
   AppDataset,
-  CarteiraEmbarque,
   CarteiraOperacao,
   ConfirmacaoSAP,
-  ContractConfig,
   DayTechRow,
   ImportKind,
-  PeriodDayEntry,
   PeriodWindow,
-  Pessoa,
   Plataforma
 } from '../domain/types';
 import {
-  diffDays,
+  addDays,
   formatBr,
   parseExcelOrStringDate,
   todayIso
@@ -27,7 +23,6 @@ import {
   parseCounter,
   parseFlexibleHours,
   parseIdEmbarque,
-  platformKey,
   slugify
 } from '../utils/format';
 import { periodDisplayName, periodFileSlug } from '../domain/periods';
@@ -38,7 +33,6 @@ import {
   computeCobrancaStats,
   computeDataAte,
   computeMeasurementDays,
-  computePeriodDays,
   computePeriodTechs,
   findResponsiblePeople,
   getClosedEmbarkations,
@@ -149,15 +143,26 @@ const rp = (v?: number | null): number | string =>
 
 /**
  * Sanitiza células de texto contra Injeção de Fórmulas / DDE (OWASP CWE-1236).
- * Se o valor textual começar com '=', '+', '-', '@', '\t' ou '\r', adiciona o prefixo seguro de texto (').
+ * Se o valor textual começar com '=', '+', '-', '@', '\t', '\r' ou '\n' (ou contiver
+ * espaços iniciais seguidos de '=', '+', '-', '@'), adiciona o prefixo seguro de texto (').
  */
 export function sanitizeSpreadsheetCell(value: unknown): unknown {
   if (typeof value !== 'string') return value;
-  const trimmed = value.trim();
-  if (/^[=+\-@\t\r]/.test(trimmed)) {
+  if (/^[=+\-@\t\r\n]/.test(value) || /^[=+\-@]/.test(value.trimStart())) {
     return `'${value}`;
   }
   return value;
+}
+
+/**
+ * Sanitiza nomes dinâmicos de abas Excel removendo caracteres proibidos e limitando a 31 chars.
+ */
+function sanitizeSheetName(name: string): string {
+  const cleaned = String(name || '')
+    .replace(/[:\\/?*[\]]/g, '-')
+    .trim()
+    .slice(0, 31);
+  return cleaned || 'Planilha';
 }
 
 function createSheet(XLSX: any, rows: any[][], widths?: number[]) {
@@ -294,7 +299,7 @@ function extractRowsFromSheet(
   headerIndex: number,
   kind: ImportKind,
   colMap: Record<string, number | undefined>,
-  pidx?: Record<string, Plataforma>
+  _pidx?: Record<string, Plataforma>
 ): { rows: any[]; errors: string[] } {
   const rows: any[] = [];
   const errors: string[] = [];
@@ -494,7 +499,7 @@ export async function parseSpreadsheetFile(
   if (!bestMatch) {
     const targetKind = forcedKind || 'hh';
     const reqLabel =
-      targetKind === 'hh' || targetKind === 'cart'
+      targetKind === 'hh' || targetKind === 'cart' || targetKind === 'sap'
         ? 'de matrícula'
         : targetKind === 'plat'
         ? 'de sigla'
@@ -1032,15 +1037,11 @@ export async function exportTecnicoXlsx(
 
   const dailyRows: any[][] = [];
 
-  for (let d = effectiveWindow.ini; d <= effectiveWindow.fim; d = String(d)) {
+  for (let d = effectiveWindow.ini; d <= effectiveWindow.fim; d = addDays(d, 1)) {
     // Se critério 'enc' e há embarques fechados, filtra para dias dentro de algum embarque
     if (closedEmbList.length > 0) {
       const inClosed = closedEmbList.some(c => c.data_inicio <= d && d <= c.data_fim);
       if (!inClosed) {
-        // Incrementa dia
-        const nextDate = new Date(d);
-        nextDate.setDate(nextDate.getDate() + 1);
-        d = nextDate.toISOString().slice(0, 10);
         continue;
       }
     }
@@ -1070,10 +1071,6 @@ export async function exportTecnicoXlsx(
         rec.e >= rec.d - 0.001 ? 'Sim' : 'Não'
       ]);
     }
-
-    const nextD = new Date(d);
-    nextD.setDate(nextD.getDate() + 1);
-    d = nextD.toISOString().slice(0, 10);
   }
 
   const aoa: any[][] = [
@@ -1277,7 +1274,8 @@ export async function exportModeloXlsx(
  */
 export async function exportConfrontoSAPXlsx(
   operations: CarteiraOperacao[],
-  periodLabel: string
+  periodLabel: string,
+  scopeLabel?: string
 ): Promise<void> {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
@@ -1318,8 +1316,12 @@ export async function exportConfrontoSAPXlsx(
     op.status_divergencia || 'Não Confirmado'
   ]);
 
+  const bannerRows = scopeLabel
+    ? [[`[ESCOPO PARCIAL DE CARTEIRA - ${scopeLabel.toUpperCase()}]`], []]
+    : [];
+
   const widths = [14, 12, 30, 14, 18, 14, 14, 16, 10, 22, 14, 16, 16, 18, 26];
-  const ws = createSheet(XLSX, [headers, ...dataRows], widths);
+  const ws = createSheet(XLSX, [...bannerRows, headers, ...dataRows], widths);
   XLSX.utils.book_append_sheet(wb, ws, 'Confronto SAP x Portal');
 
   saveWorkbook(XLSX, wb, `confronto_sap_portal_${slugify(periodLabel)}.xlsx`);
@@ -1332,11 +1334,12 @@ export async function exportPainelDiaOrdensXlsx(params: {
   date: string;
   dataset: AppDataset;
   rows: DayTechRow[];
+  scopeLabel?: string;
 }): Promise<void> {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
-  const { date, dataset, rows } = params;
+  const { date, dataset, rows, scopeLabel } = params;
   const sapList = dataset.confirmacoesSap || [];
   const sapByTechDate = new Map<string, ConfirmacaoSAP[]>();
   sapList.forEach(cs => {
@@ -1415,9 +1418,13 @@ export async function exportPainelDiaOrdensXlsx(params: {
     }
   });
 
-  const widths = [12, 12, 28, 14, 18, 14, 16, 10, 12, 12, 34, 14, 14, 14, 30];
-  const ws = createSheet(XLSX, [headers, ...dataRows], widths);
-  XLSX.utils.book_append_sheet(wb, ws, `Apontamentos ${date}`);
+  const bannerRows = scopeLabel
+    ? [[`[ESCOPO PARCIAL DE CARTEIRA - ${scopeLabel.toUpperCase()}]`], []]
+    : [];
 
-  saveWorkbook(XLSX, wb, `apontamentos_ordens_dia_${date}.xlsx`);
+  const widths = [12, 12, 28, 14, 18, 14, 16, 10, 12, 12, 34, 14, 14, 14, 30];
+  const ws = createSheet(XLSX, [...bannerRows, headers, ...dataRows], widths);
+  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(`Apontamentos ${date}`));
+
+  saveWorkbook(XLSX, wb, `apontamentos_ordens_dia_${slugify(date)}.xlsx`);
 }

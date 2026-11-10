@@ -7,9 +7,13 @@ import {
   Palette,
   KeyRound,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  Download,
+  Smartphone
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
+import { usePwaInstall } from '../../utils/pwa';
+import { PwaInstallModal } from '../modals/PwaInstallModal';
 import { ROLES_LABEL, TAB_TITLES } from '../../config/constants';
 import { formatBr } from '../../utils/date';
 
@@ -32,7 +36,13 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
   } = useApp();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [pwaModalOpen, setPwaModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { canShowInstallOption, triggerInstall } = usePwaInstall();
+
+  const handlePwaInstall = () => {
+    setPwaModalOpen(true);
+  };
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -118,6 +128,20 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
       </div>
 
       <div className="header-actions">
+        {/* Botão de Instalação PWA */}
+        {canShowInstallOption && (
+          <button
+            type="button"
+            className="pwa-install-pill"
+            onClick={handlePwaInstall}
+            title="Instalar aplicativo HH Offshore"
+            aria-label="Instalar aplicativo"
+          >
+            <Download size={14} />
+            <span className="hide-mobile">Instalar App</span>
+          </button>
+        )}
+
         {/* Botão de Atualizar Dados */}
         <button
           type="button"
@@ -178,6 +202,21 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
                 <div className="profile-menu-divider" />
 
                 {/* Itens de Navegação */}
+                {canShowInstallOption && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="profile-menu-item"
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      void handlePwaInstall();
+                    }}
+                  >
+                    <Smartphone size={16} className="profile-item-icon" />
+                    <span>Instalar aplicativo</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   role="menuitem"
@@ -239,6 +278,11 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
           </div>
         )}
       </div>
+
+      <PwaInstallModal
+        open={pwaModalOpen}
+        onClose={() => setPwaModalOpen(false)}
+      />
     </header>
   );
 }

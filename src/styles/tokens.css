@@ -85,7 +85,15 @@
   /* Dimensões Globais */
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 68px;
+  --sidebar-mobile-width: min(280px, 85vw);
   --header-height: 54px;
+  --touch-target-min: 44px;
+
+  /* Safe Area Insets (PWA standalone & telas com Notch no iOS/Android) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 
   color-scheme: light;
 }

@@ -10,6 +10,8 @@ import type {
   Pessoa,
   Tecnico,
   CarteiraEmbarque,
+  CarteiraOperacao,
+  ConfirmacaoSAP,
   ApontamentoHH,
   Justificativa,
   FluxoImportacao,
@@ -72,6 +74,90 @@ export interface AuthenticatedActor {
   csrfToken: string;
 }
 
+const SERVER_PLATFORM_ALIASES: Record<string, string> = {
+  PMXL1: 'MXL',
+  PMXL: 'MXL',
+  PMLZ1: 'MLZ',
+  PMLZ: 'MLZ',
+  PMNT1: 'PMNT',
+  PAG01: 'PAG1',
+  'PAG-01': 'PAG1',
+  PAG02: 'PAG2',
+  'PAG-02': 'PAG2',
+  PAG03: 'PAG3',
+  'PAG-03': 'PAG3',
+  PCR01: 'PCR1',
+  'PCR-01': 'PCR1',
+  PCM09: 'PCM9',
+  'PCM-09': 'PCM9',
+  'PCM-9': 'PCM9',
+  'PPE-01A': 'PPE1A',
+  'PPE-1A': 'PPE1A',
+  'PRA-01': 'PRA1',
+  'PRA-1': 'PRA1',
+  'MOP-01': 'MOP1',
+  'MOP-1': 'MOP1'
+};
+
+function sanitizeServerPlatformCode(raw?: unknown): string {
+  if (raw == null || raw === '') return '';
+  const trimmed = String(raw).trim().toUpperCase();
+  if (SERVER_PLATFORM_ALIASES[trimmed]) {
+    return SERVER_PLATFORM_ALIASES[trimmed];
+  }
+  const withoutHyphenSpace = trimmed.replace(/[-\s]/g, '');
+  if (SERVER_PLATFORM_ALIASES[withoutHyphenSpace]) {
+    return SERVER_PLATFORM_ALIASES[withoutHyphenSpace];
+  }
+  const m = withoutHyphenSpace.match(/^([A-Z]{2,})0+(\d+)([A-Z]*)$/);
+  if (m) {
+    return m[1] + m[2] + m[3];
+  }
+  if (/^P-\d+$/i.test(trimmed)) {
+    return trimmed.replace('-', '');
+  }
+  return trimmed;
+}
+
+function normalizeServerIdEmbarque(val: unknown): string {
+  if (val == null || val === '') return '';
+  const str = String(val).trim();
+  if (str.includes('GMT') || str.includes('Brasília') || str.includes('UTC')) {
+    const m = str.match(/[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d+)\s+(\d{4})/);
+    if (m) {
+      const monthMap: Record<string, number> = {
+        Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+        Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+      };
+      const mon = monthMap[m[1]];
+      if (mon !== undefined) {
+        const utc = Date.UTC(parseInt(m[3], 10), mon, parseInt(m[2], 10));
+        const epoch = Date.UTC(1899, 11, 30);
+        const serial = Math.round((utc - epoch) / 86400000);
+        if (serial > 0 && serial < 200000) return String(serial);
+      }
+    }
+  }
+  if (/^\d+\.0+$/.test(str)) {
+    return str.replace(/\.0+$/, '');
+  }
+  return str;
+}
+
+function addIsoDays(isoDate: string, delta: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + delta));
+  return dt.toISOString().slice(0, 10);
+}
+
+function isoDaysAbsDiff(isoA: string, isoB: string): number {
+  const [y1, m1, d1] = isoA.split('-').map(Number);
+  const [y2, m2, d2] = isoB.split('-').map(Number);
+  const t1 = Date.UTC(y1, m1 - 1, d1);
+  const t2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.abs(Math.round((t1 - t2) / 86400000));
+}
+
 export interface RawDatasetResponse {
   configRow: ContractConfig | null;
   usoffWeightRows: UsoffUnWeight[];
@@ -79,6 +165,8 @@ export interface RawDatasetResponse {
   pessoaRows: Pessoa[];
   tecnicoRows: Tecnico[];
   carteiraRows: CarteiraEmbarque[];
+  carteiraOperacaoRows: CarteiraOperacao[];
+  confirmacaoSapRows: ConfirmacaoSAP[];
   hhRows: ApontamentoHH[];
   justificativaRows: Justificativa[];
   watermarkRow: WatermarkStatus;
@@ -168,7 +256,7 @@ export class SelfHostedDomainEngine {
   async login(
     email: string,
     password: string,
-    ipAddress?: string
+    _ipAddress?: string
   ): Promise<{
     sessionId: string;
     csrfToken: string;
@@ -399,8 +487,6 @@ export class SelfHostedDomainEngine {
     nome?: string,
     preferencias?: Partial<UserPreferences>
   ): Promise<void> {
-    const nowIso = new Date().toISOString();
-
     if (typeof nome === 'string') {
       const cleanNome = nome.trim();
       if (!cleanNome || cleanNome.length > 120) {
@@ -581,6 +667,37 @@ export class SelfHostedDomainEngine {
             (c.unidade_negocio && scope.allowedUNs.has(c.unidade_negocio))
         );
 
+    // 6.1. Operações granulares da Carteira (Portal Offshore) dentro da janela
+    const allCartOpRows = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes', {
+      filter: {
+        data_fim: { gte: queryIni },
+        data_inicio: { lte: queryFim }
+      },
+      orderBy: { field: 'data_inicio', direction: 'asc' }
+    });
+
+    const carteiraOperacaoRows = scope.isGlobal
+      ? allCartOpRows
+      : allCartOpRows.filter(
+          co =>
+            (co.plataforma_sigla && scope.allowedPlatforms.has(co.plataforma_sigla)) ||
+            (co.unidade_negocio && scope.allowedUNs.has(co.unidade_negocio))
+        );
+
+    // 6.2. Confirmações do SAP vinculadas a embarques
+    const allSapRows = await this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap', {
+      filter: {
+        id_embarque: { neq: '' }
+      },
+      orderBy: { field: 'data_fim_real', direction: 'desc' }
+    });
+
+    let confirmacaoSapRows = allSapRows;
+    if (!scope.isGlobal) {
+      const visibleCartMats = new Set<string>(carteiraRows.map(c => c.matricula));
+      confirmacaoSapRows = allSapRows.filter(cs => visibleCartMats.has(cs.matricula));
+    }
+
     // 7. Apontamentos HH
     const allHhRows = await this.storage.findMany<ApontamentoHH>('apontamentos_hh', {
       filter: {
@@ -658,16 +775,19 @@ export class SelfHostedDomainEngine {
       }
 
       // Detecção de OPs compartilhadas com trava anti-oráculo
-      const userOps = new Set<string>(carteiraRows.map(c => c.operacao).filter(Boolean));
+      const userOps = new Set<string>(
+        carteiraRows.map(c => c.operacao || c.id_embarque || '').filter(Boolean)
+      );
       if (userOps.size > 0) {
         for (const c of allCartRows) {
-          if (c.operacao && userOps.has(c.operacao)) {
+          const opCode = c.operacao || c.id_embarque || '';
+          if (opCode && userOps.has(opCode)) {
             const isInsideScope =
               (c.plataforma_sigla && scope.allowedPlatforms.has(c.plataforma_sigla)) ||
               (c.unidade_negocio && scope.allowedUNs.has(c.unidade_negocio));
 
             if (!isInsideScope) {
-              sharedOps.push(c.operacao);
+              sharedOps.push(opCode);
             }
           }
         }
@@ -682,6 +802,8 @@ export class SelfHostedDomainEngine {
       pessoaRows,
       tecnicoRows,
       carteiraRows,
+      carteiraOperacaoRows,
+      confirmacaoSapRows,
       hhRows,
       justificativaRows,
       watermarkRow,
@@ -718,7 +840,7 @@ export class SelfHostedDomainEngine {
       descricao?: string;
       responsavel_nome?: string;
     },
-    ipAddress?: string
+    _ipAddress?: string
   ): Promise<void> {
     await this.assertFirstLoginCompleted(actor);
 
@@ -853,6 +975,8 @@ export class SelfHostedDomainEngine {
       details: { dia_corte: cfg.dia_corte_medicao, med_criterio: cfg.med_criterio },
       created_at: nowIso
     });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
   }
 
   async savePlataforma(
@@ -860,7 +984,7 @@ export class SelfHostedDomainEngine {
     plat: Plataforma
   ): Promise<void> {
     this.assertGlobalRole(actor);
-    const siglaUpper = plat.sigla.trim().toUpperCase();
+    const siglaUpper = sanitizeServerPlatformCode(plat.sigla);
     const chaveNorm = siglaUpper.replace(/[^A-Z0-9]/g, '');
 
     const row: Plataforma = {
@@ -890,6 +1014,8 @@ export class SelfHostedDomainEngine {
       details: { situacao: row.situacao, un: row.un },
       created_at: new Date().toISOString()
     });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
   }
 
   async deletePlataforma(
@@ -897,7 +1023,7 @@ export class SelfHostedDomainEngine {
     sigla: string
   ): Promise<void> {
     this.assertGlobalRole(actor);
-    const siglaUpper = sigla.trim().toUpperCase();
+    const siglaUpper = sanitizeServerPlatformCode(sigla);
 
     const deleted = await this.storage.deleteMany('plataformas', { sigla: siglaUpper });
     if (deleted > 0) {
@@ -914,6 +1040,7 @@ export class SelfHostedDomainEngine {
         details: {},
         created_at: new Date().toISOString()
       });
+      this.realtimeHub?.broadcast('sync_heartbeat');
     }
   }
 
@@ -964,6 +1091,7 @@ export class SelfHostedDomainEngine {
       created_at: new Date().toISOString()
     });
 
+    this.realtimeHub?.broadcast('sync_heartbeat');
     return row;
   }
 
@@ -1014,17 +1142,123 @@ export class SelfHostedDomainEngine {
         details: {},
         created_at: new Date().toISOString()
       });
+      this.realtimeHub?.broadcast('sync_heartbeat');
     }
   }
 
   // ============================================================================
-  // IMPORTAÇÃO EM CHUNKS COM INTEGRIDADE REFERENCIAL
+  // IMPORTAÇÃO EM CHUNKS, RECONCILIAÇÃO SAP E RESET DE CARTEIRA
   // ============================================================================
+
+  private async syncCarteiraEmbarquesFromOperacoes(): Promise<void> {
+    const allOps = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes');
+    if (allOps.length === 0) return;
+
+    const existingCart = await this.storage.findMany<CarteiraEmbarque>('carteira_embarques');
+    const existingByKey = new Map<string, CarteiraEmbarque>();
+    for (const c of existingCart) {
+      existingByKey.set(`${c.matricula}::${c.data_inicio}`, c);
+    }
+
+    const grouped = new Map<
+      string,
+      {
+        id_embarque: string;
+        matricula: string;
+        plataforma_sigla: string;
+        unidade_negocio: string;
+        data_inicio: string;
+        data_fim: string;
+        horas_programadas: number;
+        hh_carteira: number;
+        hh_fora_carteira: number;
+        hh_cancelado: number;
+      }
+    >();
+
+    for (const co of allOps) {
+      const key = `${co.matricula}::${co.data_inicio}`;
+      const cleanId = normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
+      const cleanPlat = co.plataforma_sigla ? sanitizeServerPlatformCode(co.plataforma_sigla) : '';
+      const cleanUn = String(co.unidade_negocio || '').trim();
+      const hhProg = Number(co.hh_programado || 0);
+      const stProg = String(co.status_programacao || 'Carteira').trim();
+
+      let acc = grouped.get(key);
+      if (!acc) {
+        acc = {
+          id_embarque: cleanId,
+          matricula: co.matricula,
+          plataforma_sigla: cleanPlat,
+          unidade_negocio: cleanUn,
+          data_inicio: co.data_inicio,
+          data_fim: co.data_fim,
+          horas_programadas: 0,
+          hh_carteira: 0,
+          hh_fora_carteira: 0,
+          hh_cancelado: 0
+        };
+        grouped.set(key, acc);
+      } else {
+        if (cleanId && cleanId > acc.id_embarque) acc.id_embarque = cleanId;
+        if (cleanPlat && cleanPlat > acc.plataforma_sigla) acc.plataforma_sigla = cleanPlat;
+        if (cleanUn && cleanUn > acc.unidade_negocio) acc.unidade_negocio = cleanUn;
+        if (co.data_fim > acc.data_fim) acc.data_fim = co.data_fim;
+      }
+
+      if (stProg === 'Carteira' || stProg === 'Fora da carteira') {
+        acc.horas_programadas += hhProg;
+      }
+      if (stProg === 'Carteira') {
+        acc.hh_carteira += hhProg;
+      } else if (stProg === 'Fora da carteira') {
+        acc.hh_fora_carteira += hhProg;
+      } else if (stProg === 'Cancelada') {
+        acc.hh_cancelado += hhProg;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const rowsToUpsert: CarteiraEmbarque[] = [];
+    for (const [key, g] of grouped.entries()) {
+      const prev = existingByKey.get(key);
+      rowsToUpsert.push({
+        id: prev?.id || generateUuid(),
+        id_embarque: g.id_embarque,
+        matricula: g.matricula,
+        plataforma_sigla: g.plataforma_sigla,
+        unidade_negocio: g.unidade_negocio,
+        data_inicio: g.data_inicio,
+        data_fim: g.data_fim,
+        horas_programadas: g.horas_programadas,
+        hh_carteira: g.hh_carteira,
+        hh_fora_carteira: g.hh_fora_carteira,
+        hh_cancelado: g.hh_cancelado,
+        hh_confirmado_portal: prev?.hh_confirmado_portal ?? 0,
+        hh_confirmado_sap: prev?.hh_confirmado_sap ?? 0,
+        divergencia_confirmada: prev?.divergencia_confirmada ?? 0,
+        operacao: g.id_embarque,
+        pe: prev?.pe ?? null,
+        ex: prev?.ex ?? null,
+        fonte: 'portal_offshore',
+        ...( { updated_at: nowIso } as any )
+      });
+    }
+
+    await this.storage.upsertMany('carteira_embarques', rowsToUpsert, ['matricula', 'data_inicio']);
+  }
 
   async batchImportChunks(
     actor: AuthenticatedActor,
     payload: {
-      kind: 'plataformas' | 'tecnicos' | 'hh' | 'carteira' | 'fluxo';
+      kind:
+        | 'plataformas'
+        | 'tecnicos'
+        | 'hh'
+        | 'carteira'
+        | 'carteira_operacoes'
+        | 'confirmacoes_sap'
+        | 'fluxo';
       rows: any[];
       fluxo?: Partial<FluxoImportacao>;
     }
@@ -1036,15 +1270,85 @@ export class SelfHostedDomainEngine {
     }
 
     if (kind === 'plataformas') {
-      await this.storage.upsertMany('plataformas', rows, ['sigla']);
+      const sanitizedPlats = rows.map(r => ({
+        ...r,
+        sigla: sanitizeServerPlatformCode(r.sigla)
+      }));
+      await this.storage.upsertMany('plataformas', sanitizedPlats, ['sigla']);
     } else if (kind === 'tecnicos') {
       await this.storage.upsertMany('tecnicos', rows, ['matricula']);
     } else if (kind === 'hh') {
-      const hhWithIds = rows.map(r => ({ ...r, id: r.id || generateUuid() }));
+      const hhWithIds = rows.map(r => ({
+        ...r,
+        id: r.id || generateUuid(),
+        plataforma_sigla: r.plataforma_sigla
+          ? sanitizeServerPlatformCode(r.plataforma_sigla)
+          : r.plataforma_sigla
+      }));
       await this.storage.upsertMany('apontamentos_hh', hhWithIds, ['matricula', 'data']);
     } else if (kind === 'carteira') {
-      const cartWithIds = rows.map(r => ({ ...r, id: r.id || generateUuid() }));
+      const cartWithIds = rows.map(r => {
+        const cleanId = normalizeServerIdEmbarque(r.id_embarque || r.operacao || '');
+        return {
+          ...r,
+          id: r.id || generateUuid(),
+          id_embarque: cleanId,
+          operacao: r.operacao || cleanId,
+          plataforma_sigla: r.plataforma_sigla
+            ? sanitizeServerPlatformCode(r.plataforma_sigla)
+            : r.plataforma_sigla
+        };
+      });
       await this.storage.upsertMany('carteira_embarques', cartWithIds, ['matricula', 'data_inicio']);
+    } else if (kind === 'carteira_operacoes') {
+      const opsWithIds = rows.map(r => {
+        const cleanId = normalizeServerIdEmbarque(r.id_embarque || r.portal_id || '');
+        const cleanPlat = r.plataforma_sigla
+          ? sanitizeServerPlatformCode(r.plataforma_sigla)
+          : null;
+        return {
+          ...r,
+          id: r.id || generateUuid(),
+          portal_id: cleanId,
+          id_embarque: cleanId,
+          plataforma_sigla: cleanPlat,
+          hh_confirmado_sap: Number(r.hh_confirmado_sap || 0),
+          divergencia_sap: Number(r.divergencia_sap || 0),
+          status_divergencia: r.status_divergencia || 'Não Apontado no SAP'
+        };
+      });
+      await this.storage.upsertMany(
+        'carteira_operacoes',
+        opsWithIds,
+        ['matricula', 'data_inicio', 'ordem', 'operacao']
+      );
+      await this.syncCarteiraEmbarquesFromOperacoes();
+    } else if (kind === 'confirmacoes_sap') {
+      const nowIso = new Date().toISOString();
+      const sapWithIds = rows.map(r => ({
+        ...r,
+        id: r.id || generateUuid(),
+        horas_confirmadas: Number(r.horas_confirmadas || 0),
+        contador_confirmacao: Number(r.contador_confirmacao || 0),
+        id_embarque: normalizeServerIdEmbarque(r.id_embarque || ''),
+        status_reconciliacao: r.status_reconciliacao || 'Pendente',
+        created_at: r.created_at || nowIso,
+        updated_at: r.updated_at || nowIso
+      }));
+      await this.storage.upsertMany(
+        'confirmacoes_sap',
+        sapWithIds,
+        [
+          'matricula',
+          'data_criacao',
+          'data_lancamento',
+          'data_fim_real',
+          'ordem',
+          'operacao',
+          'horas_confirmadas',
+          'contador_confirmacao'
+        ]
+      );
     }
 
     if (fluxo && fluxo.tipo_fluxo) {
@@ -1064,6 +1368,360 @@ export class SelfHostedDomainEngine {
     this.realtimeHub?.broadcast('sync_heartbeat');
 
     return { ok: true, count: rows.length };
+  }
+
+  async reconciliarConfirmacoesSAP(actor: AuthenticatedActor): Promise<{
+    total_confirmacoes_sap: number;
+    vinculados_ao_embarque: number;
+    sem_embarque_associado: number;
+    operacoes_com_batimento_ok: number;
+    operacoes_com_divergencia: number;
+    dias_apontados_sincronizados: number;
+  }> {
+    this.assertGlobalRole(actor);
+    const nowIso = new Date().toISOString();
+
+    const [allSap, allOps, allCart, allTecs] = await Promise.all([
+      this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap'),
+      this.storage.findMany<CarteiraOperacao>('carteira_operacoes'),
+      this.storage.findMany<CarteiraEmbarque>('carteira_embarques'),
+      this.storage.findMany<Tecnico>('tecnicos')
+    ]);
+
+    const tecMats = new Set<string>(allTecs.map(t => t.matricula));
+
+    // Passo 1: Vincular cada confirmação do SAP ao id_embarque (cascata de 5 prioridades + 4 dias de tolerância)
+    const updatedSap: ConfirmacaoSAP[] = allSap.map(cs => {
+      const matchingOps = allOps
+        .filter(
+          co =>
+            co.matricula === cs.matricula &&
+            co.ordem === cs.ordem &&
+            co.operacao === cs.operacao
+        )
+        .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+
+      const matchingEmbs = allCart
+        .filter(ce => ce.matricula === cs.matricula)
+        .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+
+      const opIdOf = (co: CarteiraOperacao) =>
+        normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
+      const embIdOf = (ce: CarteiraEmbarque) =>
+        normalizeServerIdEmbarque(ce.id_embarque || ce.operacao || '');
+
+      let resolvedId = '';
+
+      // Prioridade 1: Ordem/Operação com data_fim_real exatamente no embarque
+      const p1 = matchingOps.find(
+        co => cs.data_fim_real >= co.data_inicio && cs.data_fim_real <= co.data_fim
+      );
+      if (p1) resolvedId = opIdOf(p1);
+
+      // Prioridade 2: Ordem/Operação com data_lancamento até +4 dias após desembarque
+      if (!resolvedId) {
+        const p2 = matchingOps.find(
+          co =>
+            cs.data_lancamento >= co.data_inicio &&
+            cs.data_lancamento <= addIsoDays(co.data_fim, 4)
+        );
+        if (p2) resolvedId = opIdOf(p2);
+      }
+
+      // Prioridade 3: Ordem/Operação existente em único embarque do técnico (estorno retroativo tardio)
+      if (!resolvedId && matchingOps.length > 0) {
+        const distinctIds = Array.from(new Set(matchingOps.map(opIdOf)));
+        if (distinctIds.length === 1) {
+          resolvedId = distinctIds[0];
+        }
+      }
+
+      // Prioridade 4: Sem ordem na carteira, mas data_fim_real dentro de embarque físico
+      if (!resolvedId) {
+        const p4 = matchingEmbs.find(
+          ce => cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim
+        );
+        if (p4) resolvedId = embIdOf(p4);
+      }
+
+      // Prioridade 5: Lançamento nos 4 dias de tolerância pós-desembarque (PMB)
+      if (!resolvedId) {
+        const p5 = matchingEmbs.find(
+          ce =>
+            cs.data_lancamento >= ce.data_inicio &&
+            cs.data_lancamento <= addIsoDays(ce.data_fim, 4)
+        );
+        if (p5) resolvedId = embIdOf(p5);
+      }
+
+      let statusRec: ConfirmacaoSAP['status_reconciliacao'] = 'Sem Embarque';
+      if (matchingOps.length > 0) {
+        statusRec = 'Em Carteira';
+      } else if (
+        matchingEmbs.some(
+          ce =>
+            (cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim) ||
+            (cs.data_lancamento >= ce.data_inicio &&
+              cs.data_lancamento <= addIsoDays(ce.data_fim, 4))
+        )
+      ) {
+        statusRec = 'Fora da Carteira';
+      }
+
+      return {
+        ...cs,
+        id_embarque: resolvedId,
+        status_reconciliacao: statusRec,
+        updated_at: nowIso
+      };
+    });
+
+    if (updatedSap.length > 0) {
+      await this.storage.upsertMany(
+        'confirmacoes_sap',
+        updatedSap,
+        [
+          'matricula',
+          'data_criacao',
+          'data_lancamento',
+          'data_fim_real',
+          'ordem',
+          'operacao',
+          'horas_confirmadas',
+          'contador_confirmacao'
+        ]
+      );
+    }
+
+    // Passo 2: Atualizar indicadores de confronto em carteira_operacoes
+    const sapAggMap = new Map<string, number>();
+    for (const cs of updatedSap) {
+      const k = `${cs.matricula}::${cs.ordem}::${cs.operacao}::${cs.id_embarque}`;
+      sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
+    }
+
+    const updatedOps: CarteiraOperacao[] = allOps.map(co => {
+      const idEmb = normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
+      const k = `${co.matricula}::${co.ordem}::${co.operacao}::${idEmb}`;
+      const totalSap = sapAggMap.get(k) || 0;
+      const hhConf = Number(co.hh_confirmado || 0);
+      const div = Math.round((hhConf - totalSap) * 100) / 100;
+
+      let statusDiv = 'Divergente';
+      if (hhConf === 0 && totalSap === 0) statusDiv = 'Não Confirmado';
+      else if (hhConf === totalSap) statusDiv = 'OK';
+      else if (totalSap === 0 && hhConf > 0) statusDiv = 'Não Apontado no SAP';
+      else if (hhConf === 0 && totalSap > 0) statusDiv = 'Não Confirmado no Portal';
+      else if (hhConf > totalSap) statusDiv = 'Divergente (Portal > SAP)';
+      else if (hhConf < totalSap) statusDiv = 'Divergente (SAP > Portal)';
+
+      return {
+        ...co,
+        hh_confirmado_sap: totalSap,
+        divergencia_sap: div,
+        status_divergencia: statusDiv
+      };
+    });
+
+    if (updatedOps.length > 0) {
+      await this.storage.upsertMany(
+        'carteira_operacoes',
+        updatedOps,
+        ['matricula', 'data_inicio', 'ordem', 'operacao']
+      );
+    }
+
+    // Passo 3: Consolidar totais de confirmação em carteira_embarques
+    const embConfMap = new Map<string, { confPortal: number; confSap: number }>();
+    for (const co of updatedOps) {
+      const idEmb = normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
+      const key = idEmb ? `id::${idEmb}` : `mat::${co.matricula}::${co.data_inicio}`;
+      const cur = embConfMap.get(key) || { confPortal: 0, confSap: 0 };
+      cur.confPortal += Number(co.hh_confirmado || 0);
+      cur.confSap += Number(co.hh_confirmado_sap || 0);
+      embConfMap.set(key, cur);
+    }
+
+    const updatedCart: CarteiraEmbarque[] = [];
+    for (const ce of allCart) {
+      const idEmb = normalizeServerIdEmbarque(ce.id_embarque || ce.operacao || '');
+      const agg =
+        (idEmb ? embConfMap.get(`id::${idEmb}`) : undefined) ||
+        embConfMap.get(`mat::${ce.matricula}::${ce.data_inicio}`);
+      if (agg) {
+        updatedCart.push({
+          ...ce,
+          hh_confirmado_portal: agg.confPortal,
+          hh_confirmado_sap: agg.confSap,
+          divergencia_confirmada: Math.round((agg.confPortal - agg.confSap) * 100) / 100
+        });
+      }
+    }
+
+    if (updatedCart.length > 0) {
+      await this.storage.upsertMany('carteira_embarques', updatedCart, ['matricula', 'data_inicio']);
+    }
+
+    // Passo 4: Sincronizar apontamentos_hh diários a partir das confirmações do SAP (teto [0, 24])
+    const cartByIdEmb = new Map<string, CarteiraEmbarque>();
+    for (const ce of allCart) {
+      const idEmb = normalizeServerIdEmbarque(ce.id_embarque || ce.operacao || '');
+      if (idEmb) cartByIdEmb.set(idEmb, ce);
+    }
+
+    const dailySapAgg = new Map<
+      string,
+      { matricula: string; data: string; totalHoras: number; directPlats: string[]; directUns: string[] }
+    >();
+
+    for (const cs of updatedSap) {
+      if (!cs.data_fim_real || !tecMats.has(cs.matricula)) continue;
+      const key = `${cs.matricula}::${cs.data_fim_real}`;
+      let entry = dailySapAgg.get(key);
+      if (!entry) {
+        entry = {
+          matricula: cs.matricula,
+          data: cs.data_fim_real,
+          totalHoras: 0,
+          directPlats: [],
+          directUns: []
+        };
+        dailySapAgg.set(key, entry);
+      }
+      entry.totalHoras += Number(cs.horas_confirmadas || 0);
+      if (cs.id_embarque) {
+        const ceDirect = cartByIdEmb.get(cs.id_embarque);
+        if (ceDirect?.plataforma_sigla) entry.directPlats.push(ceDirect.plataforma_sigla);
+        if (ceDirect?.unidade_negocio) entry.directUns.push(ceDirect.unidade_negocio);
+      }
+    }
+
+    const hhToUpsert: ApontamentoHH[] = [];
+    for (const entry of dailySapAgg.values()) {
+      const nearCe = allCart
+        .filter(ce => ce.matricula === entry.matricula)
+        .sort((a, b) => isoDaysAbsDiff(a.data_inicio, entry.data) - isoDaysAbsDiff(b.data_inicio, entry.data))[0];
+
+      const maxPlat = entry.directPlats.sort().at(-1) || nearCe?.plataforma_sigla || '';
+      const maxUn = entry.directUns.sort().at(-1) || nearCe?.unidade_negocio || 'UN-DESCONHECIDA';
+      const clampedHoras = Math.min(24, Math.max(0, Math.round(entry.totalHoras * 100) / 100));
+
+      hhToUpsert.push({
+        id: generateUuid(),
+        matricula: entry.matricula,
+        data: entry.data,
+        plataforma_sigla: maxPlat,
+        unidade_negocio: maxUn,
+        horas_executadas: clampedHoras
+      });
+    }
+
+    if (hhToUpsert.length > 0) {
+      await this.storage.upsertMany('apontamentos_hh', hhToUpsert, ['matricula', 'data']);
+    }
+
+    // Passo 5: Atualizar marca d'água em fluxo_importacoes quando houver apontamentos sincronizados
+    if (hhToUpsert.length > 0) {
+      const allHhAfter = await this.storage.findMany<ApontamentoHH>('apontamentos_hh');
+      const maxHhDate = allHhAfter.reduce((mx, r) => (r.data > mx ? r.data : mx), '');
+      const fluxoRow: FluxoImportacao = {
+        id: generateUuid(),
+        tipo_fluxo: 'hh',
+        origem: `Reconciliação SAP (${allHhAfter.length} dias)`,
+        total_linhas: allHhAfter.length,
+        data_maxima: maxHhDate || null,
+        observacao: 'Sincronizado automaticamente das confirmações do SAP',
+        criado_em: nowIso
+      };
+      await this.storage.upsertMany('fluxo_importacoes', [fluxoRow], ['id']);
+    }
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
+
+    const vinculados = updatedSap.filter(cs => cs.id_embarque !== '').length;
+    const opsOk = updatedOps.filter(co => co.status_divergencia === 'OK').length;
+    const opsDiv = updatedOps.filter(co =>
+      String(co.status_divergencia || '').startsWith('Divergente')
+    ).length;
+
+    return {
+      total_confirmacoes_sap: updatedSap.length,
+      vinculados_ao_embarque: vinculados,
+      sem_embarque_associado: updatedSap.length - vinculados,
+      operacoes_com_batimento_ok: opsOk,
+      operacoes_com_divergencia: opsDiv,
+      dias_apontados_sincronizados: hhToUpsert.length
+    };
+  }
+
+  async resetCarteiraEmbarques(
+    actor: AuthenticatedActor,
+    ipAddress?: string
+  ): Promise<{
+    success: boolean;
+    deleted_operacoes: number;
+    deleted_embarques: number;
+    message: string;
+  }> {
+    this.assertGlobalRole(actor);
+    const nowIso = new Date().toISOString();
+
+    const deletedOperacoes = await this.storage.deleteMany('carteira_operacoes', {});
+    const deletedEmbarques = await this.storage.deleteMany('carteira_embarques', {});
+
+    const allSap = await this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap');
+    const sapToUnlink = allSap
+      .filter(cs => cs.id_embarque !== '' || cs.status_reconciliacao !== 'Pendente')
+      .map(cs => ({
+        ...cs,
+        id_embarque: '',
+        status_reconciliacao: 'Pendente' as const,
+        updated_at: nowIso
+      }));
+
+    if (sapToUnlink.length > 0) {
+      await this.storage.upsertMany(
+        'confirmacoes_sap',
+        sapToUnlink,
+        [
+          'matricula',
+          'data_criacao',
+          'data_lancamento',
+          'data_fim_real',
+          'ordem',
+          'operacao',
+          'horas_confirmadas',
+          'contador_confirmacao'
+        ]
+      );
+    }
+
+    await this.storage.appendImmutable('system_audit_logs', {
+      id: generateUuid(),
+      actor_id: actor.id,
+      actor_nome: actor.nome,
+      actor_email: actor.email,
+      actor_role: actor.role,
+      action: 'carteira_reset',
+      category: 'importacao',
+      target_id: 'carteira',
+      target_label: 'Carteira de Embarques e Operações',
+      details: {
+        deleted_operacoes: deletedOperacoes,
+        deleted_embarques: deletedEmbarques
+      },
+      ip_address: ipAddress || null,
+      created_at: nowIso
+    });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
+
+    return {
+      success: true,
+      deleted_operacoes: deletedOperacoes,
+      deleted_embarques: deletedEmbarques,
+      message: 'Carteira de operações e embarques resetadas com sucesso para reimportação limpa.'
+    };
   }
 
   // ============================================================================

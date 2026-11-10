@@ -6,8 +6,7 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
 import type {
   EmbarkationAccum,
-  EmbarkationInfo,
-  StatusMeta
+  EmbarkationInfo
 } from '../../domain/types';
 import {
   accumulateEmbarkation,
@@ -140,7 +139,7 @@ export function EmbarqueAtualView() {
       width: '240px',
       sortValue: r => r.nome,
       render: r => (
-        <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: '170px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
             type="button"
             className="btn-link"
@@ -297,7 +296,7 @@ export function EmbarqueAtualView() {
   return (
     <div className="view-embarque-atual">
       {/* Cabeçalho */}
-      <div className="card-header-view" style={{ marginBottom: '16px' }}>
+      <div className="card-header-view" style={{ marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <h2 style={{ margin: 0, fontFamily: 'var(--f-display)', color: 'var(--blue)' }}>
           Quem está embarcado em {formatBr(D)}
         </h2>

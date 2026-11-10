@@ -149,9 +149,9 @@ export function MedicaoRelatoriosView() {
     {
       key: 'nome',
       header: 'Técnico',
-      width: '240px',
+      width: 'minmax(170px, 240px)',
       render: t => (
-        <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 'min(100%, 170px)', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
             type="button"
             className="btn-link"

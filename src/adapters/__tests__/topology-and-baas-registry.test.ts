@@ -21,6 +21,7 @@ import {
   resetClientDatabaseProvider,
   getClientDatabaseProvider
 } from '../../services/provider.registry';
+import { createSelfHostedClientProvider } from '../self-hosted/self-hosted.provider';
 import { signInWithPassword, updateOwnPassword } from '../../services/auth.service';
 import { batchImportHH, loadAppDataset } from '../../services/data.service';
 import { subscribeToRealtimeUpdates } from '../../services/realtime.service';
@@ -458,5 +459,297 @@ describe('2. Registry Aberto de BaaS e Injeção Dinâmica de Provedor', () => {
 
     unsubscribe();
     expect(mockConnector.realtimeListener).toBeNull();
+  });
+});
+
+describe('4. Métodos Self-Hosted de Confirmações SAP e Reset de Carteira (self-hosted.provider.ts)', () => {
+  interface RecordedRequest {
+    url: string;
+    method: string;
+    credentials?: string;
+    headers: Record<string, string>;
+    body: any;
+  }
+
+  it('batchImportConfirmacoesSAP envia chunks com credentials same-origin e X-CSRF-Token, disparando reconciliação', async () => {
+    const recorded: RecordedRequest[] = [];
+    const csrfTokenValue = 'csrf-token-sap-999';
+
+    const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      const headersMap: Record<string, string> = {};
+      h.forEach((val, key) => {
+        headersMap[key.toLowerCase()] = val;
+      });
+
+      let parsedBody: any = null;
+      if (init?.body && typeof init.body === 'string') {
+        try {
+          parsedBody = JSON.parse(init.body);
+        } catch {
+          parsedBody = init.body;
+        }
+      }
+
+      recorded.push({
+        url,
+        method: (init?.method || 'GET').toUpperCase(),
+        credentials: init?.credentials as string,
+        headers: headersMap,
+        body: parsedBody
+      });
+
+      if (url.includes('/auth/login')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            user: { id: 'admin-1', email: 'admin@teste.local' },
+            csrfToken: csrfTokenValue
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfTokenValue
+            }
+          }
+        );
+      }
+
+      if (url.includes('/imports/batch')) {
+        return new Response(JSON.stringify({ ok: true, count: 2 }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfTokenValue
+          }
+        });
+      }
+
+      if (url.includes('/sap/reconcile')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              total_confirmacoes_sap: 2,
+              vinculados_ao_embarque: 2,
+              sem_embarque_associado: 0,
+              operacoes_com_batimento_ok: 1,
+              operacoes_com_divergencia: 0,
+              dias_apontados_sincronizados: 1
+            }
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    const provider = createSelfHostedClientProvider({
+      baseUrl: 'http://localhost:3000/api/v1',
+      customFetch: mockFetch as any
+    });
+
+    // 1. Login inicial para estabelecer a sessão e capturar o CSRF Token
+    await provider.auth.signInWithPassword('admin@teste.local', 'AdminSenha123');
+
+    let progressCalls = 0;
+    const res = await provider.data.batchImportConfirmacoesSAP!(
+      [
+        {
+          mat: '1001',
+          cria: '2026-10-01',
+          lanc: '2026-10-01',
+          real: '2026-10-01',
+          ordem: 'ORD-1',
+          op: 'OP-1',
+          hc: 5,
+          contador: 1
+        },
+        {
+          mat: '1001',
+          cria: '2026-10-01',
+          lanc: '2026-10-01',
+          real: '2026-10-01',
+          ordem: 'ORD-1',
+          op: 'OP-1',
+          hc: 6,
+          contador: 2
+        }
+      ],
+      (gravadas, total) => {
+        progressCalls++;
+        expect(gravadas).toBe(total);
+      }
+    );
+
+    expect(progressCalls).toBe(1);
+    expect(res).toBeDefined();
+    expect(res.total_confirmacoes_sap).toBe(2);
+
+    // Deve ter registrado /auth/login, /imports/batch e /sap/reconcile
+    expect(recorded.length).toBe(3);
+
+    // 2ª chamada: POST /imports/batch
+    expect(recorded[1].url).toContain('/imports/batch');
+    expect(recorded[1].method).toBe('POST');
+    expect(recorded[1].credentials).toBe('same-origin');
+    expect(recorded[1].headers['x-csrf-token']).toBe(csrfTokenValue);
+    expect(recorded[1].body.kind).toBe('confirmacoes_sap');
+    expect(recorded[1].body.rows.length).toBe(2);
+
+    // 3ª chamada: POST /sap/reconcile
+    expect(recorded[2].url).toContain('/sap/reconcile');
+    expect(recorded[2].method).toBe('POST');
+    expect(recorded[2].credentials).toBe('same-origin');
+    expect(recorded[2].headers['x-csrf-token']).toBe(csrfTokenValue);
+  });
+
+  it('reconciliarConfirmacoesSAP chama POST /sap/reconcile com same-origin e X-CSRF-Token', async () => {
+    const recorded: RecordedRequest[] = [];
+    const csrfTokenValue = 'csrf-token-rec-777';
+
+    const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      const headersMap: Record<string, string> = {};
+      h.forEach((val, key) => {
+        headersMap[key.toLowerCase()] = val;
+      });
+
+      recorded.push({
+        url,
+        method: (init?.method || 'GET').toUpperCase(),
+        credentials: init?.credentials as string,
+        headers: headersMap,
+        body: init?.body
+      });
+
+      if (url.includes('/auth/scope')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            scope: { profile: { id: 'u1', role: 'admin' } },
+            csrfToken: csrfTokenValue
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfTokenValue
+            }
+          }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: {
+            total_confirmacoes_sap: 15,
+            vinculados_ao_embarque: 12,
+            operacoes_com_batimento_ok: 10
+          }
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    });
+
+    const provider = createSelfHostedClientProvider({
+      baseUrl: 'http://localhost:3000/api/v1',
+      customFetch: mockFetch as any
+    });
+
+    // Captura token da sessão via scope
+    await provider.auth.fetchCurrentUserScope();
+
+    const result = await provider.data.reconciliarConfirmacoesSAP!();
+    expect(result).toBeDefined();
+    expect(result.total_confirmacoes_sap).toBe(15);
+
+    expect(recorded.length).toBe(2);
+    expect(recorded[1].url).toContain('/sap/reconcile');
+    expect(recorded[1].method).toBe('POST');
+    expect(recorded[1].credentials).toBe('same-origin');
+    expect(recorded[1].headers['x-csrf-token']).toBe(csrfTokenValue);
+  });
+
+  it('resetCarteiraEmbarques chama POST /carteira/reset com same-origin e X-CSRF-Token', async () => {
+    const recorded: RecordedRequest[] = [];
+    const csrfTokenValue = 'csrf-token-reset-555';
+
+    const mockFetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      const headersMap: Record<string, string> = {};
+      h.forEach((val, key) => {
+        headersMap[key.toLowerCase()] = val;
+      });
+
+      recorded.push({
+        url,
+        method: (init?.method || 'GET').toUpperCase(),
+        credentials: init?.credentials as string,
+        headers: headersMap,
+        body: init?.body
+      });
+
+      if (url.includes('/auth/scope')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            scope: { profile: { id: 'u1', role: 'admin' } },
+            csrfToken: csrfTokenValue
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfTokenValue
+            }
+          }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          deleted_operacoes: 25,
+          deleted_embarques: 8,
+          message: 'Carteira resetada com sucesso.'
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    });
+
+    const provider = createSelfHostedClientProvider({
+      baseUrl: 'http://localhost:3000/api/v1',
+      customFetch: mockFetch as any
+    });
+
+    // Captura token CSRF via scope
+    await provider.auth.fetchCurrentUserScope();
+
+    const result = await provider.data.resetCarteiraEmbarques!();
+    expect(result).toBeDefined();
+    expect(result.deleted_operacoes).toBe(25);
+    expect(result.deleted_embarques).toBe(8);
+
+    expect(recorded.length).toBe(2);
+    expect(recorded[1].url).toContain('/carteira/reset');
+    expect(recorded[1].method).toBe('POST');
+    expect(recorded[1].credentials).toBe('same-origin');
+    expect(recorded[1].headers['x-csrf-token']).toBe(csrfTokenValue);
   });
 });

@@ -36,10 +36,8 @@ import type {
   BatchImportCarteiraRow,
   BatchImportConfirmacaoSAPRow,
   BatchImportHHRow,
-  BatchImportPessoaRow,
   BatchImportPlataformaRow,
   ClientDataPort,
-  ProgressCallback,
   SavePessoaInput
 } from '../../ports/data.port';
 import type { ClientRealtimePort } from '../../ports/realtime.port';
@@ -187,6 +185,9 @@ export function prepareBatchCarteira(
     data_inicio: string;
     data_fim: string;
     horas_programadas: number | null;
+    hh_carteira?: number;
+    hh_fora_carteira?: number;
+    hh_cancelado?: number;
     operacao: string;
     id_embarque: string;
     pe: number | null;
@@ -239,6 +240,7 @@ export function prepareBatchCarteira(
       data_inicio: r.ini,
       data_fim: r.fim,
       horas_programadas: r.hp != null ? Number(r.hp) : null,
+      status_programacao: String(r.status_prog || '').trim(),
       operacao: r.op?.trim() || '',
       id_embarque: parseIdEmbarque(r.id_embarque || r.op || ''),
       pe: r.pe != null ? Number(r.pe) : null,
@@ -272,26 +274,44 @@ export function prepareBatchCarteira(
   const cartMap = new Map<string, any>();
   preparedRows.forEach(r => {
     const key = `${r.matricula}_${r.data_inicio}`;
+    const isCanc = r.status_programacao === 'Cancelada';
+    const isFora = r.status_programacao === 'Fora da carteira';
+    const hasHp = r.horas_programadas != null;
+    const hpNum = hasHp ? Number(r.horas_programadas) : 0;
+
     if (!cartMap.has(key)) {
-      cartMap.set(key, {
+      const entry: Record<string, any> = {
         matricula: r.matricula,
         plataforma_sigla: r.plataforma_sigla,
         unidade_negocio: r.unidade_negocio,
         data_inicio: r.data_inicio,
         data_fim: r.data_fim,
-        horas_programadas: r.horas_programadas,
+        horas_programadas: hasHp ? (isCanc ? 0 : hpNum) : null,
         operacao: r.operacao || r.id_embarque || '',
         id_embarque: r.id_embarque || r.operacao || '',
         pe: r.pe,
         ex: r.ex,
         fonte: 'carteira',
         updated_at: new Date().toISOString()
-      });
+      };
+      if (hasHp) {
+        entry.hh_carteira = !isCanc && !isFora ? hpNum : 0;
+        entry.hh_fora_carteira = isFora ? hpNum : 0;
+        entry.hh_cancelado = isCanc ? hpNum : 0;
+      }
+      cartMap.set(key, entry);
     } else {
       const existing = cartMap.get(key);
       if (r.data_fim > existing.data_fim) existing.data_fim = r.data_fim;
-      if (r.horas_programadas != null) {
-        existing.horas_programadas = (existing.horas_programadas || 0) + r.horas_programadas;
+      if (hasHp) {
+        if (!isCanc) {
+          existing.horas_programadas = (existing.horas_programadas || 0) + hpNum;
+        } else if (existing.horas_programadas == null) {
+          existing.horas_programadas = 0;
+        }
+        existing.hh_carteira = (existing.hh_carteira || 0) + (!isCanc && !isFora ? hpNum : 0);
+        existing.hh_fora_carteira = (existing.hh_fora_carteira || 0) + (isFora ? hpNum : 0);
+        existing.hh_cancelado = (existing.hh_cancelado || 0) + (isCanc ? hpNum : 0);
       }
       if (!existing.id_embarque && (r.id_embarque || r.operacao)) existing.id_embarque = r.id_embarque || r.operacao;
     }
@@ -302,10 +322,16 @@ export function prepareBatchCarteira(
     return cmp !== 0 ? cmp : a.data_inicio.localeCompare(b.data_inicio);
   });
 
-  // Operações granulares da carteira (para confronto com SAP e rastreabilidade total)
-  const isGranular = rows.some(
-    r => (r.ordem && r.ordem.trim() !== '') || (r.op && r.op.trim() !== '') || (r.id_embarque && r.id_embarque.trim() !== '')
-  );
+  // Operações granulares da carteira (Portal Offshore ou múltiplas operações por embarque)
+  const isGranular =
+    rows.some(
+      r =>
+        (r.ordem && r.ordem.trim() !== '') ||
+        (r.id_embarque && r.id_embarque.trim() !== '') ||
+        (r.status_prog && r.status_prog.trim() !== '') ||
+        r.hc_portal != null
+    ) ||
+    (rows.length > cartPayload.length && rows.some(r => r.op && r.op.trim() !== ''));
 
   const opsMap = new Map<string, any>();
   if (isGranular) {
@@ -313,13 +339,13 @@ export function prepareBatchCarteira(
       const mat = r.mat.trim();
       if (!mat || !r.ini || !r.fim) return;
       const pFound = lookupPlatform(pidx, r.plat);
-      const resolvedSigla = pFound ? pFound.sigla : r.plat.trim().toUpperCase();
+      const resolvedSigla = pFound ? pFound.sigla : sanitizePlatformCode(r.plat);
       const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
 
       const cleanOrdem = String(r.ordem || '').trim() || (r.op ? 'ORDEM_AVULSA' : 'SEM_ORDEM');
       const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${parseIdEmbarque(r.id_embarque)}` : 'SEM_OP');
       const key = `${mat}_${r.ini}_${cleanOrdem}_${cleanOp}`;
-      const cleanId = parseIdEmbarque(r.id_embarque || '');
+      const cleanId = parseIdEmbarque(r.id_embarque || (!r.ordem ? r.op : '') || '');
 
       opsMap.set(key, {
         portal_id: cleanId,
@@ -379,7 +405,7 @@ export function prepareBatchPlataformas(
   updated_at: string;
 }> {
   return rows.map(r => {
-    const sigla = r.sigla.trim().toUpperCase();
+    const sigla = sanitizePlatformCode(r.sigla);
     return {
       sigla,
       chave_norm: platformKey(sigla),
@@ -607,6 +633,17 @@ export async function assembleAppDataset(
   const carteira: CarteiraEmbarque[] = (raw.carteiraRows || []).map(row => {
     const mat = String(row.matricula || '');
     const idEmb = parseIdEmbarque(row.id_embarque || (row as any).operacao || '');
+    const rawHp = row.horas_programadas != null ? Number(row.horas_programadas) : null;
+    const rawHhCart = row.hh_carteira != null ? Number(row.hh_carteira) : undefined;
+    const rawHhFora = row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0;
+    const rawHhCanc = row.hh_cancelado != null ? Number(row.hh_cancelado) : 0;
+    const fonte = String(row.fonte || 'carteira');
+    const resolvedHhCarteira =
+      rawHhCart === undefined
+        ? undefined
+        : fonte !== 'portal_offshore' && rawHhCart === 0 && rawHhFora === 0 && rawHhCanc === 0 && (rawHp == null || rawHp > 0)
+          ? undefined
+          : rawHhCart;
     return {
       id: String(row.id || ''),
       id_embarque: idEmb,
@@ -617,17 +654,17 @@ export async function assembleAppDataset(
       unidade_negocio: String(row.unidade_negocio || ''),
       data_inicio: String(row.data_inicio || ''),
       data_fim: String(row.data_fim || ''),
-      horas_programadas: row.horas_programadas != null ? Number(row.horas_programadas) : null,
-      hh_carteira: row.hh_carteira != null ? Number(row.hh_carteira) : 0,
-      hh_fora_carteira: row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0,
-      hh_cancelado: row.hh_cancelado != null ? Number(row.hh_cancelado) : 0,
+      horas_programadas: rawHp,
+      hh_carteira: resolvedHhCarteira,
+      hh_fora_carteira: rawHhFora,
+      hh_cancelado: rawHhCanc,
       hh_confirmado_portal: row.hh_confirmado_portal != null ? Number(row.hh_confirmado_portal) : 0,
       hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
       divergencia_confirmada: row.divergencia_confirmada != null ? Number(row.divergencia_confirmada) : 0,
       operacao: idEmb,
       pe: row.pe != null ? Number(row.pe) : null,
       ex: row.ex != null ? Number(row.ex) : null,
-      fonte: String(row.fonte || 'carteira')
+      fonte
     };
   });
 
@@ -920,7 +957,7 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
       await connector.saveConfiguracoesBundle(cfg, unWeights, emailsResumo);
     },
     async savePlataforma(plat) {
-      const siglaUpper = plat.sigla.trim().toUpperCase();
+      const siglaUpper = sanitizePlatformCode(plat.sigla);
       const chaveNorm = platformKey(siglaUpper);
       await connector.upsertPlataformasChunk([
         {
@@ -1062,14 +1099,15 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
     },
     async batchImportConfirmacoesSAP(rows, onProgress) {
       if (!rows.length) return;
+      if (typeof connector.upsertConfirmacoesSAPChunk !== 'function') {
+        throw new Error('O conector BaaS ativo não suporta importação de confirmações do SAP.');
+      }
       const prepared = prepareBatchConfirmacoesSAP(rows);
       const total = prepared.length;
-      if (typeof connector.upsertConfirmacoesSAPChunk === 'function') {
-        for (let i = 0; i < total; i += CHUNK_SIZE) {
-          const chunk = prepared.slice(i, i + CHUNK_SIZE);
-          await connector.upsertConfirmacoesSAPChunk(chunk);
-          onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
-        }
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+        const chunk = prepared.slice(i, i + CHUNK_SIZE);
+        await connector.upsertConfirmacoesSAPChunk(chunk);
+        onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
       }
       if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
         return connector.reconciliarConfirmacoesSAPRPC();

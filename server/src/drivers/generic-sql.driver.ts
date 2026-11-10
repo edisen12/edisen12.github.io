@@ -203,17 +203,29 @@ export class GenericSqlDialectDriver implements UniversalStorageDriverPort {
       return '?';
     };
 
-    for (const [key, cond] of Object.entries(filter)) {
+    for (const [key, rawCond] of Object.entries(filter)) {
+      const cond: FieldCondition<unknown> = rawCond;
       const qKey = this.quote(key);
 
       if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
-        const obj = cond as { eq?: unknown; in?: unknown[]; gte?: string | number; lte?: string | number };
-        const hasOps = 'eq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
+        const obj = cond as {
+          eq?: unknown;
+          neq?: unknown;
+          in?: unknown[];
+          gte?: string | number;
+          lte?: string | number;
+        };
+        const hasOps =
+          'eq' in obj || 'neq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
 
         if (hasOps) {
           if ('eq' in obj && obj.eq !== undefined) {
             clauses.push(`${qKey} = ${getPlaceholder()}`);
             params.push(this.serializeValue(key, obj.eq));
+          }
+          if ('neq' in obj && obj.neq !== undefined) {
+            clauses.push(`${qKey} <> ${getPlaceholder()}`);
+            params.push(this.serializeValue(key, obj.neq));
           }
           if ('in' in obj && Array.isArray(obj.in)) {
             if (obj.in.length === 0) {

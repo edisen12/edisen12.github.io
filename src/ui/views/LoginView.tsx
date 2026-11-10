@@ -1,18 +1,26 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Eye, EyeOff, Smartphone } from 'lucide-react';
 import { signInWithPassword } from '../../services/auth.service';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
+import { usePwaInstall } from '../../utils/pwa';
+import { PwaInstallModal } from '../modals/PwaInstallModal';
 
 export function LoginView() {
   const { refreshAuth } = useApp();
   const { showToast } = useToast();
+  const { canShowInstallOption, triggerInstall } = usePwaInstall();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [pwaModalOpen, setPwaModalOpen] = useState(false);
+
+  const handlePwaInstall = () => {
+    setPwaModalOpen(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +47,7 @@ export function LoginView() {
 
   return (
     <div className="login-shell" style={{ justifyContent: 'center', padding: '16px' }}>
-      <div className="login-card" style={{ maxWidth: '420px', padding: '26px 24px', gap: '16px' }}>
+      <div className="login-card" style={{ maxWidth: '420px', padding: 'clamp(18px, 5vw, 26px) clamp(14px, 4vw, 26px)', gap: '16px' }}>
         <div className="login-logo-box" style={{ gap: '10px' }}>
           <img
             src="./infotec-logo.png"
@@ -126,14 +134,19 @@ export function LoginView() {
                 onClick={() => setShowPassword(p => !p)}
                 style={{
                   position: 'absolute',
-                  right: '4px',
+                  right: '2px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   border: 'none',
                   background: 'transparent',
                   color: 'var(--ink-muted)',
                   cursor: 'pointer',
-                  padding: '4px'
+                  padding: '8px',
+                  minWidth: '36px',
+                  minHeight: '36px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
                 title={showPassword ? 'Ocultar senha' : 'Ver senha'}
                 aria-label={showPassword ? 'Ocultar senha' : 'Ver senha'}
@@ -160,6 +173,29 @@ export function LoginView() {
           </button>
         </form>
 
+        {/* Opção elegante de Instalação PWA no celular / computador */}
+        {canShowInstallOption && (
+          <div style={{ textAlign: 'center', marginTop: '2px' }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={handlePwaInstall}
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+                fontSize: '0.82rem',
+                color: 'var(--blue)',
+                borderColor: 'var(--line)',
+                gap: '8px'
+              }}
+              title="Instalar aplicativo HH Offshore no dispositivo"
+            >
+              <Smartphone size={15} />
+              <span>Instalar aplicativo no celular / computador</span>
+            </button>
+          </div>
+        )}
+
         <div
           style={{
             textAlign: 'center',
@@ -174,6 +210,11 @@ export function LoginView() {
           <div style={{ marginTop: '2px', fontStyle: 'italic' }}>Criado por Luanna de Abreu Teixeira</div>
         </div>
       </div>
+
+      <PwaInstallModal
+        open={pwaModalOpen}
+        onClose={() => setPwaModalOpen(false)}
+      />
     </div>
   );
 }

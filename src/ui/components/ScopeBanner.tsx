@@ -72,6 +72,7 @@ export function ScopeBanner() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: '10px'
         }}
         role="status"

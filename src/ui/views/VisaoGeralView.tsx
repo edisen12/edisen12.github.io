@@ -5,14 +5,11 @@ import { StatusPill } from '../components/StatusPill';
 import { MeterBar } from '../components/MeterBar';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { PAPEIS_LABEL, PAPEIS_PLURAL } from '../../config/constants';
+import { PAPEIS_LABEL } from '../../config/constants';
 import type {
   AggregatedMetrics,
-  DayTechRow,
   PeriodDayEntry,
-  PeriodWindow,
   Pessoa,
-  Plataforma,
   StatusMeta
 } from '../../domain/types';
 import {
@@ -46,7 +43,6 @@ export function VisaoGeralView() {
     filters,
     setFilters,
     updateFilter,
-    setActiveTab,
     openFichaDrawer,
     openEmailModal,
     isGlobal
@@ -277,7 +273,7 @@ export function VisaoGeralView() {
         header: 'Técnico',
         width: '240px',
         render: r => (
-          <div style={{ minWidth: '220px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          <div style={{ minWidth: '170px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <button
               type="button"
               className="btn-link"
@@ -409,7 +405,7 @@ export function VisaoGeralView() {
       <div className="view-visao-geral-plat">
         {renderCrumbs()}
 
-        <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h2 style={{ margin: 0, fontFamily: 'var(--f-display)', color: 'var(--blue)' }}>
               {platObj ? formatPlatformLabel(platObj) : platSigla}
@@ -420,7 +416,7 @@ export function VisaoGeralView() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {Ad.inf > 0 && D && (
               <button
                 type="button"
@@ -628,7 +624,7 @@ export function VisaoGeralView() {
         <div className="view-visao-geral-resp">
           {renderCrumbs()}
 
-          <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h2 style={{ margin: 0, fontFamily: 'var(--f-display)', color: 'var(--blue)' }}>
                 {ps.nome} · {PAPEIS_LABEL[ps.papel] || 'Preposto'}
@@ -745,7 +741,6 @@ export function VisaoGeralView() {
       u: (days.find(x => x.p === p) || {}).r || ''
     }))
     .sort((a, b) => (a.A.p ?? 999) - (b.A.p ?? 999) || b.A.inf - a.A.inf);
-  const worstP = platsList[0];
 
   // Técnicos
   const tecsList = Object.entries(A.mats).map(([m, v]) => {
@@ -757,7 +752,6 @@ export function VisaoGeralView() {
       inf: v.inf
     };
   }).sort((a, b) => (a.p ?? 999) - (b.p ?? 999));
-  const worstT = tecsList[0];
 
   // Armadores
   const armDays = days.filter(x => armadorOf(pidx, x.p));
@@ -1002,7 +996,7 @@ export function VisaoGeralView() {
             <div style={{ marginBottom: '32px' }}>
               <div className="section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <h3 style={{ margin: 0, fontFamily: 'var(--f-display)' }}>Por responsável</h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span className="toolbar-label" style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontWeight: 600 }}>
                     Exibir carteira de:
                   </span>
@@ -1027,7 +1021,7 @@ export function VisaoGeralView() {
                     header: 'Responsável',
                     width: '260px',
                     render: r => (
-                      <div style={{ minWidth: '240px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: '170px', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                         <button
                           type="button"
                           className="btn-link"
@@ -1463,7 +1457,7 @@ export function VisaoGeralView() {
                     header: 'Armador',
                     width: '220px',
                     render: r => (
-                      <div style={{ minWidth: '200px', whiteSpace: 'nowrap' }}>
+                      <div style={{ minWidth: '170px', whiteSpace: 'nowrap' }}>
                         <b>{r.k}</b>
                         <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
                           {Array.from(r.A.plats).slice(0, 4).join(', ')}

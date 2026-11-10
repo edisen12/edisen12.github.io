@@ -35,6 +35,9 @@ import {
   batchImportCarteira,
   batchImportPlataformas,
   batchImportPessoas,
+  batchImportConfirmacoesSAP,
+  reconciliarConfirmacoesSAP,
+  resetCarteiraEmbarques,
   exportJsonSnapshot
 } from '../data.service';
 
@@ -560,6 +563,170 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       } finally {
         fromSpy.mockRestore();
       }
+    });
+  });
+
+  describe('10. Reconciliação SAP, Carteira Granular e Retrocompatibilidade de Dataset', () => {
+    it('assembleAppDataset garante retrocompatibilidade de hh_carteira (legado carteira 0/ausente vira undefined; portal_offshore mantém 0)', async () => {
+      mockClient.__mockState.tables.carteira_embarques = [
+        {
+          id: 'cart-legado-1',
+          matricula: '1001',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 154,
+          hh_carteira: 0,
+          hh_fora_carteira: 0,
+          hh_cancelado: 0,
+          fonte: 'carteira',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'Espírito Santo (UN-ES)'
+        },
+        {
+          id: 'cart-legado-2',
+          matricula: '1002',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 154,
+          fonte: 'carteira',
+          plataforma_sigla: 'P74',
+          unidade_negocio: 'Búzios (UN-BUZ)'
+        },
+        {
+          id: 'cart-portal-3',
+          matricula: '1003',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 154,
+          hh_carteira: 0,
+          hh_fora_carteira: 154,
+          hh_cancelado: 0,
+          fonte: 'portal_offshore',
+          plataforma_sigla: 'P25',
+          unidade_negocio: 'Bacia de Campos (UN-BC)'
+        }
+      ];
+
+      const dataset = await loadAppDataset('2026-10-01', '2026-10-31', true);
+      const c1 = dataset.carteira.find(c => c.id === 'cart-legado-1');
+      const c2 = dataset.carteira.find(c => c.id === 'cart-legado-2');
+      const c3 = dataset.carteira.find(c => c.id === 'cart-portal-3');
+
+      expect(c1).toBeDefined();
+      expect(c1?.hh_carteira).toBeUndefined(); // Legado recai para horas_programadas
+
+      expect(c2).toBeDefined();
+      expect(c2?.hh_carteira).toBeUndefined(); // Ausente recai para horas_programadas
+
+      expect(c3).toBeDefined();
+      expect(c3?.hh_carteira).toBe(0); // Portal Offshore preserva explicitamente 0
+      expect(c3?.hh_fora_carteira).toBe(154);
+    });
+
+    it('batchImportConfirmacoesSAP preserva contador e contador_confirmacao sem colisão de chave', async () => {
+      const sapRows = [
+        {
+          mat: '1001',
+          cria: '2026-10-02',
+          lanc: '2026-10-02',
+          real: '2026-10-02',
+          ordem: 'ORD-7001',
+          op: '0010',
+          hc: 4.5,
+          contador: 1
+        },
+        {
+          mat: '1001',
+          cria: '2026-10-02',
+          lanc: '2026-10-02',
+          real: '2026-10-02',
+          ordem: 'ORD-7001',
+          op: '0010',
+          hc: 4.5,
+          contador: 2
+        }
+      ];
+
+      let progressRecorded = 0;
+      await batchImportConfirmacoesSAP(sapRows, (gravadas, _total) => {
+        progressRecorded = gravadas;
+      });
+
+      expect(progressRecorded).toBe(2);
+
+      const saved = mockClient.__mockState.tables.confirmacoes_sap.filter(
+        (c: any) => c.matricula === '1001' && c.ordem === 'ORD-7001'
+      );
+      expect(saved.length).toBe(2);
+
+      const item1 = saved.find((c: any) => c.contador_confirmacao === 1);
+      const item2 = saved.find((c: any) => c.contador_confirmacao === 2);
+
+      expect(item1).toBeDefined();
+      expect(item1.horas_confirmadas).toBe(4.5);
+      expect(item2).toBeDefined();
+      expect(item2.horas_confirmadas).toBe(4.5);
+    });
+
+    it('batchImportCarteira granular sanitiza PMXL1 -> MXL em plataformas pendentes e operações', async () => {
+      const rows = [
+        {
+          mat: '1002',
+          nome: 'Mariana Costa',
+          funcao: 'Técnica de Elétrica',
+          plat: 'PMXL1',
+          reg: 'Bacia de Santos (UN-BS)',
+          ini: '2026-10-05',
+          fim: '2026-10-19',
+          hp: 80,
+          ordem: 'ORD-5500',
+          op: '0020',
+          status_prog: 'Carteira',
+          id_embarque: '55104'
+        }
+      ];
+
+      await batchImportCarteira(rows, {});
+
+      // 1. Plataforma pendente auto-cadastrada deve ter sigla 'MXL'
+      const platMxl = mockClient.__mockState.tables.plataformas.find(
+        (p: any) => p.sigla === 'MXL'
+      );
+      expect(platMxl).toBeDefined();
+      expect(platMxl.cadastro_pendente).toBe(true);
+
+      // Não deve ter criado 'PMXL1'
+      const platPmxl = mockClient.__mockState.tables.plataformas.find(
+        (p: any) => p.sigla === 'PMXL1'
+      );
+      expect(platPmxl).toBeUndefined();
+
+      // 2. Operações em carteira_operacoes devem ter plataforma_sigla sanitizada para 'MXL'
+      const opSalva = mockClient.__mockState.tables.carteira_operacoes.find(
+        (o: any) => o.matricula === '1002' && o.ordem === 'ORD-5500'
+      );
+      expect(opSalva).toBeDefined();
+      expect(opSalva.plataforma_sigla).toBe('MXL');
+      expect(opSalva.id_embarque).toBe('55104');
+    });
+
+    it('resetCarteiraEmbarques e reconciliarConfirmacoesSAP acionam as RPCs correspondentes no Supabase', async () => {
+      const rpcSpy = vi.spyOn(mockClient, 'rpc');
+
+      // 1. Reconciliação
+      const reconciliaResult = await reconciliarConfirmacoesSAP();
+      expect(rpcSpy).toHaveBeenCalledWith('reconciliar_confirmacoes_sap');
+      expect(reconciliaResult).toBeDefined();
+
+      // 2. Reset da carteira
+      const resetResult = await resetCarteiraEmbarques();
+      expect(rpcSpy).toHaveBeenCalledWith('reset_carteira_embarques');
+      expect(resetResult).toHaveProperty('deleted_operacoes');
+      expect(resetResult).toHaveProperty('deleted_embarques');
+      expect(mockClient.__mockState.tables.carteira_operacoes).toEqual([]);
+      expect(mockClient.__mockState.tables.carteira_embarques).toEqual([]);
+
+      rpcSpy.mockRestore();
     });
   });
 });

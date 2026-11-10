@@ -295,13 +295,30 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
       }
 
       // ------------------------------------------------------------------------
-      // 12. IMPORTAÇÕES EM LOTE (BATCH CHUNKS DE 500 LINHAS)
+      // 12. IMPORTAÇÕES EM LOTE, RECONCILIAÇÃO SAP E RESET DE CARTEIRA
       // ------------------------------------------------------------------------
       if (method === 'POST' && pathname === '/api/v1/imports/batch') {
         const actor = await authenticate(true);
         const body = await readJsonBody(req);
         const result = await engine.batchImportChunks(actor, body);
         return sendJson(res, 200, { ok: true, count: result.count });
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/sap/reconcile') {
+        const actor = await authenticate(true);
+        const result = await engine.reconciliarConfirmacoesSAP(actor);
+        return sendJson(res, 200, { ok: true, result });
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/carteira/reset') {
+        const actor = await authenticate(true);
+        const result = await engine.resetCarteiraEmbarques(actor, clientIp);
+        return sendJson(res, 200, {
+          ok: true,
+          deleted_operacoes: result.deleted_operacoes,
+          deleted_embarques: result.deleted_embarques,
+          message: result.message
+        });
       }
 
       // ------------------------------------------------------------------------
@@ -363,7 +380,14 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
         message: `Endpoint não encontrado: ${method} ${pathname}`
       });
     } catch (err: any) {
-      const statusCode = err.statusCode || (err.message.includes('Acesso negado') || err.message.includes('Primeiro login') ? 403 : err.message.includes('Sessão') || err.message.includes('não autenticada') ? 401 : 400);
+      const errMsg = typeof err?.message === 'string' ? err.message : '';
+      const statusCode =
+        err?.statusCode ||
+        (errMsg.includes('Acesso negado') || errMsg.includes('Primeiro login')
+          ? 403
+          : errMsg.includes('Sessão') || errMsg.includes('não autenticada')
+            ? 401
+            : 400);
 
       // Proteção CWE-209: nunca expõe stack trace interno em respostas de erro
       const isExpected = statusCode === 400 || statusCode === 401 || statusCode === 403 || statusCode === 404 || statusCode === 413;
@@ -373,7 +397,7 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
       }
 
       const clientMessage = isExpected
-        ? err.message || 'Erro ao processar solicitação.'
+        ? errMsg || 'Erro ao processar solicitação.'
         : 'Ocorreu um erro interno no servidor ao processar a operação.';
 
       return sendJson(res, isExpected ? statusCode : 500, {

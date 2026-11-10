@@ -23,6 +23,8 @@ interface MockAdminState {
   deletedUserIds: string[];
   updatedUsers: Record<string, any>;
   forceSqlInsertError: boolean;
+  forceOnboardingUpsertError: boolean;
+  forcePessoaPlataformasInsertError: boolean;
 }
 
 let state: MockAdminState;
@@ -112,7 +114,9 @@ function createFreshState(): MockAdminState {
     },
     deletedUserIds: [],
     updatedUsers: {},
-    forceSqlInsertError: false
+    forceSqlInsertError: false,
+    forceOnboardingUpsertError: false,
+    forcePessoaPlataformasInsertError: false
   };
 }
 
@@ -169,6 +173,17 @@ class MockTableQuery {
       };
     }
 
+    if (this.tableName === 'pessoa_plataformas' && state.forcePessoaPlataformasInsertError) {
+      const err = new Error('Postgres foreign key violation in pessoa_plataformas (simulated)');
+      return {
+        select: () => ({
+          single: async () => ({ data: null, error: err }),
+          maybeSingle: async () => ({ data: null, error: err })
+        }),
+        then: (resolve: any) => resolve({ data: null, error: err })
+      };
+    }
+
     const items = Array.isArray(values) ? values : [values];
     const tableDict = (state.tables[this.tableName] ||= {});
     const inserted: any[] = [];
@@ -214,6 +229,16 @@ class MockTableQuery {
   }
 
   upsert(values: any | any[], _opts?: any) {
+    if (this.tableName === 'user_onboarding' && state.forceOnboardingUpsertError) {
+      const err = new Error('Postgres constraint violation in user_onboarding (simulated)');
+      return {
+        select: () => ({
+          then: (resolve: any) => resolve({ data: null, error: err })
+        }),
+        then: (resolve: any) => resolve({ data: null, error: err })
+      };
+    }
+
     const items = Array.isArray(values) ? values : [values];
     const tableDict = (state.tables[this.tableName] ||= {});
     for (const item of items) {
@@ -758,6 +783,61 @@ describe('Segurança & Anti-Lockout: Edge Function admin-users', () => {
       expect(res.status).toBe(500);
       expect(res.body.ok).toBe(false);
       expect(res.body.message).toContain('Erro ao vincular dados do usuário');
+
+      // Garante que o rollback compensatório chamou deleteUser
+      expect(state.deletedUserIds.length).toBe(1);
+      const deletedId = state.deletedUserIds[0];
+      expect(state.users[deletedId]).toBeUndefined();
+    });
+
+    it('Falha em user_onboarding.upsert aciona deleteUser no GoTrue e retorna HTTP 500 sem vazar mensagem crua do Postgres', async () => {
+      state.forceOnboardingUpsertError = true;
+
+      const res = await callEdge(
+        {
+          action: 'create',
+          email: 'onboarding.fail@empresa.com.br',
+          nome: 'Falha Onboarding',
+          password: 'SenhaValida123!',
+          role: 'preposto'
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(500);
+      expect(res.body.ok).toBe(false);
+      // Mensagem amigável sem expor detalhes internos do Postgres (CWE-209)
+      expect(res.body.message).toBe('Erro ao vincular dados do usuário no banco de dados.');
+      expect(res.body.message).not.toContain('Postgres');
+      expect(res.body.message).not.toContain('constraint violation');
+
+      // Garante que o rollback compensatório chamou deleteUser
+      expect(state.deletedUserIds.length).toBe(1);
+      const deletedId = state.deletedUserIds[0];
+      expect(state.users[deletedId]).toBeUndefined();
+    });
+
+    it('Falha em pessoa_plataformas.insert aciona deleteUser no GoTrue e retorna HTTP 500 sem vazar mensagem crua do Postgres', async () => {
+      state.forcePessoaPlataformasInsertError = true;
+
+      const res = await callEdge(
+        {
+          action: 'create',
+          email: 'plataformas.fail@empresa.com.br',
+          nome: 'Falha Plataformas',
+          password: 'SenhaValida123!',
+          role: 'preposto',
+          plats: ['P50', 'P74']
+        },
+        { jwt: 'jwt-admin-1' }
+      );
+
+      expect(res.status).toBe(500);
+      expect(res.body.ok).toBe(false);
+      // Mensagem sanitizada sem vazar o SQL cru
+      expect(res.body.message).toBe('Erro ao vincular dados do usuário no banco de dados.');
+      expect(res.body.message).not.toContain('Postgres');
+      expect(res.body.message).not.toContain('violation');
 
       // Garante que o rollback compensatório chamou deleteUser
       expect(state.deletedUserIds.length).toBe(1);

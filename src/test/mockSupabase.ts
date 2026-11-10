@@ -4,6 +4,7 @@
 // ==============================================================================
 
 import { createInitialMockDatabaseState } from './testFixtures';
+import { sanitizePlatformCode, parseIdEmbarque } from '../utils/format';
 
 export interface MockDatabaseState {
   authUsers: Array<{
@@ -22,6 +23,237 @@ export interface MockDatabaseState {
   tables: Record<string, any[]>;
   rpcHandlers?: Record<string, (params?: any) => Promise<any> | any>;
   edgeFunctions?: Record<string, (body: any) => Promise<any> | any>;
+}
+
+function addDaysIsoMock(isoDate: string, delta: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + delta));
+  return dt.toISOString().slice(0, 10);
+}
+
+function syncMockCarteiraEmbarquesFromOperacoes(state: MockDatabaseState): void {
+  const ops = state.tables.carteira_operacoes || [];
+  if (ops.length === 0) return;
+
+  for (const op of ops) {
+    if (op.plataforma_sigla) {
+      op.plataforma_sigla = sanitizePlatformCode(op.plataforma_sigla);
+    }
+    const cleanId = parseIdEmbarque(op.id_embarque || op.portal_id || '');
+    op.id_embarque = cleanId;
+    op.portal_id = cleanId;
+  }
+
+  if (!state.tables.carteira_embarques) state.tables.carteira_embarques = [];
+  const existingCart = state.tables.carteira_embarques;
+
+  const grouped = new Map<string, any>();
+  for (const co of ops) {
+    const key = `${co.matricula}::${co.data_inicio}`;
+    const stProg = String(co.status_programacao || 'Carteira').trim();
+    const hhProg = Number(co.hh_programado || 0);
+    let acc = grouped.get(key);
+    if (!acc) {
+      acc = {
+        id_embarque: co.id_embarque || '',
+        matricula: co.matricula,
+        plataforma_sigla: co.plataforma_sigla || '',
+        unidade_negocio: co.unidade_negocio || '',
+        data_inicio: co.data_inicio,
+        data_fim: co.data_fim,
+        horas_programadas: 0,
+        hh_carteira: 0,
+        hh_fora_carteira: 0,
+        hh_cancelado: 0
+      };
+      grouped.set(key, acc);
+    } else {
+      if (co.data_fim > acc.data_fim) acc.data_fim = co.data_fim;
+      if (co.id_embarque && co.id_embarque > acc.id_embarque) acc.id_embarque = co.id_embarque;
+      if (co.plataforma_sigla && !acc.plataforma_sigla) acc.plataforma_sigla = co.plataforma_sigla;
+    }
+
+    if (stProg === 'Carteira' || stProg === 'Fora da carteira') {
+      acc.horas_programadas += hhProg;
+    }
+    if (stProg === 'Carteira') acc.hh_carteira += hhProg;
+    else if (stProg === 'Fora da carteira') acc.hh_fora_carteira += hhProg;
+    else if (stProg === 'Cancelada') acc.hh_cancelado += hhProg;
+  }
+
+  for (const g of grouped.values()) {
+    const idx = existingCart.findIndex(
+      (c: any) => c.matricula === g.matricula && c.data_inicio === g.data_inicio
+    );
+    const merged = {
+      id: idx >= 0 ? existingCart[idx].id : `cart-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      ...(idx >= 0 ? existingCart[idx] : {}),
+      id_embarque: g.id_embarque,
+      matricula: g.matricula,
+      plataforma_sigla: g.plataforma_sigla,
+      unidade_negocio: g.unidade_negocio,
+      data_inicio: g.data_inicio,
+      data_fim: g.data_fim,
+      horas_programadas: g.horas_programadas,
+      hh_carteira: g.hh_carteira,
+      hh_fora_carteira: g.hh_fora_carteira,
+      hh_cancelado: g.hh_cancelado,
+      operacao: g.id_embarque,
+      fonte: 'portal_offshore'
+    };
+    if (idx >= 0) existingCart[idx] = merged;
+    else existingCart.push(merged);
+  }
+}
+
+function executeMockReconciliacaoSap(state: MockDatabaseState) {
+  const allSap = state.tables.confirmacoes_sap || [];
+  const allOps = state.tables.carteira_operacoes || [];
+  const allCart = state.tables.carteira_embarques || [];
+  const allTecs = state.tables.tecnicos || [];
+  const tecMats = new Set(allTecs.map((t: any) => String(t.matricula)));
+
+  if (allSap.length === 0 && allOps.length === 0) {
+    return {
+      total_confirmacoes_sap: 0,
+      vinculados_ao_embarque: 0,
+      sem_embarque_associado: 0,
+      operacoes_com_batimento_ok: 0,
+      operacoes_com_divergencia: 0,
+      dias_apontados_sincronizados: 0
+    };
+  }
+
+  for (const cs of allSap) {
+    const matchingOps = allOps
+      .filter((co: any) => co.matricula === cs.matricula && co.ordem === cs.ordem && co.operacao === cs.operacao)
+      .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
+    const matchingEmbs = allCart
+      .filter((ce: any) => ce.matricula === cs.matricula)
+      .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
+
+    const opIdOf = (co: any) => parseIdEmbarque(co.id_embarque || co.portal_id || '');
+    const embIdOf = (ce: any) => parseIdEmbarque(ce.id_embarque || ce.operacao || '');
+
+    let resolvedId = '';
+    const p1 = matchingOps.find((co: any) => cs.data_fim_real >= co.data_inicio && cs.data_fim_real <= co.data_fim);
+    if (p1) resolvedId = opIdOf(p1);
+    if (!resolvedId) {
+      const p2 = matchingOps.find(
+        (co: any) => cs.data_lancamento >= co.data_inicio && cs.data_lancamento <= addDaysIsoMock(co.data_fim, 4)
+      );
+      if (p2) resolvedId = opIdOf(p2);
+    }
+    if (!resolvedId && matchingOps.length > 0) {
+      const distinctIds = Array.from(new Set(matchingOps.map(opIdOf)));
+      if (distinctIds.length === 1) resolvedId = distinctIds[0];
+    }
+    if (!resolvedId) {
+      const p4 = matchingEmbs.find((ce: any) => cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim);
+      if (p4) resolvedId = embIdOf(p4);
+    }
+    if (!resolvedId) {
+      const p5 = matchingEmbs.find(
+        (ce: any) => cs.data_lancamento >= ce.data_inicio && cs.data_lancamento <= addDaysIsoMock(ce.data_fim, 4)
+      );
+      if (p5) resolvedId = embIdOf(p5);
+    }
+
+    let statusRec = 'Sem Embarque';
+    if (matchingOps.length > 0) {
+      statusRec = 'Em Carteira';
+    } else if (
+      matchingEmbs.some(
+        (ce: any) =>
+          (cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim) ||
+          (cs.data_lancamento >= ce.data_inicio && cs.data_lancamento <= addDaysIsoMock(ce.data_fim, 4))
+      )
+    ) {
+      statusRec = 'Fora da Carteira';
+    }
+
+    cs.id_embarque = resolvedId;
+    cs.status_reconciliacao = statusRec;
+  }
+
+  const sapAggMap = new Map<string, number>();
+  for (const cs of allSap) {
+    const k = `${cs.matricula}::${cs.ordem}::${cs.operacao}::${cs.id_embarque}`;
+    sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
+  }
+
+  for (const co of allOps) {
+    const idEmb = parseIdEmbarque(co.id_embarque || co.portal_id || '');
+    const k = `${co.matricula}::${co.ordem}::${co.operacao}::${idEmb}`;
+    const totalSap = sapAggMap.get(k) || 0;
+    const hhConf = Number(co.hh_confirmado || 0);
+    const div = Math.round((hhConf - totalSap) * 100) / 100;
+
+    let statusDiv = 'Divergente';
+    if (hhConf === 0 && totalSap === 0) statusDiv = 'Não Confirmado';
+    else if (hhConf === totalSap) statusDiv = 'OK';
+    else if (totalSap === 0 && hhConf > 0) statusDiv = 'Não Apontado no SAP';
+    else if (hhConf === 0 && totalSap > 0) statusDiv = 'Não Confirmado no Portal';
+    else if (hhConf > totalSap) statusDiv = 'Divergente (Portal > SAP)';
+    else if (hhConf < totalSap) statusDiv = 'Divergente (SAP > Portal)';
+
+    co.hh_confirmado_sap = totalSap;
+    co.divergencia_sap = div;
+    co.status_divergencia = statusDiv;
+  }
+
+  // Sincroniza apontamentos_hh diários a partir das confirmações do SAP (teto [0, 24])
+  const dailyMap = new Map<string, { matricula: string; data: string; total: number; plat: string; un: string }>();
+  for (const cs of allSap) {
+    if (!cs.data_fim_real || !tecMats.has(String(cs.matricula))) continue;
+    const dk = `${cs.matricula}::${cs.data_fim_real}`;
+    const ceRef = allCart.find(
+      (ce: any) =>
+        ce.matricula === cs.matricula &&
+        (parseIdEmbarque(ce.id_embarque || ce.operacao || '') === cs.id_embarque ||
+          (cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim))
+    );
+    const entry = dailyMap.get(dk) || {
+      matricula: cs.matricula,
+      data: cs.data_fim_real,
+      total: 0,
+      plat: ceRef?.plataforma_sigla || '',
+      un: ceRef?.unidade_negocio || 'UN-DESCONHECIDA'
+    };
+    entry.total += Number(cs.horas_confirmadas || 0);
+    dailyMap.set(dk, entry);
+  }
+
+  if (!state.tables.apontamentos_hh) state.tables.apontamentos_hh = [];
+  for (const d of dailyMap.values()) {
+    const clamped = Math.min(24, Math.max(0, Math.round(d.total * 100) / 100));
+    const idx = state.tables.apontamentos_hh.findIndex(
+      (h: any) => h.matricula === d.matricula && h.data === d.data
+    );
+    const hhRow = {
+      id: idx >= 0 ? state.tables.apontamentos_hh[idx].id : `hh-sap-${Math.random().toString(36).slice(2, 7)}`,
+      matricula: d.matricula,
+      data: d.data,
+      plataforma_sigla: d.plat,
+      unidade_negocio: d.un,
+      horas_executadas: clamped
+    };
+    if (idx >= 0) state.tables.apontamentos_hh[idx] = hhRow;
+    else state.tables.apontamentos_hh.push(hhRow);
+  }
+
+  const vinculados = allSap.filter((cs: any) => cs.id_embarque !== '').length;
+  const opsOk = allOps.filter((co: any) => co.status_divergencia === 'OK').length;
+  const opsDiv = allOps.filter((co: any) => String(co.status_divergencia || '').startsWith('Divergente')).length;
+
+  return {
+    total_confirmacoes_sap: allSap.length,
+    vinculados_ao_embarque: vinculados,
+    sem_embarque_associado: allSap.length - vinculados,
+    operacoes_com_batimento_ok: opsOk,
+    operacoes_com_divergencia: opsDiv,
+    dias_apontados_sincronizados: dailyMap.size
+  };
 }
 
 export class MockQueryBuilder {
@@ -63,6 +295,22 @@ export class MockQueryBuilder {
 
   lte(column: string, value: any) {
     this.filters.push(row => row[column] != null && row[column] <= value);
+    return this;
+  }
+
+  in(column: string, values: any[]) {
+    const allowed = Array.isArray(values) ? values : [];
+    this.filters.push(row => allowed.includes(row[column]));
+    return this;
+  }
+
+  ilike(column: string, pattern: string) {
+    const escaped = String(pattern ?? '')
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/%/g, '.*')
+      .replace(/_/g, '.');
+    const regex = new RegExp(`^${escaped}$`, 'i');
+    this.filters.push(row => row[column] != null && regex.test(String(row[column])));
     return this;
   }
 
@@ -193,6 +441,9 @@ export class MockQueryBuilder {
         });
 
         const resultData = Array.isArray(this.payload) ? upsertedItems : upsertedItems[0];
+        if (this.table === 'carteira_operacoes') {
+          syncMockCarteiraEmbarquesFromOperacoes(this.state);
+        }
         return { data: resultData, error: null };
       }
 
@@ -537,16 +788,101 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
 
         case 'reconciliar_confirmacoes_sap': {
           return {
+            data: executeMockReconciliacaoSap(state),
+            error: null
+          };
+        }
+
+        case 'reset_carteira_embarques': {
+          if (!state.currentUser) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas administradores e gestores globais podem resetar a carteira')
+            };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && (prof.ativo === false || (prof.role !== 'admin' && prof.role !== 'gestor'))) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas administradores e gestores globais podem resetar a carteira')
+            };
+          }
+
+          const deleted_operacoes = (state.tables.carteira_operacoes || []).length;
+          const deleted_embarques = (state.tables.carteira_embarques || []).length;
+          state.tables.carteira_operacoes = [];
+          state.tables.carteira_embarques = [];
+
+          const nowIso = new Date().toISOString();
+          (state.tables.confirmacoes_sap || []).forEach((cs: any) => {
+            if (cs.id_embarque !== '' || cs.status_reconciliacao !== 'Pendente') {
+              cs.id_embarque = '';
+              cs.status_reconciliacao = 'Pendente';
+              cs.updated_at = nowIso;
+            }
+          });
+
+          if (!state.tables.system_audit_logs) state.tables.system_audit_logs = [];
+          state.tables.system_audit_logs.push({
+            id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            actor_id: state.currentUser.id,
+            actor_nome: prof?.nome || 'Administrador',
+            actor_email: state.currentUser.email,
+            actor_role: prof?.role || 'admin',
+            action: 'carteira_reset',
+            category: 'operacional',
+            target_id: 'carteira',
+            target_label: 'Carteira de Embarques e Operações',
+            details: { deleted_operacoes, deleted_embarques },
+            ip_address: null,
+            created_at: nowIso
+          });
+
+          return {
             data: {
-              total_confirmacoes_sap: 0,
-              vinculados_ao_embarque: 0,
-              sem_embarque_associado: 0,
-              operacoes_com_batimento_ok: 0,
-              operacoes_com_divergencia: 0,
-              dias_apontados_sincronizados: 0
+              success: true,
+              deleted_operacoes,
+              deleted_embarques,
+              message: 'Carteira de operações e embarques resetadas com sucesso para reimportação limpa.'
             },
             error: null
           };
+        }
+
+        case 'log_system_event': {
+          if (!state.currentUser) {
+            return { data: null, error: new Error('Acesso não autorizado para emissão de auditoria.') };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && prof.ativo === false) {
+            return { data: null, error: new Error('Acesso não autorizado: usuário inativo ou suspenso.') };
+          }
+          const action = String(params?.p_action ?? '').trim();
+          const category = String(params?.p_category ?? '').trim().toLowerCase();
+          if (!action) {
+            return { data: null, error: new Error('Ação de auditoria não pode ser vazia.') };
+          }
+          const validCats = ['usuarios', 'seguranca', 'configuracoes', 'cadastros', 'operacional'];
+          if (!validCats.includes(category)) {
+            return { data: null, error: new Error(`Categoria de auditoria inválida: ${category}`) };
+          }
+          const logId = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          if (!state.tables.system_audit_logs) state.tables.system_audit_logs = [];
+          state.tables.system_audit_logs.push({
+            id: logId,
+            actor_id: state.currentUser.id,
+            actor_nome: prof?.nome || 'Usuário Autenticado',
+            actor_email: state.currentUser.email,
+            actor_role: prof?.role || 'authenticated',
+            action,
+            category,
+            target_id: params?.p_target_id ?? null,
+            target_label: params?.p_target_label ?? null,
+            details: params?.p_details ?? {},
+            ip_address: null,
+            created_at: new Date().toISOString()
+          });
+          return { data: logId, error: null };
         }
 
         default:

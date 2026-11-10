@@ -62,7 +62,7 @@ export function Modal({
       <div
         ref={boxRef}
         className={`modal-box ${className}`.trim()}
-        style={{ maxWidth }}
+        style={{ maxWidth, width: '100%' }}
       >
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>

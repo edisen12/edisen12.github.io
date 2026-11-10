@@ -6,11 +6,14 @@
 import type {
   ApontamentoHH,
   CarteiraEmbarque,
+  CarteiraOperacao,
+  ConfirmacaoSAP,
   ContractConfig,
   FluxoImportacao,
   Justificativa,
   Pessoa,
   Plataforma,
+  SystemAuditLog,
   Tecnico,
   UserOnboarding,
   UserProfile,
@@ -461,6 +464,18 @@ export const mockLatestFluxo: FluxoImportacao = {
   criado_em: '2026-10-06T18:30:00Z'
 };
 
+export const mockCarteiraOperacoesRows: CarteiraOperacao[] = [];
+
+export const mockConfirmacoesSapRows: ConfirmacaoSAP[] = [];
+
+export const mockSystemAuditLogsRows: SystemAuditLog[] = [];
+
+export const mockJustificativasAuditLogRows: Array<Record<string, unknown>> = [];
+
+export const mockSyncHeartbeatRows = [
+  { id: 1, updated_at: '2026-10-06T18:30:00Z' }
+];
+
 // ------------------------------------------------------------------------------
 // Gerador de Estado Inicial Limpo para Banco Mock
 // ------------------------------------------------------------------------------
@@ -513,8 +528,12 @@ export function createInitialMockDatabaseState() {
       pessoa_unidades: JSON.parse(JSON.stringify(mockPessoaUnidadesRows)),
       tecnicos: JSON.parse(JSON.stringify(mockTecnicosRows)),
       carteira_embarques: JSON.parse(JSON.stringify(mockCarteiraRows)),
+      carteira_operacoes: JSON.parse(JSON.stringify(mockCarteiraOperacoesRows)),
+      confirmacoes_sap: JSON.parse(JSON.stringify(mockConfirmacoesSapRows)),
       apontamentos_hh: JSON.parse(JSON.stringify(mockApontamentosHHRows)),
       justificativas: JSON.parse(JSON.stringify(mockJustificativasRows)),
+      justificativas_audit_log: JSON.parse(JSON.stringify(mockJustificativasAuditLogRows)),
+      system_audit_logs: JSON.parse(JSON.stringify(mockSystemAuditLogsRows)),
       configuracoes: [JSON.parse(JSON.stringify(mockContractConfig))],
       config_usoff_un: JSON.parse(JSON.stringify(mockUsoffUnWeights)),
       configuracoes_notificacao: [
@@ -524,7 +543,8 @@ export function createInitialMockDatabaseState() {
           updated_at: '2026-10-01T00:00:00Z'
         }
       ],
-      fluxo_importacoes: [JSON.parse(JSON.stringify(mockLatestFluxo))]
+      fluxo_importacoes: [JSON.parse(JSON.stringify(mockLatestFluxo))],
+      sync_heartbeat: JSON.parse(JSON.stringify(mockSyncHeartbeatRows))
     }
   };
 }

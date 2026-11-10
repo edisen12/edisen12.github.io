@@ -95,22 +95,37 @@ function isValidCpfChecksum(cpf: string): boolean {
   return remainder === parseInt(clean[10], 10);
 }
 
-// Função utilitária para varrer recursivamente arquivos do repositório
-function getAllSourceFiles(dir: string, fileList: string[] = []): string[] {
-  const files = fs.readdirSync(dir);
-  for (const file of files) {
-    const fullPath = path.join(dir, file);
-    const stat = fs.statSync(fullPath);
-    if (stat.isDirectory()) {
-      if (file !== 'node_modules' && file !== '.git' && file !== 'dist') {
-        getAllSourceFiles(fullPath, fileList);
+// Extensões de arquivos auditados contra vazamento e credenciais
+const AUDIT_EXTENSIONS = ['.ts', '.tsx', '.js', '.json', '.env', '.webmanifest'];
+
+// Função utilitária para varrer recursivamente múltiplos diretórios do repositório
+function getAllAuditFiles(dirs: string[], exts: string[] = AUDIT_EXTENSIONS): string[] {
+  const fileList: string[] = [];
+
+  function walk(currentDir: string) {
+    if (!fs.existsSync(currentDir)) return;
+    const entries = fs.readdirSync(currentDir);
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        if (entry !== 'node_modules' && entry !== '.git' && entry !== 'dist' && entry !== '.agent') {
+          walk(fullPath);
+        }
+      } else if (exts.some(ext => entry.endsWith(ext))) {
+        fileList.push(fullPath);
       }
-    } else if (file.endsWith('.ts') || file.endsWith('.tsx') || file.endsWith('.env') || file.endsWith('.json')) {
-      fileList.push(fullPath);
     }
+  }
+
+  for (const dir of dirs) {
+    walk(path.resolve(process.cwd(), dir));
   }
   return fileList;
 }
+
+// Mantido para compatibilidade retroativa
+const getAllSourceFiles = (dir: string): string[] => getAllAuditFiles([dir]);
 
 describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitização Universal', () => {
   const originalBookAppendSheet = XLSX.utils.book_append_sheet;
@@ -124,12 +139,20 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
   // 1. AUDITORIA ESTÁTICA: ZERO SECRETS & ZERO PII
   // ============================================================================
   describe('1. Auditoria Estática de Código e Repositório (Zero Secrets & Zero PII)', () => {
-    const srcDir = path.resolve(process.cwd(), 'src');
-    const sourceFiles = getAllSourceFiles(srcDir);
+    const auditDirs = ['src', 'server', 'supabase/functions', 'public'];
+    const auditFiles = getAllAuditFiles(auditDirs);
 
-    it('nenhum arquivo do código-fonte contém chaves com role "service_role" em texto plano', () => {
+    it('a varredura estática cobre todos os diretórios críticos (src, server, supabase/functions, public)', () => {
+      expect(auditFiles.some(f => f.includes('server'))).toBe(true);
+      expect(auditFiles.some(f => f.includes('supabase') && f.includes('admin-users'))).toBe(true);
+      expect(auditFiles.some(f => f.includes('public') && f.endsWith('sw.js'))).toBe(true);
+      expect(auditFiles.some(f => f.includes('public') && f.endsWith('manifest.webmanifest'))).toBe(true);
+      expect(auditFiles.length).toBeGreaterThan(50);
+    });
+
+    it('nenhum arquivo do código-fonte, servidor ou funções contém chaves com role "service_role" em texto plano', () => {
       // Ignora o teste de edge function que simula leitura de variável de ambiente interna
-      const filesToCheck = sourceFiles.filter(f => !f.includes('admin-users-edge.test.ts'));
+      const filesToCheck = auditFiles.filter(f => !f.includes('admin-users-edge.test.ts'));
 
       for (const filePath of filesToCheck) {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -137,10 +160,12 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
         // Regex para detecção de chaves de service_role hardcoded
         expect(content).not.toMatch(/service_role_key\s*=\s*['"`][A-Za-z0-9_-]{20,}['"`]/i);
         expect(content).not.toMatch(/['"`]eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+['"`].*service_role/i);
+        expect(content).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY\s*=\s*['"`]eyJ/i);
       }
     });
 
     it('a chave pública padrão em src/config/env.ts possui estritamente role "anon"', () => {
+      const srcDir = path.resolve(process.cwd(), 'src');
       const envPath = path.resolve(srcDir, 'config/env.ts');
       const envContent = fs.readFileSync(envPath, 'utf-8');
 
@@ -162,7 +187,7 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
     });
 
     it('nenhuma chave privada PEM/RSA ou tokens de nuvem mestres estão gravados em texto plano', () => {
-      const filesToCheck = sourceFiles.filter(f => !f.includes('data-leakage-and-sanitization.test.ts'));
+      const filesToCheck = auditFiles.filter(f => !f.includes('data-leakage-and-sanitization.test.ts'));
 
       for (const filePath of filesToCheck) {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -178,10 +203,20 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
       }
     });
 
+    it('nenhum arquivo do repositório contém DATABASE_URL com senha em texto plano exposta', () => {
+      const filesToCheck = auditFiles.filter(f => !f.includes('data-leakage-and-sanitization.test.ts'));
+      const dbUrlWithPasswordPattern = /(?:postgres|postgresql|mysql|mongodb(?:\+srv)?):\/\/[^\s/:@]+:[^\s/:@]+@[^\s/:]+/i;
+
+      for (const filePath of filesToCheck) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        expect(content).not.toMatch(dbUrlWithPasswordPattern);
+      }
+    });
+
     it('nenhum dado pessoal sensível real (CPFs reais com checksum válido) está versionado', () => {
       const cpfPattern = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g;
 
-      for (const filePath of sourceFiles) {
+      for (const filePath of auditFiles) {
         const content = fs.readFileSync(filePath, 'utf-8');
         const matches = content.match(cpfPattern) || [];
 
@@ -193,10 +228,10 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
       }
     });
 
-    it('nenhum telefone celular pessoal com código do Brasil (+55) está gravado em código de produção', () => {
+    it('nenhum telefone celular pessoal com código do Brasil (+55) está gravado em código de produção ou servidor', () => {
       const phonePattern = /\+55\s?\(?[1-9]{2}\)?\s?9\d{4}-?\d{4}/g;
 
-      for (const filePath of sourceFiles) {
+      for (const filePath of auditFiles) {
         const content = fs.readFileSync(filePath, 'utf-8');
         expect(content).not.toMatch(phonePattern);
       }
@@ -581,6 +616,98 @@ describe('Auditoria de Segurança: Prevenção de Vazamento de Dados e Sanitiza�
       await expect(parseSpreadsheetFile(bigFile)).rejects.toThrow(
         'O arquivo excede o limite máximo permitido de 15 MB.'
       );
+    });
+  });
+
+  // ============================================================================
+  // 5. AUDITORIA DE SEGURANÇA PWA E ASSETS PÚBLICOS (sw.js & manifest.webmanifest)
+  // ============================================================================
+  describe('5. Auditoria de Segurança PWA e Assets Públicos (public/sw.js & public/manifest.webmanifest)', () => {
+    const publicDir = path.resolve(process.cwd(), 'public');
+    const swPath = path.resolve(publicDir, 'sw.js');
+    const manifestPath = path.resolve(publicDir, 'manifest.webmanifest');
+
+    it('public/sw.js existe e implementa política de segurança estrita para Service Worker', () => {
+      expect(fs.existsSync(swPath)).toBe(true);
+      const swContent = fs.readFileSync(swPath, 'utf-8');
+
+      // 1. Proibição absoluta de interceptar dados sensíveis e APIs
+      expect(swContent).toMatch(/pathname\.startsWith\(['"]\/api['"]\)/);
+      expect(swContent).toMatch(/pathname\.startsWith\(['"]\/auth['"]\)/);
+      expect(swContent).toMatch(/pathname\.startsWith\(['"]\/rest['"]\)/);
+      expect(swContent).toMatch(/pathname\.startsWith\(['"]\/functions['"]\)/);
+      expect(swContent).toMatch(/pathname\.startsWith\(['"]\/realtime['"]\)/);
+
+      // 2. Não armazena requisições com cabeçalho de autenticação ou SSE
+      expect(swContent).toMatch(/headers\.has\(['"]authorization['"]\)/);
+      expect(swContent).toMatch(/text\/event-stream/);
+
+      // 3. Permite apenas método GET
+      expect(swContent).toMatch(/request\.method !== ['"]GET['"]/);
+
+      // 4. Zero tokens, credenciais ou strings sensíveis
+      expect(swContent).not.toMatch(/service_role/i);
+      expect(swContent).not.toMatch(/bearer\s+[A-Za-z0-9_-]{20,}/i);
+      expect(swContent).not.toMatch(/password/i);
+      expect(swContent).not.toMatch(/infotecbrasil\.com\.br/i); // Zero e-mails ou PII
+
+      // 5. Assets em pré-cache são estritamente estáticos públicos
+      const precacheMatch = swContent.match(/PRECACHE_ASSETS\s*=\s*\[([\s\S]*?)\];/);
+      expect(precacheMatch).not.toBeNull();
+      const precacheBlock = precacheMatch![1];
+      expect(precacheBlock).toContain("'./manifest.webmanifest'");
+      expect(precacheBlock).toContain("'./index.html'");
+      expect(precacheBlock).not.toMatch(/(?:\/api|\/rest|\/auth|\/functions)/);
+    });
+
+    it('public/manifest.webmanifest possui configuração válida, segura e sem vazamento de escopo', () => {
+      expect(fs.existsSync(manifestPath)).toBe(true);
+      const rawManifest = fs.readFileSync(manifestPath, 'utf-8');
+
+      // JSON válido
+      let manifest: any;
+      expect(() => {
+        manifest = JSON.parse(rawManifest);
+      }).not.toThrow();
+
+      // Metadados básicos de PWA
+      expect(manifest.name).toBe('HH Offshore · Infotec Brasil');
+      expect(manifest.short_name).toBe('HH Offshore');
+      expect(manifest.display).toBe('standalone');
+      expect(manifest.start_url).toBe('./');
+      expect(manifest.scope).toBe('./');
+      expect(manifest.theme_color).toBe('#0b2d5c');
+
+      // Ícones configurados
+      expect(Array.isArray(manifest.icons)).toBe(true);
+      expect(manifest.icons.length).toBeGreaterThanOrEqual(3);
+      for (const icon of manifest.icons) {
+        expect(icon.src).toMatch(/^\.\/icons\//);
+        expect(icon.sizes).toBeDefined();
+        expect(icon.type).toBe('image/png');
+      }
+
+      // Zero credenciais, tokens ou PII
+      expect(rawManifest).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+      expect(rawManifest).not.toMatch(/@infotecbrasil\.com\.br/);
+      expect(rawManifest).not.toMatch(/password|secret|token|api_key/i);
+    });
+
+    it('diretório public/ contém apenas assets estáticos públicos seguros e arquivo .nojekyll', () => {
+      const publicFiles = fs.readdirSync(publicDir);
+
+      // Deve conter .nojekyll para compatibilidade com GitHub Pages
+      expect(publicFiles).toContain('.nojekyll');
+      expect(publicFiles).toContain('manifest.webmanifest');
+      expect(publicFiles).toContain('sw.js');
+
+      // Nenhum arquivo de ambiente (.env) ou configuração confidencial em public/
+      for (const file of publicFiles) {
+        expect(file).not.toMatch(/\.env(?:\..+)?$/i);
+        expect(file).not.toMatch(/\.key$/i);
+        expect(file).not.toMatch(/\.pem$/i);
+        expect(file).not.toMatch(/docker/i);
+      }
     });
   });
 });

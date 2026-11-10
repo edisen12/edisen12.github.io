@@ -123,7 +123,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
   // 2. ISOLAMENTO DE ABAS E NAVEGAÇÃO NA SIDEBAR
   // ----------------------------------------------------------------------------
   describe('2. Acesso e Visibilidade de Abas por Papel (NAV_TABS)', () => {
-    it('Admin tem acesso a todas as 9 abas do sistema + perfil no rodapé', () => {
+    it('Admin tem acesso a todas as 10 abas do sistema + perfil no rodapé', () => {
       vi.mocked(useApp).mockReturnValue({
         activeTab: 'ger' as TabId,
         setActiveTab: mockSetActiveTab,
@@ -142,7 +142,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
 
       render(React.createElement(Sidebar));
 
-      // Todas as 9 abas devem estar visíveis
+      // Todas as 10 abas devem estar visíveis
       const expectedTabs = [
         'Visão geral',
         'Painel do dia',
@@ -152,7 +152,8 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
         'Medição USOFF',
         'Pessoas, plataformas e acessos',
         'Importar dados',
-        'Configurações'
+        'Configurações',
+        'Painel do Administrador'
       ];
 
       for (const tabName of expectedTabs) {
@@ -166,7 +167,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(screen.getByRole('button', { name: /Configurações do usuário/i })).not.toBeNull();
     });
 
-    it('Gestor tem acesso a todas as 9 abas do sistema + perfil no rodapé', () => {
+    it('Gestor tem acesso a todas as 10 abas do sistema + perfil no rodapé', () => {
       vi.mocked(useApp).mockReturnValue({
         activeTab: 'ger' as TabId,
         setActiveTab: mockSetActiveTab,
@@ -188,10 +189,11 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(screen.getByText('Pessoas, plataformas e acessos')).not.toBeNull();
       expect(screen.getByText('Importar dados')).not.toBeNull();
       expect(screen.getByText('Configurações')).not.toBeNull();
+      expect(screen.getByText('Painel do Administrador')).not.toBeNull();
       expect(screen.getByText('Administração')).not.toBeNull();
     });
 
-    it('Controlador tem acesso estrito a 7 abas (6 operacionais + perfil) e bloqueio das 3 administrativas', () => {
+    it('Controlador tem acesso estrito a 7 abas (6 operacionais + perfil) e bloqueio das 4 administrativas', () => {
       vi.mocked(useApp).mockReturnValue({
         activeTab: 'ger' as TabId,
         setActiveTab: mockSetActiveTab,
@@ -221,14 +223,15 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       // 7ª aba universal: perfil de usuário
       expect(screen.getByRole('button', { name: /Configurações do usuário/i })).not.toBeNull();
 
-      // Abas restritas PROIBIDAS para controlador
+      // 4 abas administrativas restritas PROIBIDAS para controlador
       expect(screen.queryByText('Pessoas, plataformas e acessos')).toBeNull();
       expect(screen.queryByText('Importar dados')).toBeNull();
       expect(screen.queryByText('Configurações')).toBeNull();
+      expect(screen.queryByText('Painel do Administrador')).toBeNull();
       expect(screen.queryByText('Administração')).toBeNull();
     });
 
-    it('Preposto tem acesso estrito a 7 abas (6 operacionais + perfil) e bloqueio das 3 administrativas', () => {
+    it('Preposto tem acesso estrito a 7 abas (6 operacionais + perfil) e bloqueio das 4 administrativas', () => {
       vi.mocked(useApp).mockReturnValue({
         activeTab: 'ger' as TabId,
         setActiveTab: mockSetActiveTab,
@@ -258,10 +261,11 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       // Perfil no rodapé
       expect(screen.getByRole('button', { name: /Configurações do usuário/i })).not.toBeNull();
 
-      // Abas restritas totalmente ausentes
+      // 4 abas administrativas restritas totalmente ausentes
       expect(screen.queryByText('Pessoas, plataformas e acessos')).toBeNull();
       expect(screen.queryByText('Importar dados')).toBeNull();
       expect(screen.queryByText('Configurações')).toBeNull();
+      expect(screen.queryByText('Painel do Administrador')).toBeNull();
       expect(screen.queryByText('Administração')).toBeNull();
     });
   });
@@ -291,6 +295,8 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
           return isGlobal ? 'ImportarDadosView' : 'VisaoGeralView';
         case 'cfg':
           return isGlobal ? 'ConfiguracoesView' : 'VisaoGeralView';
+        case 'adm':
+          return isGlobal ? 'AdminAuditView' : 'VisaoGeralView';
         case 'perfil':
           return 'UserSettingsView';
         default:
@@ -313,6 +319,11 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(simulateActiveTabRouter('cfg', true)).toBe('ConfiguracoesView');
     });
 
+    it('Bloqueia acesso a "adm" para não-globais redirecionando para VisaoGeralView', () => {
+      expect(simulateActiveTabRouter('adm', false)).toBe('VisaoGeralView');
+      expect(simulateActiveTabRouter('adm', true)).toBe('AdminAuditView');
+    });
+
     it('Garante acesso seguro às abas operacionais para todos os papéis', () => {
       const operationalTabs: TabId[] = ['ger', 'dia', 'emb', 'jus', 'med', 'us'];
       for (const tab of operationalTabs) {
@@ -321,17 +332,17 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       }
     });
 
-    it('Efeito no AppContext: se não-global tentar ficar em "pes", "imp" ou "cfg", força retorno para "ger"', () => {
-      const activeTabsRestricted: TabId[] = ['pes', 'imp', 'cfg'];
+    it('Efeito no AppContext: se não-global tentar ficar em "pes", "imp", "cfg" ou "adm", força retorno para "ger"', () => {
+      const activeTabsRestricted: TabId[] = ['pes', 'imp', 'cfg', 'adm'];
 
       for (const restrictedTab of activeTabsRestricted) {
         let currentTab: TabId = restrictedTab;
         const setTab = (t: TabId) => { currentTab = t; };
 
         // Simula o useEffect de sanitização em AppContext.tsx:
-        // if (userProfile && !isGlobal && (activeTab === 'pes' || activeTab === 'imp' || activeTab === 'cfg')) { setActiveTab('ger'); }
+        // if (userProfile && !isGlobal && (activeTab === 'pes' || activeTab === 'imp' || activeTab === 'cfg' || activeTab === 'adm')) { setActiveTab('ger'); }
         const isGlobal = false;
-        if (!isGlobal && (currentTab === 'pes' || currentTab === 'imp' || currentTab === 'cfg')) {
+        if (!isGlobal && (currentTab === 'pes' || currentTab === 'imp' || currentTab === 'cfg' || currentTab === 'adm')) {
           setTab('ger');
         }
 

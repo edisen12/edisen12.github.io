@@ -7,7 +7,7 @@ import { MeterBar } from '../components/MeterBar';
 import { Modal } from '../components/Modal';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import type { ConfirmacaoSAP, DayTechRow, StatusMeta } from '../../domain/types';
+import type { ConfirmacaoSAP, DayTechRow } from '../../domain/types';
 import {
   calcPct,
   formatHours,
@@ -15,7 +15,7 @@ import {
   formatSignedHours,
   plural
 } from '../../utils/format';
-import { addDays, diffDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
+import { addDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
 import {
   buildSapIndex,
   computeDayRows,
@@ -36,7 +36,9 @@ export function PainelDiaView() {
     updateFilter,
     openFichaDrawer,
     openJustModal,
-    openEmailModal
+    openEmailModal,
+    isGlobal,
+    scopeLabel
   } = useApp();
 
   const { showToast } = useToast();
@@ -126,7 +128,8 @@ export function PainelDiaView() {
       await exportPainelDiaOrdensXlsx({
         date: D,
         dataset,
-        rows: allRows
+        rows: allRows,
+        scopeLabel: isGlobal ? undefined : scopeLabel
       });
       showToast(`Apontamentos e ordens de ${formatBr(D)} exportados com sucesso!`, 'success');
     } catch (err: any) {
@@ -402,7 +405,7 @@ export function PainelDiaView() {
   return (
     <div className="view-painel-dia">
       {/* Cabeçalho */}
-      <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <div className="card-header-view" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h2 style={{ margin: 0, fontFamily: 'var(--f-display)', color: 'var(--blue)' }}>
             Execução de {formatBr(D)} {D === ontem ? '(ontem)' : ''}
@@ -412,7 +415,7 @@ export function PainelDiaView() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn-secondary"
@@ -504,7 +507,7 @@ export function PainelDiaView() {
       {/* Unidades de negócio */}
       <div style={{ marginBottom: '28px' }}>
         <h3 style={{ fontFamily: 'var(--f-display)', marginBottom: '14px' }}>Unidades de negócio</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '16px' }}>
           {regsGrouped.map(g => {
             const platInUn = allRows.filter(x => x.r === g.k);
             const platsGrouped = groupDaysByField(
@@ -707,7 +710,7 @@ export function PainelDiaView() {
             )}
 
             {/* Tabela de Ordens */}
-            <div className="table-responsive" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+            <div className="table-responsive" style={{ maxHeight: '380px', overflowY: 'auto', overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
               <table className="table-base" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--line)', textAlign: 'left', background: 'var(--surface)' }}>

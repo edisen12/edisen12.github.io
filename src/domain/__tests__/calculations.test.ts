@@ -44,6 +44,7 @@ import {
   listAvailableUnits,
   lookupPlatform,
   mergeConfrontoOperations,
+  UMS_HH_ARMADOR_SIGLAS,
   UMS_PROGRAMADAS_SIGLAS,
   passesFilter,
   prazoOf,
@@ -1253,6 +1254,298 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(extraOp?.hh_programado).toBe(0);
       expect(extraOp?.hh_confirmado).toBe(0);
       expect(extraOp?.divergencia_sap).toBe(-6);
+    });
+
+    it('UMS_HH_ARMADOR_SIGLAS: UMAR, UMCP e UMPA são cobradas em HH enquanto UMAC e UMMA são isentas por diária quando sem programação/execução', () => {
+      expect(UMS_HH_ARMADOR_SIGLAS.has('UMAR')).toBe(true);
+      expect(UMS_HH_ARMADOR_SIGLAS.has('UMCP')).toBe(true);
+      expect(UMS_HH_ARMADOR_SIGLAS.has('UMPA')).toBe(true);
+      expect(UMS_HH_ARMADOR_SIGLAS.has('UMAC')).toBe(false);
+      expect(UMS_HH_ARMADOR_SIGLAS.has('UMMA')).toBe(false);
+
+      const umsCatalog: Record<string, Plataforma> = {
+        UMAR: {
+          sigla: 'UMAR',
+          chave_norm: 'umar',
+          nome: 'UMS Arendal',
+          un: 'Armador',
+          armador: 'Floatel',
+          gerencia: 'UO-RIO',
+          tipo: 'UMS Afretada',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        },
+        UMCP: {
+          sigla: 'UMCP',
+          chave_norm: 'umcp',
+          nome: 'UMS Cidade de Paraty',
+          un: 'Armador',
+          armador: 'POSH',
+          gerencia: 'UO-BS',
+          tipo: 'UMS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        },
+        UMPA: {
+          sigla: 'UMPA',
+          chave_norm: 'umpa',
+          nome: 'UMS Posh Arcadia',
+          un: 'Armador',
+          armador: 'POSH',
+          gerencia: 'UO-BC',
+          tipo: 'UMS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        },
+        UMAC: {
+          sigla: 'UMAC',
+          chave_norm: 'umac',
+          nome: 'UMS Aquarius',
+          un: 'Armador',
+          armador: 'GranEnergia',
+          gerencia: 'UO-BC',
+          tipo: 'UMS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        },
+        UMMA: {
+          sigla: 'UMMA',
+          chave_norm: 'umma',
+          nome: 'UMS Mariana',
+          un: 'Armador',
+          armador: 'OOS',
+          gerencia: 'UO-BC',
+          tipo: 'UMS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        }
+      };
+
+      // Exceções cobradas em HH: nunca tratadas como armador de diária isento
+      for (const hhUms of ['UMAR', 'UMCP', 'UMPA']) {
+        expect(isArmadorPlatform(umsCatalog[hhUms], hhUms, 'Armador')).toBe(false);
+        const embHhUms: CarteiraEmbarque = {
+          id: `c-${hhUms}`,
+          matricula: '1001',
+          plataforma_sigla: hhUms,
+          unidade_negocio: 'Armador',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-05',
+          horas_programadas: null,
+          operacao: `OP-${hhUms}`,
+          pe: null,
+          ex: null,
+          fonte: 'carteira'
+        };
+        expect(isArmadorDiariaSemProg(embHhUms, umsCatalog)).toBe(false);
+        expect(calcCarteiraHP(embHhUms, DEFAULT_CONFIG, umsCatalog)).toBe(5 * 11);
+      }
+
+      // UMAC e UMMA sem programação: isentas por diária
+      for (const diariaUms of ['UMAC', 'UMMA']) {
+        expect(isArmadorPlatform(umsCatalog[diariaUms], diariaUms, 'Armador')).toBe(true);
+        const embDiaria: CarteiraEmbarque = {
+          id: `c-${diariaUms}`,
+          matricula: '1002',
+          plataforma_sigla: diariaUms,
+          unidade_negocio: 'Armador',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-05',
+          horas_programadas: 0,
+          operacao: `OP-${diariaUms}`,
+          pe: null,
+          ex: null,
+          fonte: 'carteira'
+        };
+        expect(isArmadorDiariaSemProg(embDiaria, umsCatalog)).toBe(true);
+        expect(calcCarteiraHP(embDiaria, DEFAULT_CONFIG, umsCatalog)).toBe(0);
+        expect(hpSourceLabel(embDiaria, DEFAULT_CONFIG, umsCatalog)).toBe('Diária (Armador)');
+      }
+
+      // UMAC com programação explícita > 0 deixa de ser isenta sem programação
+      const embUmacComProg: CarteiraEmbarque = {
+        id: 'c-umac-prog',
+        matricula: '1002',
+        plataforma_sigla: 'UMAC',
+        unidade_negocio: 'Armador',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-05',
+        horas_programadas: 44,
+        operacao: 'OP-UMAC-PROG',
+        pe: null,
+        ex: null,
+        fonte: 'carteira'
+      };
+      expect(isArmadorDiariaSemProg(embUmacComProg, umsCatalog)).toBe(false);
+      expect(calcCarteiraHP(embUmacComProg, DEFAULT_CONFIG, umsCatalog)).toBe(44);
+    });
+
+    it('buildSapIndex trata estornos negativos, múltiplos contadores e registros parciais sem matrícula ou datas', () => {
+      const sapItems = [
+        {
+          id: 'sap-pos',
+          matricula: '1001',
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: '20260001',
+          operacao: '0010',
+          horas_confirmadas: 8,
+          contador_confirmacao: 1,
+          id_embarque: '55104',
+          status_reconciliacao: 'Em Carteira' as const
+        },
+        {
+          id: 'sap-estorno',
+          matricula: '1001',
+          data_criacao: '2026-10-11',
+          data_lancamento: '2026-10-11',
+          data_fim_real: '2026-10-10',
+          ordem: '20260001',
+          operacao: '0010',
+          horas_confirmadas: -8, // Estorno integral
+          contador_confirmacao: 2,
+          id_embarque: '55104',
+          status_reconciliacao: 'Em Carteira' as const
+        },
+        {
+          id: 'sap-reapontamento',
+          matricula: '1001',
+          data_criacao: '2026-10-11',
+          data_lancamento: '2026-10-11',
+          data_fim_real: '2026-10-10',
+          ordem: '20260001',
+          operacao: '0010',
+          horas_confirmadas: 6.5, // Novo apontamento ajustado
+          contador_confirmacao: 3,
+          id_embarque: '55104',
+          status_reconciliacao: 'Em Carteira' as const
+        },
+        {
+          id: 'sap-sem-emb-e-data',
+          matricula: '1002',
+          data_criacao: '2026-10-12',
+          data_lancamento: '2026-10-12',
+          data_fim_real: '',
+          ordem: '20260009',
+          operacao: '0020',
+          horas_confirmadas: 4,
+          contador_confirmacao: 1,
+          id_embarque: '',
+          status_reconciliacao: 'Sem Embarque' as const
+        },
+        {
+          id: 'sap-invalido-sem-mat',
+          matricula: '',
+          data_criacao: '2026-10-12',
+          data_lancamento: '2026-10-12',
+          data_fim_real: '2026-10-12',
+          ordem: '20260099',
+          operacao: '0010',
+          horas_confirmadas: 5,
+          contador_confirmacao: 1,
+          id_embarque: '55104',
+          status_reconciliacao: 'Pendente' as const
+        }
+      ];
+
+      const idx = buildSapIndex(sapItems);
+      expect(idx.byTech.has('')).toBe(false);
+      expect(idx.byTech.get('1001')).toHaveLength(3);
+      const netHours = (idx.byTechDate.get('1001|2026-10-10') || []).reduce(
+        (acc, r) => acc + r.horas_confirmadas,
+        0
+      );
+      expect(netHours).toBeCloseTo(6.5, 5);
+      expect(idx.byEmbarkation.get('55104')?.map(r => r.contador_confirmacao)).toEqual([1, 2, 3]);
+
+      // Matrícula 1002 sem data_fim_real e sem id_embarque fica indexada apenas em byTech
+      expect(idx.byTech.get('1002')).toHaveLength(1);
+      expect(idx.byTechDate.size).toBe(1);
+      expect(idx.byEmbarkation.has('')).toBe(false);
+    });
+
+    it('mergeConfrontoOperations agrega múltiplos apontamentos + estornos, janela PMB +4d, Não Cadastrado no Portal e alias de plataforma', () => {
+      const mxlCatalog: Record<string, Plataforma> = {
+        MXL: {
+          sigla: 'MXL',
+          chave_norm: 'mxl',
+          nome: 'Mexilhão',
+          un: 'Bacia de Santos (UN-BS)',
+          armador: '',
+          gerencia: 'UO-BS',
+          tipo: 'Fixa',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        }
+      };
+      const pidx = buildPlatformIndex(mxlCatalog);
+
+      // Embarque encerrado em 2026-10-14 na plataforma com alias PMXL-1 -> MXL
+      const embRows: CarteiraEmbarque[] = [
+        {
+          id: 'emb-mxl-1',
+          id_embarque: '55900',
+          matricula: '1001',
+          plataforma_sigla: 'PMXL-1',
+          unidade_negocio: 'Bacia de Santos (UN-BS)',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 154,
+          hh_carteira: 154,
+          operacao: '55900',
+          pe: 1.1,
+          ex: 1.2,
+          fonte: 'portal_offshore'
+        }
+      ];
+
+      // Confirmações SAP não cadastradas no Portal, incluindo estorno e lançamento no +4d (PMB 2026-10-18)
+      const sapConfirmacoes = [
+        {
+          id: 'sap-extra-1',
+          matricula: '1001',
+          data_criacao: '2026-10-18',
+          data_lancamento: '2026-10-18', // +4 dias pós-desembarque (janela PMB)
+          data_fim_real: '2026-10-13',
+          ordem: '40009999',
+          operacao: '0020',
+          horas_confirmadas: 10,
+          contador_confirmacao: 1,
+          id_embarque: '55900',
+          status_reconciliacao: 'Fora da Carteira' as const
+        },
+        {
+          id: 'sap-extra-2-estorno',
+          matricula: '1001',
+          data_criacao: '2026-10-18',
+          data_lancamento: '2026-10-18',
+          data_fim_real: '2026-10-14',
+          ordem: '40009999',
+          operacao: '0020',
+          horas_confirmadas: -2.5,
+          contador_confirmacao: 2,
+          id_embarque: '55900',
+          status_reconciliacao: 'Fora da Carteira' as const
+        }
+      ];
+
+      const merged = mergeConfrontoOperations([], sapConfirmacoes, embRows, {
+        '1001': { matricula: '1001', nome: 'Carlos Sintético', funcao: 'Instrumentista' }
+      });
+
+      expect(merged).toHaveLength(1);
+      const synth = merged[0];
+      expect(synth.status_programacao).toBe('Não Cadastrado no Portal');
+      expect(synth.status_divergencia).toBe('Não Cadastrado no Portal');
+      expect(synth.fonte).toBe('sap_fora_carteira');
+      expect(synth.hh_confirmado_sap).toBe(7.5); // 10 - 2.5
+      expect(synth.divergencia_sap).toBe(-7.5);
+      expect(synth.data_inicio).toBe('2026-10-01');
+      expect(synth.data_fim).toBe('2026-10-14');
+      expect(synth.nome).toBe('Carlos Sintético');
+      // Alias PMXL-1 resolve deterministicamente para MXL no índice de plataformas
+      expect(lookupPlatform(pidx, synth.plataforma_sigla)?.sigla).toBe('MXL');
     });
   });
 });

@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Smartphone, Download, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { StickyFilterBar } from './StickyFilterBar';
 import { ScopeBanner } from './ScopeBanner';
+import { PwaInstallModal } from '../modals/PwaInstallModal';
 import { useApp } from '../state/AppContext';
+import { usePwaInstall } from '../../utils/pwa';
 
 export interface AppShellProps {
   children: React.ReactNode;
@@ -11,7 +14,9 @@ export interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pwaModalOpen, setPwaModalOpen] = useState(false);
   const { isLoading, activeTab } = useApp();
+  const { isMobile, canShowInstallOption, bannerDismissed, triggerInstall, dismissBanner } = usePwaInstall();
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -19,6 +24,17 @@ export function AppShell({ children }: AppShellProps) {
       scrollAreaRef.current.scrollTop = 0;
     }
   }, [activeTab]);
+
+  // Escuta evento customizado de abertura do modal de instalação PWA disparado por outros componentes
+  useEffect(() => {
+    const handleOpenModal = () => setPwaModalOpen(true);
+    window.addEventListener('open-pwa-install-modal', handleOpenModal);
+    return () => window.removeEventListener('open-pwa-install-modal', handleOpenModal);
+  }, []);
+
+  const handleBannerInstall = () => {
+    setPwaModalOpen(true);
+  };
 
   const showFilterBar =
     activeTab !== 'pes' &&
@@ -39,6 +55,48 @@ export function AppShell({ children }: AppShellProps) {
         <TopHeader
           onToggleMobileMenu={() => setMobileMenuOpen(prev => !prev)}
         />
+
+        {/* Banner Móvel Compacto de Instalação PWA */}
+        {isMobile && canShowInstallOption && !bannerDismissed && (
+          <div className="pwa-mobile-banner" role="region" aria-label="Aviso de instalação do aplicativo">
+            <div className="pwa-mobile-banner-content">
+              <span className="pwa-mobile-banner-icon" aria-hidden="true">
+                <Smartphone size={17} />
+              </span>
+              <span className="pwa-mobile-banner-text">
+                Instale o app HH Offshore no celular
+              </span>
+            </div>
+            <div className="pwa-mobile-banner-actions">
+              <button
+                type="button"
+                className="btn btn-accent btn-sm"
+                onClick={handleBannerInstall}
+              >
+                <Download size={14} />
+                <span>Instalar</span>
+              </button>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={dismissBanner}
+                title="Dispensar aviso de instalação"
+                aria-label="Dispensar aviso de instalação"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--ink-muted)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  minHeight: '28px',
+                  minWidth: '28px'
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        )}
 
         {showFilterBar && <StickyFilterBar />}
 
@@ -74,6 +132,12 @@ export function AppShell({ children }: AppShellProps) {
           </footer>
         </div>
       </div>
+
+      {/* Modal Interativo de Instruções PWA */}
+      <PwaInstallModal
+        open={pwaModalOpen}
+        onClose={() => setPwaModalOpen(false)}
+      />
 
       <style>{`
         @keyframes loading-bar {

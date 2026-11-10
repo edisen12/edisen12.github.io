@@ -75,9 +75,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 className="btn-icon"
                 onClick={() => removeToast(toast.id)}
                 aria-label="Fechar notificação"
-                style={{ padding: 2, minHeight: 'auto', minWidth: 'auto', color: 'var(--ink-muted)' }}
+                style={{
+                  padding: 4,
+                  minHeight: '32px',
+                  minWidth: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--ink-muted)'
+                }}
               >
-                <X size={14} />
+                <X size={15} />
               </button>
             </div>
           );

@@ -274,6 +274,24 @@ describe('Parte 1: Abstração Universal de Bancos de Dados Puros', () => {
         driver.deleteMany('system_audit_logs', { id: 'log-1' })
       ).rejects.toThrow(/Política WORM: registros de system_audit_logs são estritamente imutáveis/i);
     });
+
+    it('deve suportar operador neq gerando cláusula <> parametrizada (ex: { neq: \'\' })', async () => {
+      const executed: Array<{ sql: string; params: unknown[] }> = [];
+      const spyExecutor: SqlExecutor = {
+        async query(sql, params) {
+          executed.push({ sql, params });
+          return [];
+        }
+      };
+      const driver = new GenericSqlDialectDriver({ executor: spyExecutor });
+      await driver.findMany('carteira_operacoes', {
+        filter: { id_embarque: { neq: '' } }
+      });
+
+      expect(executed.length).toBe(1);
+      expect(executed[0].sql).toContain('"id_embarque" <> $1');
+      expect(executed[0].params).toEqual(['']);
+    });
   });
 
   describe('1.3 GenericDocumentDriver (Qualquer Banco NoSQL / Documento)', () => {
@@ -377,6 +395,56 @@ describe('Parte 1: Abstração Universal de Bancos de Dados Puros', () => {
       await expect(
         docDriver.deleteMany('system_audit_logs', { id: 'log-1' })
       ).rejects.toThrow(/Política WORM: registros de system_audit_logs são estritamente imutáveis/i);
+    });
+
+    it('deve mapear operador neq para operador de documento $ne (ex: { neq: \'\' })', async () => {
+      const capturedQueries: Array<Record<string, unknown> | undefined> = [];
+      const mockAdapter: DocumentStoreAdapter = {
+        adapterId: 'in-memory-doc-adapter',
+        async findDocuments(_col, q) {
+          capturedQueries.push(q.filter);
+          return [];
+        },
+        async bulkUpsertDocuments() {},
+        async insertDocument() {},
+        async deleteDocuments() {
+          return 0;
+        }
+      };
+
+      const docDriver = new GenericDocumentDriver({ adapter: mockAdapter });
+      await docDriver.findMany('carteira_operacoes', {
+        filter: { id_embarque: { neq: '' } }
+      });
+
+      expect(capturedQueries.length).toBe(1);
+      expect(capturedQueries[0]).toEqual({
+        id_embarque: { $ne: '' }
+      });
+    });
+  });
+
+  describe('1.4 InMemoryStorageDriver (Driver em Memória / Referência)', () => {
+    it('deve filtrar registros com operador neq (ex: { neq: \'\' })', async () => {
+      const driver = new InMemoryStorageDriver();
+      await driver.init();
+
+      await driver.upsertMany(
+        'carteira_operacoes',
+        [
+          { id: '1', matricula: '1001', id_embarque: '55104', operacao: 'OP-1' },
+          { id: '2', matricula: '1002', id_embarque: '', operacao: 'OP-2' },
+          { id: '3', matricula: '1003', id_embarque: '55105', operacao: 'OP-3' }
+        ],
+        ['id']
+      );
+
+      const res = await driver.findMany<any>('carteira_operacoes', {
+        filter: { id_embarque: { neq: '' } }
+      });
+
+      expect(res.length).toBe(2);
+      expect(res.map(r => r.id).sort()).toEqual(['1', '3']);
     });
   });
 });
@@ -897,5 +965,268 @@ describe('Parte 2: Integração Real Full-Stack (Server Node.js ↔ Client Provi
     expect(logs.some(l => l.action === 'system_bootstrap_admin')).toBe(true);
     expect(logs.some(l => l.action === 'user_created')).toBe(true);
     expect(logs.some(l => l.action === 'status_toggled')).toBe(true);
+  });
+
+  it('2.4 Ciclo Completo de Importação Granular, Reconciliação SAP (+4 dias PMB, contadores) e Reset Seguro', async () => {
+    const adminJar = createCookieJar();
+    const adminProvider = createSelfHostedClientProvider({
+      baseUrl,
+      customFetch: adminJar.customFetch
+    });
+    await adminProvider.auth.signInWithPassword('admin.vps@teste.local', 'AdminForte2026!');
+
+    // 1. Cria ou prepara um Preposto ativo com acesso restrito a P50
+    const createPrepostoRes = await adminProvider.auth.adminManageUser({
+      action: 'create',
+      email: 'preposto.granular@teste.local',
+      password: 'TempPasswordGranular2026!',
+      nome: 'Preposto Granular P-50',
+      role: 'preposto',
+      plats: ['P50']
+    });
+    expect(createPrepostoRes.ok).toBe(true);
+
+    const prepostoJar = createCookieJar();
+    const prepostoProvider = createSelfHostedClientProvider({
+      baseUrl,
+      customFetch: prepostoJar.customFetch
+    });
+    await prepostoProvider.auth.signInWithPassword('preposto.granular@teste.local', 'TempPasswordGranular2026!');
+    await prepostoProvider.auth.completeFirstLoginPassword('NovaSenhaPrepostoGranular2026!');
+
+    // 2. Importação Granular de Carteira com Aliases (PMXL -> MXL, PAG-02 -> PAG2) e os 3 status
+    const pidx: Record<string, Plataforma> = {
+      MXL: {
+        sigla: 'MXL',
+        chave_norm: 'MXL',
+        nome: 'Mexilhão',
+        un: 'UN-BS',
+        gerencia: '',
+        tipo: 'Fixa',
+        armador: '',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      },
+      PAG2: {
+        sigla: 'PAG2',
+        chave_norm: 'PAG2',
+        nome: 'PAG 2',
+        un: 'UN-RNCE',
+        gerencia: '',
+        tipo: 'Fixa',
+        armador: '',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    await adminProvider.data.batchImportCarteira(
+      [
+        // Técnico 1003 em PMXL (deve normalizar para MXL) com os 3 status
+        {
+          mat: '1003',
+          nome: 'Técnico 1003',
+          plat: 'PMXL',
+          reg: 'UN-BS',
+          ini: '2026-10-01',
+          fim: '2026-10-14',
+          hp: 40,
+          status_prog: 'Carteira',
+          ordem: 'ORD-100',
+          op: 'OP-01',
+          id_embarque: '55100',
+          hc_portal: 10
+        },
+        {
+          mat: '1003',
+          nome: 'Técnico 1003',
+          plat: 'PMXL',
+          reg: 'UN-BS',
+          ini: '2026-10-01',
+          fim: '2026-10-14',
+          hp: 20,
+          status_prog: 'Fora da carteira',
+          ordem: 'ORD-200',
+          op: 'OP-02',
+          id_embarque: '55100',
+          hc_portal: 20
+        },
+        {
+          mat: '1003',
+          nome: 'Técnico 1003',
+          plat: 'PMXL',
+          reg: 'UN-BS',
+          ini: '2026-10-01',
+          fim: '2026-10-14',
+          hp: 10,
+          status_prog: 'Cancelada',
+          ordem: 'ORD-300',
+          op: 'OP-03',
+          id_embarque: '55100',
+          hc_portal: 0
+        },
+        // Técnico 1004 em PAG-02 (deve normalizar para PAG2)
+        {
+          mat: '1004',
+          nome: 'Técnico 1004',
+          plat: 'PAG-02',
+          reg: 'UN-RNCE',
+          ini: '2026-10-05',
+          fim: '2026-10-19',
+          hp: 50,
+          status_prog: 'Carteira',
+          ordem: 'ORD-400',
+          op: 'OP-04',
+          id_embarque: '55101',
+          hc_portal: 30
+        }
+      ],
+      pidx
+    );
+
+    // Valida consolidação em carteira_embarques: horas_programadas = Carteira + Fora, hh_cancelado separado
+    const adminDs = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const emb1003 = adminDs.carteira.find(c => c.matricula === '1003');
+    expect(emb1003).toBeDefined();
+    expect(emb1003?.plataforma_sigla).toBe('MXL'); // Alias PMXL -> MXL
+    expect(emb1003?.horas_programadas).toBe(60); // 40 (Carteira) + 20 (Fora da carteira)
+    expect(emb1003?.hh_carteira).toBe(40);
+    expect(emb1003?.hh_fora_carteira).toBe(20);
+    expect(emb1003?.hh_cancelado).toBe(10); // Segregado
+    expect(emb1003?.id_embarque).toBe('55100');
+
+    const emb1004 = adminDs.carteira.find(c => c.matricula === '1004');
+    expect(emb1004).toBeDefined();
+    expect(emb1004?.plataforma_sigla).toBe('PAG2'); // Alias PAG-02 -> PAG2
+    expect(emb1004?.horas_programadas).toBe(50);
+    expect(emb1004?.hh_carteira).toBe(50);
+    expect(emb1004?.hh_fora_carteira).toBe(0);
+    expect(emb1004?.hh_cancelado).toBe(0);
+
+    // 3. Importação SAP com contadores 1 e 2 no mesmo dia/ordem/horas e lançamento +4 dias pós-desembarque
+    // Técnicos precisam existir na tabela tecnicos para reconciliação
+    await adminProvider.data.batchImportHH(
+      [
+        { mat: '1003', p: 'MXL', D: '2026-10-02', e: 10, nome: 'Técnico 1003' },
+        { mat: '1004', p: 'PAG2', D: '2026-10-06', e: 10, nome: 'Técnico 1004' }
+      ],
+      pidx
+    );
+
+    await adminProvider.data.batchImportConfirmacoesSAP!([
+      // Duas confirmações no mesmo dia/ordem/horas para 1003 com contadores 1 e 2 (ambos devem ser preservados)
+      {
+        mat: '1003',
+        cria: '2026-10-02',
+        lanc: '2026-10-02',
+        real: '2026-10-02',
+        ordem: 'ORD-100',
+        op: 'OP-01',
+        hc: 5,
+        contador: 1
+      },
+      {
+        mat: '1003',
+        cria: '2026-10-02',
+        lanc: '2026-10-02',
+        real: '2026-10-02',
+        ordem: 'ORD-100',
+        op: 'OP-01',
+        hc: 5,
+        contador: 2
+      },
+      // Confirmação lançada em 2026-10-17: desembarque foi 2026-10-14, logo 14 + 3 dias = dentro da tolerância de +4 dias PMB!
+      {
+        mat: '1003',
+        cria: '2026-10-17',
+        lanc: '2026-10-17',
+        real: '2026-10-14',
+        ordem: 'ORD-200',
+        op: 'OP-02',
+        hc: 15,
+        contador: 1
+      }
+    ]);
+
+    // 4. Executa reconciliação SAP em cascata
+    const recResult = await adminProvider.data.reconciliarConfirmacoesSAP!();
+    expect(recResult.total_confirmacoes_sap).toBeGreaterThanOrEqual(3);
+    expect(recResult.vinculados_ao_embarque).toBeGreaterThanOrEqual(3);
+
+    // Recarrega dataset e avalia status de confronto
+    const dsReconciled = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const confsReconciled = dsReconciled.confirmacoesSap ?? [];
+    const opsReconciled = dsReconciled.carteiraOperacoes ?? [];
+    expect(confsReconciled.length).toBeGreaterThanOrEqual(3);
+
+    // Ambas as confirmações com contador 1 e 2 foram preservadas
+    const c1 = confsReconciled.find(
+      cs => cs.matricula === '1003' && cs.ordem === 'ORD-100' && cs.contador_confirmacao === 1
+    );
+    const c2 = confsReconciled.find(
+      cs => cs.matricula === '1003' && cs.ordem === 'ORD-100' && cs.contador_confirmacao === 2
+    );
+    expect(c1).toBeDefined();
+    expect(c2).toBeDefined();
+    expect(c1?.id_embarque).toBe('55100');
+    expect(c2?.id_embarque).toBe('55100');
+
+    // Confirmação com lançamento em +3 dias pós-desembarque vinculada ao embarque 55100
+    const cPmb = confsReconciled.find(
+      cs => cs.matricula === '1003' && cs.ordem === 'ORD-200'
+    );
+    expect(cPmb).toBeDefined();
+    expect(cPmb?.id_embarque).toBe('55100');
+
+    // Status de confronto: ORD-100 tem Portal = 10 e SAP = 5 + 5 = 10 -> OK!
+    const op1 = opsReconciled.find(
+      o => o.matricula === '1003' && o.ordem === 'ORD-100'
+    );
+    expect(op1?.status_divergencia).toBe('OK');
+    expect(op1?.hh_confirmado_sap).toBe(10);
+    expect(op1?.divergencia_sap).toBe(0);
+
+    // ORD-200 tem Portal = 20 e SAP = 15 -> Divergente (Portal > SAP)
+    const op2 = opsReconciled.find(
+      o => o.matricula === '1003' && o.ordem === 'ORD-200'
+    );
+    expect(op2?.status_divergencia).toBe('Divergente (Portal > SAP)');
+    expect(op2?.divergencia_sap).toBe(5);
+
+    // 5. Isolamento RBAC do Preposto (atribuído exclusivamente a P50)
+    const prepostoDs = await prepostoProvider.data.loadAppDataset('2026-10-01', '2026-10-31', false);
+    // Preposto não vê as carteiras de MXL e PAG2
+    expect(prepostoDs.carteira.some(c => c.plataforma_sigla === 'MXL' || c.plataforma_sigla === 'PAG2')).toBe(false);
+    // Preposto não vê operações detalhadas nem confirmações SAP de técnicos fora de sua carteira
+    expect((prepostoDs.carteiraOperacoes ?? []).some(o => o.matricula === '1003' || o.matricula === '1004')).toBe(false);
+    expect((prepostoDs.confirmacoesSap ?? []).some(cs => cs.matricula === '1003' || cs.matricula === '1004')).toBe(false);
+
+    // 6. Reset de Carteira de Embarques:
+    // Negado para Preposto (role restrita)
+    await expect(
+      prepostoProvider.data.resetCarteiraEmbarques!()
+    ).rejects.toThrow(/Acesso negado: operação restrita a Administradores e Gestores/i);
+
+    // Permitido para Admin com geração de auditoria WORM
+    const resetRes = await adminProvider.data.resetCarteiraEmbarques!();
+    expect(resetRes.deleted_embarques).toBeGreaterThan(0);
+    expect(resetRes.deleted_operacoes).toBeGreaterThan(0);
+
+    // Verifica que carteira foi limpa e confirmações SAP foram desvinculadas
+    const dsAfterReset = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    expect(dsAfterReset.carteira.length).toBe(0);
+    expect((dsAfterReset.carteiraOperacoes ?? []).length).toBe(0);
+
+    // Confirmações SAP foram desvinculadas e voltaram para Pendente
+    for (const cs of dsAfterReset.confirmacoesSap ?? []) {
+      expect(cs.id_embarque).toBe('');
+      expect(cs.status_reconciliacao).toBe('Pendente');
+    }
+
+    // Trilha WORM de auditoria registrou carteira_reset
+    const logsAfter = await adminProvider.data.fetchSystemAuditLogs();
+    const resetLog = logsAfter.find(l => l.action === 'carteira_reset');
+    expect(resetLog).toBeDefined();
+    expect(resetLog?.category).toBe('importacao');
   });
 });

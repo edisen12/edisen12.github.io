@@ -14,6 +14,8 @@
   font-family: var(--f-body);
   position: relative;
   overflow: hidden;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 /* Área Principal Fluida (Viewport-Locked) */
@@ -367,20 +369,24 @@
   background: var(--surface);
   border-bottom: var(--signature-stripe);
   padding: 0 20px;
-  height: var(--header-height);
-  min-height: var(--header-height);
+  padding-top: var(--safe-top);
+  height: calc(var(--header-height) + var(--safe-top));
+  min-height: calc(var(--header-height) + var(--safe-top));
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   z-index: 25;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .header-brand {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex: 1;
 }
 
 .header-logo {
@@ -391,6 +397,7 @@
   border-radius: var(--radius-sm);
   padding: 2px 4px;
   box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
 }
 
 .header-titles {
@@ -398,6 +405,8 @@
   flex-direction: column;
   justify-content: center;
   line-height: 1.2;
+  min-width: 0;
+  flex: 1;
 }
 
 .header-titles h1 {
@@ -407,6 +416,9 @@
   color: var(--blue);
   letter-spacing: -0.01em;
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-slogan {
@@ -522,7 +534,8 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 280px;
+  width: min(280px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   background: var(--surface);
   border: 1px solid var(--line);
   border-top: var(--signature-stripe);
@@ -932,10 +945,10 @@
   }
 }
 
-/* Outros Grids do Sistema */
+/* Outros Grids do Sistema - Totalmente Fluidos e sem Estouro Horizontal */
 .regs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -949,14 +962,14 @@
 
 .grid2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
 
 .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -1017,7 +1030,7 @@
 }
 
 /* ==========================================================================
-   7. RESPONSIVIDADE MOBILE E DRAWER
+   7. RESPONSIVIDADE MOBILE, MULTI-TELA, DRAWER E ÁREAS SEGURAS (PWA)
    ========================================================================== */
 .mobile-menu-btn {
   display: none;
@@ -1027,30 +1040,116 @@
   display: none;
 }
 
+/* Header compacto e toggle de filtros para telas móveis */
+.filter-mobile-bar {
+  display: none;
+}
+
+/* Telas Desktop / Notebooks (> 860px): Filtros sempre visíveis e alinhados */
+@media (min-width: 861px) {
+  .filter-mobile-bar {
+    display: none !important;
+  }
+  .filter-bar-inner.mobile-collapsed {
+    display: flex !important;
+  }
+}
+
+/* Tablets e Celulares (<= 860px) */
 @media (max-width: 860px) {
   .mobile-menu-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 6px;
+    min-width: 40px;
+    min-height: 40px;
     border-radius: var(--radius-sm);
     color: var(--ink);
     background: transparent;
     border: none;
     cursor: pointer;
+    flex-shrink: 0;
   }
 
-  .app-sidebar {
+  /* Sidebar Gaveta em Largura Completa (nunca espremida em 68px mesmo com collapsed) */
+  .app-sidebar,
+  .app-sidebar.collapsed {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
+    width: var(--sidebar-mobile-width) !important;
+    max-width: 85vw;
     transform: translateX(-100%);
     box-shadow: var(--shadow-lg);
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    z-index: 100;
   }
 
   .app-sidebar.mobile-open {
     transform: translateX(0);
+  }
+
+  /* No mobile, oculta botão de colapso desktop e exibe botão fechar com área de toque >= 40px */
+  .app-sidebar .collapse-btn {
+    display: none !important;
+  }
+
+  .app-sidebar .mobile-menu-btn {
+    display: inline-flex !important;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Exibe todos os títulos e rótulos da sidebar no mobile mesmo com classe collapsed */
+  .app-sidebar.collapsed .sidebar-header {
+    justify-content: space-between !important;
+    padding: 0 14px !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-header-title {
+    display: block !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-header-mini-dot {
+    display: none !important;
+  }
+
+  .app-sidebar.collapsed .nav-group-divider {
+    display: none !important;
+  }
+
+  .app-sidebar.collapsed .nav-group-header,
+  .app-sidebar.collapsed .nav-group-title {
+    display: block !important;
+  }
+
+  .app-sidebar.collapsed .nav-item {
+    justify-content: flex-start !important;
+    padding: 8px 11px !important;
+  }
+
+  .app-sidebar.collapsed .nav-item-text {
+    display: inline !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-footer {
+    padding: 8px !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-footer-btn {
+    justify-content: flex-start !important;
+    padding: 6px 8px !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-footer-info {
+    display: flex !important;
+  }
+
+  .app-sidebar.collapsed .sidebar-footer-logout-text {
+    display: inline !important;
   }
 
   .mobile-overlay {
@@ -1058,16 +1157,128 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.45);
-    z-index: 28;
+    z-index: 90;
     backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
   }
 
   .top-header {
     padding: 0 14px;
   }
 
+  /* StickyFilterBar Recolhível para Evitar Esmagamento Vertical */
   .sticky-filter-bar {
-    padding: 8px 14px;
+    padding: 6px 14px;
+  }
+
+  .filter-mobile-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 0;
+  }
+
+  .filter-mobile-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--ink);
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .filter-mobile-date {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--f-display);
+    color: var(--blue);
+  }
+
+  .filter-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .filter-mobile-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-alt);
+    border: 1px solid var(--line);
+    color: var(--blue);
+    font-family: var(--f-display);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    min-height: 36px;
+    transition: all var(--transition-fast);
+  }
+
+  .filter-mobile-toggle-btn:hover,
+  .filter-mobile-toggle-btn.open {
+    background: var(--blue-soft);
+    border-color: var(--blue);
+  }
+
+  .filter-mobile-badge {
+    background: var(--orange);
+    color: var(--on-orange);
+    font-size: 0.68rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+
+  .filter-bar-inner.mobile-collapsed {
+    display: none !important;
+  }
+
+  .filter-bar-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    max-height: 58dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px 0;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .filter-bar-inner .filter-group {
+    width: 100%;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .filter-bar-inner .filter-date-nav {
+    width: 100%;
+  }
+
+  .filter-bar-inner .filter-input-date {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .filter-bar-inner .filter-clear-btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 36px;
+  }
+
+  .watermark-pill {
+    margin-left: 0;
+    width: 100%;
+    justify-content: center;
   }
 
   .main-content {
@@ -1077,6 +1288,66 @@
   .foot {
     flex-direction: column;
     text-align: center;
-    padding: 12px 14px;
+    padding: 12px 14px calc(12px + var(--safe-bottom)) 14px;
+  }
+}
+
+/* Telas <= 640px (Smartphones Grandes e Padrão) */
+@media (max-width: 640px) {
+  .top-header {
+    padding: 0 10px;
+  }
+
+  .main-content {
+    padding: 12px 10px;
+  }
+
+  .sticky-filter-bar {
+    padding: 6px 10px;
+  }
+}
+
+/* Telas <= 520px: Oculta dados extras do perfil no header para não colidir */
+@media (max-width: 520px) {
+  .profile-trigger-info {
+    display: none !important;
+  }
+
+  .profile-trigger-btn {
+    padding: 3px 6px;
+  }
+}
+
+/* Telas <= 480px: Oculta slogan longo para preservar o título em 1 linha */
+@media (max-width: 480px) {
+  .header-slogan {
+    display: none !important;
+  }
+}
+
+/* Telas <= 400px: Smartphone Compacto */
+@media (max-width: 400px) {
+  .header-logo {
+    height: 28px !important;
+  }
+
+  .top-header {
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .main-content {
+    padding: 10px 8px;
+  }
+}
+
+/* Telas <= 360px: Smartphones Ultra-Compactos (Ex.: Galaxy Z Flip fechado, iPhone SE 1st gen) */
+@media (max-width: 360px) {
+  .header-titles h1 {
+    font-size: 0.92rem !important;
+  }
+
+  .refresh-btn {
+    padding: 0 6px !important;
   }
 }

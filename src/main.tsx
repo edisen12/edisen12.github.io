@@ -5,6 +5,10 @@ import './styles/tokens.css';
 import './styles/layout.css';
 import './styles/components.css';
 import { App } from './App';
+import { initPwa } from './utils/pwa';
+
+// Inicialização antecipada do PWA (Service Worker e beforeinstallprompt)
+initPwa();
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -13,9 +13,12 @@ import {
   ChevronRight,
   LogOut,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Download
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
+import { usePwaInstall } from '../../utils/pwa';
+import { PwaInstallModal } from '../modals/PwaInstallModal';
 import { NAV_TABS } from '../../config/constants';
 import type { TabId } from '../../domain/types';
 
@@ -52,6 +55,8 @@ const GROUPS_META: GroupMeta[] = [
 
 export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
   const { activeTab, setActiveTab, isGlobal, userProfile, openUserSettings, logout } = useApp();
+  const { canShowInstallOption, triggerInstall } = usePwaInstall();
+  const [pwaModalOpen, setPwaModalOpen] = useState(false);
 
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -60,6 +65,21 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       return false;
     }
   });
+
+  // No mobile, a gaveta sempre abre em largura completa legível com textos, ignorando colapso de desktop
+  const isEffectiveCollapsed = collapsed && !mobileOpen;
+
+  // Fecha gaveta mobile com tecla Escape
+  useEffect(() => {
+    if (!mobileOpen || !onCloseMobile) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseMobile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen, onCloseMobile]);
 
   const toggleCollapsed = () => {
     setCollapsed(prev => {
@@ -93,6 +113,10 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
     }
   };
 
+  const handlePwaInstall = () => {
+    setPwaModalOpen(true);
+  };
+
   const userFirstName = userProfile?.nome ? userProfile.nome.trim().split(' ')[0] : 'Usuário';
   const userInitials = userProfile?.nome
     ? userProfile.nome
@@ -115,11 +139,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       )}
 
       <aside
-        className={`app-sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`.trim()}
+        className={`app-sidebar ${isEffectiveCollapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`.trim()}
         aria-label="Menu principal de navegação"
       >
         <div className="sidebar-header">
-          {!collapsed ? (
+          {!isEffectiveCollapsed ? (
             <span className="sidebar-header-title">MÓDULOS</span>
           ) : (
             <span className="sidebar-header-mini-dot" title="Infotec Brasil" />
@@ -154,7 +178,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
             <div key={group.key} className="nav-group">
               {groupIdx > 0 && (
                 <>
-                  {!collapsed ? (
+                  {!isEffectiveCollapsed ? (
                     <div className="nav-group-header">
                       <div className="nav-group-title">{group.title}</div>
                     </div>
@@ -166,7 +190,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
                 </>
               )}
 
-              {groupIdx === 0 && !collapsed && (
+              {groupIdx === 0 && !isEffectiveCollapsed && (
                 <div className="nav-group-title">{group.title}</div>
               )}
 
@@ -181,13 +205,13 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
                       type="button"
                       className={`nav-item ${isActive ? 'active' : ''}`}
                       onClick={() => handleSelectTab(tab.id)}
-                      title={collapsed ? `${group.title} · ${tab.label}` : undefined}
+                      title={isEffectiveCollapsed ? `${group.title} · ${tab.label}` : undefined}
                       aria-current={isActive ? 'page' : undefined}
                     >
                       <div className="nav-item-icon">
                         <Icon size={18} />
                       </div>
-                      {!collapsed && (
+                      {!isEffectiveCollapsed && (
                         <span className="nav-item-text">{tab.label}</span>
                       )}
                     </button>
@@ -200,6 +224,26 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
 
         {/* Rodapé Modular da Sidebar com Perfil & Logout */}
         <div className="sidebar-footer">
+          {canShowInstallOption && (
+            <button
+              type="button"
+              className="sidebar-footer-btn pwa-sidebar-btn"
+              onClick={handlePwaInstall}
+              title={isEffectiveCollapsed ? 'Instalar aplicativo' : undefined}
+              aria-label="Instalar aplicativo"
+            >
+              <div className="sidebar-footer-icon-box">
+                <Download size={17} />
+              </div>
+              {!isEffectiveCollapsed && (
+                <div className="sidebar-footer-info">
+                  <span className="sidebar-footer-name">Instalar aplicativo</span>
+                  <span className="sidebar-footer-sub">Adicionar à tela inicial</span>
+                </div>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             className={`sidebar-footer-btn profile-footer-btn ${activeTab === 'perfil' ? 'active' : ''}`}
@@ -207,13 +251,13 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
               openUserSettings('perfil');
               if (onCloseMobile) onCloseMobile();
             }}
-            title={collapsed ? `Perfil de ${userProfile?.nome || 'Usuário'} · Configurações` : undefined}
+            title={isEffectiveCollapsed ? `Perfil de ${userProfile?.nome || 'Usuário'} · Configurações` : undefined}
             aria-label="Configurações do usuário"
           >
             <div className="sidebar-footer-avatar" aria-hidden="true">
               {userInitials}
             </div>
-            {!collapsed && (
+            {!isEffectiveCollapsed && (
               <div className="sidebar-footer-info">
                 <span className="sidebar-footer-name">{userFirstName}</span>
                 <span className="sidebar-footer-sub">Configurações do usuário</span>
@@ -225,16 +269,21 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
             type="button"
             className="sidebar-footer-btn logout-footer-btn"
             onClick={() => void logout()}
-            title={collapsed ? 'Sair do sistema' : undefined}
+            title={isEffectiveCollapsed ? 'Sair do sistema' : undefined}
             aria-label="Sair do sistema"
           >
             <div className="sidebar-footer-icon-box">
               <LogOut size={17} />
             </div>
-            {!collapsed && <span className="sidebar-footer-logout-text">Sair do sistema</span>}
+            {!isEffectiveCollapsed && <span className="sidebar-footer-logout-text">Sair do sistema</span>}
           </button>
         </div>
       </aside>
+
+      <PwaInstallModal
+        open={pwaModalOpen}
+        onClose={() => setPwaModalOpen(false)}
+      />
     </>
   );
 }

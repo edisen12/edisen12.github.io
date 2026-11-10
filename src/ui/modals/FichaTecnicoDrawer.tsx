@@ -14,7 +14,7 @@ import {
   resolveTechName,
   statusOf
 } from '../../domain/calculations';
-import type { ConfirmacaoSAP } from '../../domain/types';
+import type { ConfirmacaoSAP, Justificativa } from '../../domain/types';
 import { eachDay, periodDisplayName } from '../../domain/periods';
 import { formatBr, formatBrShort } from '../../utils/date';
 import {
@@ -33,7 +33,7 @@ interface FichaDayItem {
   l: ReturnType<typeof resolveLocation>;
   emb: ReturnType<typeof inferEmbarkation>;
   acc: ReturnType<typeof accumulateEmbarkation> | null;
-  j: any;
+  j: Justificativa | null;
   sapItems: ConfirmacaoSAP[];
 }
 
@@ -192,7 +192,7 @@ export function FichaTecnicoDrawer() {
       subtitle={`Mat. ${mat}${tecObj?.funcao ? ' · ' + tecObj.funcao : ''} · Medição ${periodDisplayName(P)} (${formatBr(P.ini)} a ${formatBr(P.fim)})`}
       width={700}
       footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn-ghost"
@@ -292,7 +292,7 @@ export function FichaTecnicoDrawer() {
               Sem dias neste período.
             </div>
           ) : (
-            <div className="table-responsive" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+            <div className="table-responsive" style={{ maxHeight: '420px', overflowY: 'auto', overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
               <table className="table-base" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--line)', textAlign: 'left', background: 'var(--surface)' }}>
@@ -407,52 +407,54 @@ export function FichaTecnicoDrawer() {
                               <div style={{ fontWeight: 600, marginBottom: '6px', color: 'var(--blue)' }}>
                                 Ordens e Operações confirmadas no SAP em {formatBr(x.D)}:
                               </div>
-                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
-                                <thead>
-                                  <tr style={{ borderBottom: '1px solid var(--line)', color: 'var(--ink-muted)' }}>
-                                    <th style={{ textAlign: 'left', padding: '4px' }}>Ordem</th>
-                                    <th style={{ textAlign: 'left', padding: '4px' }}>Operação</th>
-                                    <th style={{ textAlign: 'right', padding: '4px' }}>Horas Confirmadas</th>
-                                    <th style={{ textAlign: 'left', padding: '4px' }}>Situação na Carteira do Portal</th>
-                                    <th style={{ textAlign: 'center', padding: '4px' }}>Contador</th>
-                                    <th style={{ textAlign: 'left', padding: '4px' }}>ID Embarque</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {x.sapItems.map((cs, idx) => {
-                                    const isEm = cs.status_reconciliacao === 'Em Carteira';
-                                    return (
-                                      <tr key={cs.id || `${cs.ordem}_${cs.operacao}_${idx}`} style={{ borderBottom: '1px dotted var(--line)' }}>
-                                        <td style={{ padding: '4px', fontFamily: 'monospace', fontWeight: 600 }}>{cs.ordem}</td>
-                                        <td style={{ padding: '4px', fontFamily: 'monospace' }}>{cs.operacao}</td>
-                                        <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>
-                                          {formatHours(cs.horas_confirmadas)}
-                                        </td>
-                                        <td style={{ padding: '4px' }}>
-                                          <span
-                                            style={{
-                                              padding: '1px 6px',
-                                              borderRadius: '10px',
-                                              fontSize: '0.72rem',
-                                              fontWeight: 600,
-                                              background: isEm ? 'var(--green-soft, #dcfce7)' : 'var(--orange-soft, #fef3c7)',
-                                              color: isEm ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
-                                            }}
-                                          >
-                                            {isEm ? 'Cadastrada no Portal' : 'Não Cadastrada no Portal'}
-                                          </span>
-                                        </td>
-                                        <td style={{ padding: '4px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
-                                          {cs.contador_confirmacao || '—'}
-                                        </td>
-                                        <td style={{ padding: '4px', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
-                                          {cs.id_embarque ? `ID ${cs.id_embarque}` : '—'}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
+                              <div className="table-responsive" style={{ overflowX: 'auto', width: '100%', WebkitOverflowScrolling: 'touch' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                                  <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--line)', color: 'var(--ink-muted)' }}>
+                                      <th style={{ textAlign: 'left', padding: '4px' }}>Ordem</th>
+                                      <th style={{ textAlign: 'left', padding: '4px' }}>Operação</th>
+                                      <th style={{ textAlign: 'right', padding: '4px' }}>Horas Confirmadas</th>
+                                      <th style={{ textAlign: 'left', padding: '4px' }}>Situação na Carteira do Portal</th>
+                                      <th style={{ textAlign: 'center', padding: '4px' }}>Contador</th>
+                                      <th style={{ textAlign: 'left', padding: '4px' }}>ID Embarque</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {x.sapItems.map((cs, idx) => {
+                                      const isEm = cs.status_reconciliacao === 'Em Carteira';
+                                      return (
+                                        <tr key={cs.id || `${cs.ordem}_${cs.operacao}_${idx}`} style={{ borderBottom: '1px dotted var(--line)' }}>
+                                          <td style={{ padding: '4px', fontFamily: 'monospace', fontWeight: 600 }}>{cs.ordem}</td>
+                                          <td style={{ padding: '4px', fontFamily: 'monospace' }}>{cs.operacao}</td>
+                                          <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>
+                                            {formatHours(cs.horas_confirmadas)}
+                                          </td>
+                                          <td style={{ padding: '4px' }}>
+                                            <span
+                                              style={{
+                                                padding: '1px 6px',
+                                                borderRadius: '10px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 600,
+                                                background: isEm ? 'var(--green-soft, #dcfce7)' : 'var(--orange-soft, #fef3c7)',
+                                                color: isEm ? 'var(--ok, #15803d)' : 'var(--orange-dark, #b45309)'
+                                              }}
+                                            >
+                                              {isEm ? 'Cadastrada no Portal' : 'Não Cadastrada no Portal'}
+                                            </span>
+                                          </td>
+                                          <td style={{ padding: '4px', textAlign: 'center', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                                            {cs.contador_confirmacao || '—'}
+                                          </td>
+                                          <td style={{ padding: '4px', fontFamily: 'monospace', color: 'var(--ink-muted)' }}>
+                                            {cs.id_embarque ? `ID ${cs.id_embarque}` : '—'}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
                           </td>
                         </tr>

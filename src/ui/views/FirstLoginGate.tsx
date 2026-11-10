@@ -92,7 +92,7 @@ export function FirstLoginGate() {
         className="login-card"
         style={{
           maxWidth: '480px',
-          padding: '24px 26px',
+          padding: 'clamp(18px, 5vw, 26px) clamp(14px, 4vw, 26px)',
           gap: '14px',
           boxSizing: 'border-box'
         }}
@@ -157,18 +157,17 @@ export function FirstLoginGate() {
             borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--line)',
             fontSize: '0.82rem',
-            gap: '8px'
+            gap: '8px',
+            flexWrap: 'wrap'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: '1 1 auto' }}>
             <Mail size={15} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />
             <span
               style={{
                 fontWeight: 600,
                 color: 'var(--ink)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
+                wordBreak: 'break-all'
               }}
               title={userEmail}
             >
@@ -227,14 +226,19 @@ export function FirstLoginGate() {
                 onClick={() => setShowNewPassword(p => !p)}
                 style={{
                   position: 'absolute',
-                  right: '4px',
+                  right: '2px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   border: 'none',
                   background: 'transparent',
                   color: 'var(--ink-muted)',
                   cursor: 'pointer',
-                  padding: '4px'
+                  padding: '8px',
+                  minWidth: '36px',
+                  minHeight: '36px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
                 title={showNewPassword ? 'Ocultar senha' : 'Ver senha'}
                 aria-label={showNewPassword ? 'Ocultar senha' : 'Ver senha'}
@@ -277,14 +281,19 @@ export function FirstLoginGate() {
                 onClick={() => setShowConfirmPassword(p => !p)}
                 style={{
                   position: 'absolute',
-                  right: '4px',
+                  right: '2px',
                   top: '50%',
                   transform: 'translateY(-50%)',
                   border: 'none',
                   background: 'transparent',
                   color: 'var(--ink-muted)',
                   cursor: 'pointer',
-                  padding: '4px'
+                  padding: '8px',
+                  minWidth: '36px',
+                  minHeight: '36px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
                 title={showConfirmPassword ? 'Ocultar confirmação' : 'Ver confirmação'}
                 aria-label={showConfirmPassword ? 'Ocultar confirmação' : 'Ver confirmação'}
@@ -326,10 +335,8 @@ export function FirstLoginGate() {
 
           {/* Checklist Compacto em 2 Colunas */}
           <div
+            className="form-grid-2"
             style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '6px 12px',
               marginTop: '4px',
               background: 'var(--surface-alt)',
               padding: '10px 12px',

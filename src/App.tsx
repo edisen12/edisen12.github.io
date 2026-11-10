@@ -56,7 +56,7 @@ function AppGate() {
   if (!authInitialized) {
     return (
       <div className="login-shell" aria-busy="true">
-        <div className="login-card" style={{ textAlign: 'center', padding: '40px 28px' }}>
+        <div className="login-card" style={{ textAlign: 'center', padding: 'clamp(20px, 5vw, 40px) clamp(16px, 4vw, 28px)' }}>
           <img
             src="./infotec-logo.png"
             alt="Infotec Brasil"

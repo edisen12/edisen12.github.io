@@ -8,12 +8,21 @@ import type {
   AppDataset,
   ContractConfig,
   Justificativa,
-  PapelOperacional,
   Pessoa,
   Plataforma,
   SystemAuditLog,
   UsoffUnWeight
 } from '../domain/types';
+import type {
+  AuditLogFilterInput,
+  BatchImportCarteiraRow,
+  BatchImportConfirmacaoSAPRow,
+  BatchImportHHRow,
+  BatchImportPessoaRow,
+  BatchImportPlataformaRow,
+  ProgressCallback,
+  SavePessoaInput
+} from '../ports/data.port';
 import { getClientDatabaseProvider } from './provider.registry';
 
 /**
@@ -64,14 +73,7 @@ export async function deletePlataforma(sigla: string): Promise<void> {
 /**
  * Salva ou atualiza uma pessoa responsável e substitui suas atribuições de plataformas e UNs.
  */
-export async function savePessoa(input: {
-  id?: string;
-  nome: string;
-  papel: PapelOperacional;
-  email: string;
-  plats: string[];
-  uns: string[];
-}): Promise<Pessoa> {
+export async function savePessoa(input: SavePessoaInput): Promise<Pessoa> {
   return getClientDatabaseProvider().data.savePessoa(input);
 }
 
@@ -86,17 +88,9 @@ export async function deletePessoa(id: string): Promise<void> {
  * Importa lote de apontamentos HH diários em chunks determinísticos.
  */
 export async function batchImportHH(
-  rows: Array<{
-    mat: string;
-    nome?: string;
-    funcao?: string;
-    p: string;
-    r?: string;
-    D: string;
-    e: number;
-  }>,
+  rows: BatchImportHHRow[],
   pidx: Record<string, Plataforma>,
-  onProgress?: (gravadas: number, total: number) => void,
+  onProgress?: ProgressCallback,
   origem = 'planilha (manual)'
 ): Promise<void> {
   return getClientDatabaseProvider().data.batchImportHH(rows, pidx, onProgress, origem);
@@ -106,21 +100,9 @@ export async function batchImportHH(
  * Importa lote de programações da Carteira de Embarques em chunks determinísticos.
  */
 export async function batchImportCarteira(
-  rows: Array<{
-    mat: string;
-    nome?: string;
-    funcao?: string;
-    plat: string;
-    reg?: string;
-    ini: string;
-    fim: string;
-    hp?: number | null;
-    op?: string;
-    pe?: number | null;
-    ex?: number | null;
-  }>,
+  rows: BatchImportCarteiraRow[],
   pidx: Record<string, Plataforma>,
-  onProgress?: (gravadas: number, total: number) => void,
+  onProgress?: ProgressCallback,
   origem = 'planilha (manual)'
 ): Promise<void> {
   return getClientDatabaseProvider().data.batchImportCarteira(rows, pidx, onProgress, origem);
@@ -130,15 +112,8 @@ export async function batchImportCarteira(
  * Importa catálogo de plataformas em lote.
  */
 export async function batchImportPlataformas(
-  rows: Array<{
-    sigla: string;
-    nome?: string;
-    un?: string;
-    armador?: string;
-    tipo?: string;
-    situacao?: string;
-  }>,
-  onProgress?: (gravadas: number, total: number) => void
+  rows: BatchImportPlataformaRow[],
+  onProgress?: ProgressCallback
 ): Promise<void> {
   return getClientDatabaseProvider().data.batchImportPlataformas(rows, onProgress);
 }
@@ -147,14 +122,8 @@ export async function batchImportPlataformas(
  * Importa pessoas e suas atribuições de carteira em lote.
  */
 export async function batchImportPessoas(
-  rows: Array<{
-    nome: string;
-    papel: PapelOperacional;
-    email: string;
-    plats: string[];
-    uns: string[];
-  }>,
-  onProgress?: (gravadas: number, total: number) => void
+  rows: BatchImportPessoaRow[],
+  onProgress?: ProgressCallback
 ): Promise<void> {
   return getClientDatabaseProvider().data.batchImportPessoas(rows, onProgress);
 }
@@ -163,16 +132,8 @@ export async function batchImportPessoas(
  * Importa lote de confirmações do SAP em chunks determinísticos.
  */
 export async function batchImportConfirmacoesSAP(
-  rows: Array<{
-    mat: string;
-    cria: string;
-    lanc: string;
-    real: string;
-    ordem: string;
-    op: string;
-    hc: number;
-  }>,
-  onProgress?: (gravadas: number, total: number) => void
+  rows: BatchImportConfirmacaoSAPRow[],
+  onProgress?: ProgressCallback
 ): Promise<any> {
   const provider = getClientDatabaseProvider();
   if (typeof provider.data.batchImportConfirmacoesSAP === 'function') {
@@ -204,11 +165,7 @@ export async function resetCarteiraEmbarques(): Promise<{ deleted_operacoes: num
 /**
  * Consulta a trilha de auditoria do sistema com filtros opcionais.
  */
-export async function fetchSystemAuditLogs(filters?: {
-  category?: string;
-  search?: string;
-  limit?: number;
-}): Promise<SystemAuditLog[]> {
+export async function fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]> {
   return getClientDatabaseProvider().data.fetchSystemAuditLogs(filters);
 }
 

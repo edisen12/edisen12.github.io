@@ -96,12 +96,22 @@ export class InMemoryStorageDriver implements UniversalStorageDriverPort {
 
     // Condição complexa com operadores
     if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
-      const obj = cond as { eq?: unknown; in?: unknown[]; gte?: string | number; lte?: string | number };
-      const hasOperators = 'eq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
+      const obj = cond as {
+        eq?: unknown;
+        neq?: unknown;
+        in?: unknown[];
+        gte?: string | number;
+        lte?: string | number;
+      };
+      const hasOperators =
+        'eq' in obj || 'neq' in obj || 'in' in obj || 'gte' in obj || 'lte' in obj;
 
       if (hasOperators) {
         if ('eq' in obj && obj.eq !== undefined) {
           if (rowVal !== obj.eq) return false;
+        }
+        if ('neq' in obj && obj.neq !== undefined) {
+          if (rowVal === obj.neq) return false;
         }
         if ('in' in obj && Array.isArray(obj.in)) {
           if (!obj.in.includes(rowVal)) return false;

@@ -255,7 +255,7 @@ Deno.serve(async (req: Request) => {
         if (insertProfileError) throw insertProfileError;
 
         // Garante registro de primeiro login obrigatório em user_onboarding
-        await supabaseAdmin.from('user_onboarding').upsert(
+        const { error: onbError } = await supabaseAdmin.from('user_onboarding').upsert(
           {
             user_id: newUserId,
             primeiro_login: true,
@@ -264,6 +264,7 @@ Deno.serve(async (req: Request) => {
           },
           { onConflict: 'user_id' }
         );
+        if (onbError) throw onbError;
 
         // Vínculo transacional com public.pessoas (se não for admin ou se pessoaId foi passado)
         let resolvedPessoaId = pessoaId;
@@ -277,18 +278,20 @@ Deno.serve(async (req: Request) => {
           if (updPessoaErr) throw updPessoaErr;
         } else if (role !== 'admin') {
           // Busca se já existe pessoa com este e-mail
-          const { data: existingPessoa } = await supabaseAdmin
+          const { data: existingPessoa, error: selPessoaErr } = await supabaseAdmin
             .from('pessoas')
             .select('id')
             .eq('email', cleanEmail)
             .maybeSingle();
+          if (selPessoaErr) throw selPessoaErr;
 
           if (existingPessoa) {
             resolvedPessoaId = existingPessoa.id;
-            await supabaseAdmin
+            const { error: updExistingErr } = await supabaseAdmin
               .from('pessoas')
               .update({ user_id: newUserId, papel: role })
               .eq('id', existingPessoa.id);
+            if (updExistingErr) throw updExistingErr;
           } else {
             // Gera slug único
             const baseSlug = cleanNome.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -314,18 +317,28 @@ Deno.serve(async (req: Request) => {
         // Atualização de plataformas e unidades atribuídas se aplicável
         if (resolvedPessoaId) {
           if (Array.isArray(plats)) {
-            await supabaseAdmin.from('pessoa_plataformas').delete().eq('pessoa_id', resolvedPessoaId);
+            const { error: delPlatErr } = await supabaseAdmin
+              .from('pessoa_plataformas')
+              .delete()
+              .eq('pessoa_id', resolvedPessoaId);
+            if (delPlatErr) throw delPlatErr;
             if (plats.length > 0) {
               const rowsPlat = plats.map((p: string) => ({ pessoa_id: resolvedPessoaId, plataforma_sigla: p }));
-              await supabaseAdmin.from('pessoa_plataformas').insert(rowsPlat);
+              const { error: insPlatErr } = await supabaseAdmin.from('pessoa_plataformas').insert(rowsPlat);
+              if (insPlatErr) throw insPlatErr;
             }
           }
 
           if (Array.isArray(uns)) {
-            await supabaseAdmin.from('pessoa_unidades').delete().eq('pessoa_id', resolvedPessoaId);
+            const { error: delUnErr } = await supabaseAdmin
+              .from('pessoa_unidades')
+              .delete()
+              .eq('pessoa_id', resolvedPessoaId);
+            if (delUnErr) throw delUnErr;
             if (uns.length > 0) {
               const rowsUn = uns.map((u: string) => ({ pessoa_id: resolvedPessoaId, unidade_negocio: u }));
-              await supabaseAdmin.from('pessoa_unidades').insert(rowsUn);
+              const { error: insUnErr } = await supabaseAdmin.from('pessoa_unidades').insert(rowsUn);
+              if (insUnErr) throw insUnErr;
             }
           }
         }

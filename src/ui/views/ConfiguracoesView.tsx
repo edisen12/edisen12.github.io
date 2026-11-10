@@ -8,7 +8,6 @@ import {
   HelpCircle,
   Save,
   RotateCcw,
-  CheckCircle2,
   AlertCircle,
   Building2,
   Plus,
@@ -17,7 +16,6 @@ import {
   Clock,
   Target,
   Send,
-  FileSpreadsheet,
   Check
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
@@ -31,7 +29,7 @@ import { formatHours } from '../../utils/format';
 type ConfigTab = 'geral' | 'ciclo' | 'usoff' | 'comunicacao' | 'memorial';
 
 export const ConfiguracoesView: React.FC = () => {
-  const { dataset, isGlobal, isAdmin, refreshData } = useApp();
+  const { dataset, isGlobal, refreshData } = useApp();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<ConfigTab>('geral');
@@ -125,10 +123,26 @@ export const ConfiguracoesView: React.FC = () => {
     const currentEmails = emailsList.map(e => e.trim().toLowerCase()).sort().join('|');
     if (originalEmails !== currentEmails) return true;
 
+    const origWeightsMap = dataset.usoffUnWeights || {};
+    const allUns = new Set<string>([
+      ...Object.keys(origWeightsMap),
+      ...unWeightsList.map(u => u.un)
+    ]);
+    for (const un of allUns) {
+      const orig = origWeightsMap[un];
+      const curr = unWeightsList.find(u => u.un === un);
+      const origPe = orig?.pe != null ? String(orig.pe) : '';
+      const origEx = orig?.ex != null ? String(orig.ex) : '';
+      const currPe = curr?.pe ?? '';
+      const currEx = curr?.ex ?? '';
+      if (origPe !== currPe || origEx !== currEx) return true;
+    }
+
     return false;
   }, [
     dataset.config,
     dataset.emailsResumo,
+    dataset.usoffUnWeights,
     hhDia,
     metaPercentual,
     atencaoPercentual,
@@ -139,7 +153,8 @@ export const ConfiguracoesView: React.FC = () => {
     usPePadrao,
     usExPadrao,
     slogan,
-    emailsList
+    emailsList,
+    unWeightsList
   ]);
 
   // Manipulação de E-mails
@@ -290,7 +305,7 @@ export const ConfiguracoesView: React.FC = () => {
         }
         .cfg-card-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
           gap: 20px;
           align-items: start;
         }
@@ -333,11 +348,16 @@ export const ConfiguracoesView: React.FC = () => {
           cursor: pointer;
           display: inline-flex;
           align-items: center;
-          padding: 0;
+          justify-content: center;
+          padding: 4px 6px;
+          min-width: 24px;
+          min-height: 24px;
+          border-radius: 50%;
           line-height: 1;
         }
         .cfg-chip-close:hover {
           color: var(--bad);
+          background: var(--bad-soft, rgba(239, 68, 68, 0.1));
         }
         .cfg-selection-card {
           border: 2px solid var(--line);
@@ -357,6 +377,33 @@ export const ConfiguracoesView: React.FC = () => {
         .cfg-selection-card.selected {
           border-color: var(--blue);
           background: var(--blue-soft);
+        }
+        .cfg-dirty-bar {
+          position: fixed;
+          bottom: 20px;
+          right: 24px;
+          z-index: 100;
+          background: var(--surface);
+          border: 2px solid var(--blue);
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-lg, 0 10px 25px -5px rgba(0, 0, 0, 0.15));
+          padding: 12px 20px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          max-width: calc(100vw - 24px);
+          animation: fadeIn 0.2s ease-in-out;
+        }
+        @media (max-width: 640px) {
+          .cfg-dirty-bar {
+            left: 12px;
+            right: 12px;
+            bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            flex-wrap: wrap;
+            justify-content: center;
+            padding: 10px 14px;
+            gap: 10px;
+          }
         }
       `}</style>
 
@@ -535,7 +582,7 @@ export const ConfiguracoesView: React.FC = () => {
                   <div className="cfg-scale-segment-warn" style={{ width: `${Math.max(0, metaPercentual - atencaoPercentual)}%` }} title="Faixa de Atenção (Alerta)" />
                   <div className="cfg-scale-segment-ok" style={{ flex: 1 }} title="Meta Atingida (OK)" />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '4px', marginTop: '6px', fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
                   <span style={{ color: 'var(--bad)', fontWeight: 600 }}>0% a {atencaoPercentual - 1}% (Crítico)</span>
                   <span style={{ color: 'var(--warn)', fontWeight: 600 }}>{atencaoPercentual}% a {metaPercentual - 1}% (Atenção)</span>
                   <span style={{ color: 'var(--ok)', fontWeight: 600 }}>&ge; {metaPercentual}% (Meta Atingida)</span>
@@ -632,8 +679,16 @@ export const ConfiguracoesView: React.FC = () => {
                 return (
                   <div
                     key={op.value}
+                    role="button"
+                    tabIndex={0}
                     className={`cfg-selection-card ${isSelected ? 'selected' : ''}`}
                     onClick={() => setDiaCorte(op.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setDiaCorte(op.value);
+                      }
+                    }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontWeight: 700, fontSize: '0.95rem', color: isSelected ? 'var(--blue)' : 'var(--ink)' }}>
@@ -673,8 +728,16 @@ export const ConfiguracoesView: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div
+                role="button"
+                tabIndex={0}
                 className={`cfg-selection-card ${medCriterio === 'enc' ? 'selected' : ''}`}
                 onClick={() => setMedCriterio('enc')}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setMedCriterio('enc');
+                  }
+                }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: '0.95rem', color: medCriterio === 'enc' ? 'var(--blue)' : 'var(--ink)' }}>
@@ -694,8 +757,16 @@ export const ConfiguracoesView: React.FC = () => {
               </div>
 
               <div
+                role="button"
+                tabIndex={0}
                 className={`cfg-selection-card ${medCriterio === 'dias' ? 'selected' : ''}`}
                 onClick={() => setMedCriterio('dias')}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setMedCriterio('dias');
+                  }
+                }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontWeight: 700, fontSize: '0.95rem', color: medCriterio === 'dias' ? 'var(--blue)' : 'var(--ink)' }}>
@@ -748,7 +819,7 @@ export const ConfiguracoesView: React.FC = () => {
                 </p>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div className="form-grid-2" style={{ gap: '14px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
                     PE Global (Programado)
@@ -802,7 +873,7 @@ export const ConfiguracoesView: React.FC = () => {
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
                   value={novaUn}
@@ -1022,7 +1093,7 @@ export const ConfiguracoesView: React.FC = () => {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {/* Input para Adicionar Novo E-mail */}
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <input
                     type="email"
                     value={novoEmailInput}
@@ -1096,7 +1167,7 @@ export const ConfiguracoesView: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '16px' }}>
               <div className="card note note-info" style={{ margin: 0 }}>
                 <h4 style={{ margin: '0 0 6px', fontSize: '0.95rem' }}>1. HH Disponível & Jornada Diária</h4>
                 <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.45' }}>
@@ -1145,30 +1216,14 @@ export const ConfiguracoesView: React.FC = () => {
 
       {/* Barra Flutuante de Gravação quando houver alterações pendentes */}
       {isDirty && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '24px',
-            zIndex: 100,
-            background: 'var(--surface)',
-            border: '2px solid var(--blue)',
-            borderRadius: 'var(--radius-lg)',
-            boxShadow: 'var(--shadow-lg, 0 10px 25px -5px rgba(0, 0, 0, 0.15))',
-            padding: '12px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            animation: 'fadeIn 0.2s ease-in-out'
-          }}
-        >
+        <div className="cfg-dirty-bar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertCircle size={18} style={{ color: 'var(--warn)' }} />
             <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--ink)' }}>
               Você possui alterações não salvas no contrato
             </span>
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn btn-sm btn-ghost"

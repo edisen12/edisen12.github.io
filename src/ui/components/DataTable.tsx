@@ -169,7 +169,18 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={`datatable-container ${className}`.trim()} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div
+      className={`datatable-container ${className}`.trim()}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box'
+      }}
+    >
       {/* Barra de Filtro e Busca */}
       {searchable && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>

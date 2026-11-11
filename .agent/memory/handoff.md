@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-11 13:46 (BRT) · HEAD: d0981ae · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.52s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-11 14:06 (BRT) · HEAD: 357b2e8 · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.52s ✅ · Server Typecheck: 0 erros ✅
 
 ## 1. Resumo Executivo
 

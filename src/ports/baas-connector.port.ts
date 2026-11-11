@@ -81,7 +81,7 @@ export interface BaaSConnectorPort {
   }): Promise<Pessoa>;
   deletePessoa(id: string): Promise<void>;
   upsertTecnicosChunk(rows: Array<{ matricula: string; nome: string; funcao: string }>): Promise<void>;
-  deleteTecnico?(matricula: string): Promise<void>;
+  deleteTecnico?(matricula: string, cascade?: boolean): Promise<void>;
   upsertApontamentosChunk(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertCarteiraChunk(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertCarteiraOperacoesChunk?(rows: Array<Record<string, unknown>>): Promise<void>;

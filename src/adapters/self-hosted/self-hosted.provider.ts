@@ -189,10 +189,11 @@ export function createSelfHostedClientProvider(
       });
     },
 
-    async deleteTecnico(matricula: string): Promise<void> {
+    async deleteTecnico(matricula: string, cascade: boolean = false): Promise<void> {
       const cleanMat = (matricula || '').trim();
       if (!cleanMat) throw new Error('Matrícula inválida para exclusão.');
-      await http.delete(`/tecnicos/${encodeURIComponent(cleanMat)}`);
+      const query = cascade ? '?cascade=true' : '';
+      await http.delete(`/tecnicos/${encodeURIComponent(cleanMat)}${query}`);
     },
 
     async savePessoa(input: SavePessoaInput): Promise<Pessoa> {

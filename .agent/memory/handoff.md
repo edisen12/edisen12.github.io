@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-11 14:10 (BRT) · HEAD: cff4198 · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.14s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
+> Última atualização: 2026-11-11 14:35 (BRT) · HEAD: 7cad668 · Suíte Completa: 31 arquivos / 578 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 6.57s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
 
 ## 1. Resumo Executivo
 
@@ -101,7 +101,7 @@
     - Busca instantânea (nome, matrícula, função) e filtros combinados por função e situação de histórico operacional.
     - Cadastro manual (`saveTecnico`) com validação de matrícula única e formulário com datalist de especialidades offshore.
     - Edição inline de dados cadastrais mantendo a integridade referencial da matrícula.
-    - Exclusão com 2 cliques (`deleteTecnico`) protegida por trava de histórico: técnicos com apontamentos de HH ou embarques em carteira têm o botão desabilitado e recebem tooltip de proteção contratual (`ON DELETE RESTRICT`).
+    - Exclusão com confirmação rica (`deleteTecnico`): botões sempre interativos na tabela (sem bloqueio silencioso), diagnóstico no modal com contagem de HHs e embarques, e suporte a exclusão em cascata (`cascade = true`) eliminando falhas de chave estrangeira (`ON DELETE RESTRICT`). Coluna de ações padronizada com `btn btn-sm btn-icon btn-ghost` para Edição e Exclusão, e `btn btn-sm btn-ghost` para Ficha, com largura fluida de `180px` evitando quebra de layout.
     - Importação em lote via planilha (`.xlsx`/`.csv`) com SheetJS, remapeamento de colunas e tabela de pré-visualização.
     - Exportador Excel dedicado (`exportTecnicosListXlsx`) enriquecido com total de HH e embarques de cada técnico, e gerador de planilha modelo vazia (`exportModeloXlsx('tec')`).
     - Integração de visualização rápida da Ficha do Técnico (`openFichaDrawer`).

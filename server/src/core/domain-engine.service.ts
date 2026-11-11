@@ -1083,11 +1083,20 @@ export class SelfHostedDomainEngine {
 
   async deleteTecnico(
     actor: AuthenticatedActor,
-    matricula: string
+    matricula: string,
+    cascade: boolean = false
   ): Promise<void> {
     this.assertGlobalRole(actor);
     const cleanMat = (matricula || '').trim();
     if (!cleanMat) throw new Error('Matrícula inválida.');
+
+    if (cascade) {
+      await this.storage.deleteMany('justificativas', { matricula: cleanMat });
+      await this.storage.deleteMany('carteira_operacoes', { matricula: cleanMat });
+      await this.storage.deleteMany('carteira_embarques', { matricula: cleanMat });
+      await this.storage.deleteMany('apontamentos_hh', { matricula: cleanMat });
+      await this.storage.deleteMany('confirmacoes_sap', { matricula: cleanMat });
+    }
 
     const deleted = await this.storage.deleteMany('tecnicos', { matricula: cleanMat });
     if (deleted > 0) {
@@ -1101,7 +1110,7 @@ export class SelfHostedDomainEngine {
         category: 'cadastros',
         target_id: cleanMat,
         target_label: cleanMat,
-        details: {},
+        details: { cascade },
         created_at: new Date().toISOString()
       });
       this.realtimeHub?.broadcast('sync_heartbeat');

@@ -245,4 +245,16 @@
     - `isArmadorPlatform` em `calculations.ts` e `isArmadorDiariaSemProg` passam a receber o mapa `dataset.usoffUnWeights` e verificar tanto a flag explícita da plataforma quanto a flag da UN.
     - Se a UN ou a plataforma estiver sinalizada como `diaria`, o cálculo de USOFF adota a fórmula de diária $(\text{dias} + 1) \times 10$ em todos os cenários (carteira de operações, carteira legacy e sem programação), marcando `falta: false` e exibindo badge e rótulo explicativo `'Diária'` / `'Diária (Armador)'`.
     - Modal da Carteira do Embarque (`CarteiraEmbarqueModal.tsx`) reconhece a configuração e exibe a fórmula de diária no card de resumo e nas linhas de operações.
+- **2026-11-11** — Revisão de UI/UX das Ações de Técnicos e Fluxo de Exclusão em Cascata:
+  - *Decisão do Usuário:* Ajustar os botões de ação ao lado de "Ficha" na listagem de técnicos offshore (não estavam visíveis ou estourando layout) e corrigir a impossibilidade de exclusão de técnicos com registros vinculados.
+  - *Padronização de UI/UX dos Botões de Ação:*
+    - Removida restrição arbitrária `isGlobal` que ocultava os botões de editar e excluir na tabela.
+    - Padronizados botões com as classes canônicas do sistema (`btn btn-sm btn-ghost` para Ficha e `btn btn-sm btn-icon btn-ghost` para Edição e Exclusão), eliminando a classe fantasma `btn-xs` e o estouro de padding.
+    - Ajustada largura da coluna de ações para `180px` com `display: inline-flex` e alinhamento à direita contido.
+  - *Fluxo de Exclusão e Suporte a Cascata:*
+    - Botão de exclusão da lixeira é sempre interativo e clicável (não fica travado ou desabilitado silenciosamente).
+    - Modal de exclusão com diagnóstico em tempo real: exibe contagem de apontamentos de HH e embarques vinculados ao técnico.
+    - Se o técnico possuir histórico, exige confirmação explícita via checkbox de exclusão em cascata.
+    - Backend Dual-Topology (Supabase Connector + Server Node.js) atualizado com suporte a `deleteTecnico(matricula, cascade = true)`: remove em ordem referencial reversa (`justificativas` -> `carteira_operacoes` -> `carteira_embarques` -> `apontamentos_hh` -> `confirmacoes_sap` -> `tecnicos`), eliminando falhas de chave estrangeira (`23503`).
+
 

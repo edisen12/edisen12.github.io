@@ -1032,11 +1032,11 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         }
       ]);
     },
-    async deleteTecnico(matricula: string) {
+    async deleteTecnico(matricula: string, cascade: boolean = false) {
       const cleanMat = (matricula || '').trim();
       if (!cleanMat) throw new Error('Matrícula inválida para exclusão.');
       if (typeof connector.deleteTecnico === 'function') {
-        await connector.deleteTecnico(cleanMat);
+        await connector.deleteTecnico(cleanMat, cascade);
       }
     },
     async savePessoa(input: SavePessoaInput) {

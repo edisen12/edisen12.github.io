@@ -81,8 +81,8 @@ export async function saveTecnico(tec: Tecnico): Promise<void> {
 /**
  * Remove um técnico offshore do cadastro mestre.
  */
-export async function deleteTecnico(matricula: string): Promise<void> {
-  return getClientDatabaseProvider().data.deleteTecnico(matricula);
+export async function deleteTecnico(matricula: string, cascade?: boolean): Promise<void> {
+  return getClientDatabaseProvider().data.deleteTecnico(matricula, cascade);
 }
 
 /**

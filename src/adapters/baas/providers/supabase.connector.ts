@@ -659,9 +659,24 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
     if (error) throw error;
   },
 
-  async deleteTecnico(matricula: string): Promise<void> {
+  async deleteTecnico(matricula: string, cascade: boolean = false): Promise<void> {
+    if (cascade) {
+      // Exclusão em cascata: remove dependências referenciais filhas antes do técnico mestre
+      await supabase.from('justificativas').delete().eq('matricula', matricula);
+      await supabase.from('carteira_operacoes').delete().eq('matricula', matricula);
+      await supabase.from('carteira_embarques').delete().eq('matricula', matricula);
+      await supabase.from('apontamentos_hh').delete().eq('matricula', matricula);
+      await supabase.from('confirmacoes_sap').delete().eq('matricula', matricula);
+    }
     const { error } = await supabase.from('tecnicos').delete().eq('matricula', matricula);
-    if (error) throw error;
+    if (error) {
+      if ((error as any).code === '23503') {
+        throw new Error(
+          'Este colaborador possui histórico operacional vinculado (apontamentos ou embarques). Marque a opção de exclusão em cascata para confirmar a remoção.'
+        );
+      }
+      throw error;
+    }
   },
 
   async upsertApontamentosChunk(rows: Array<Record<string, unknown>>): Promise<void> {

@@ -12,6 +12,7 @@ import {
   Users,
   Check,
   AlertCircle,
+  AlertTriangle,
   Copy,
   Briefcase,
   X
@@ -53,6 +54,7 @@ export function TecnicosManager() {
   const [delModalOpen, setDelModalOpen] = useState(false);
   const [deletingTecnico, setDeletingTecnico] = useState<TecnicoRowData | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [cascadeDelete, setCascadeDelete] = useState(false);
 
   const [importModalOpen, setImportModalOpen] = useState(false);
 
@@ -149,10 +151,12 @@ export function TecnicosManager() {
     if (!deletingTecnico) return;
     setDeleting(true);
     try {
-      await deleteTecnico(deletingTecnico.matricula);
+      const shouldCascade = cascadeDelete || deletingTecnico.totalVinculos > 0;
+      await deleteTecnico(deletingTecnico.matricula, shouldCascade);
       showToast(`Técnico ${deletingTecnico.nome} (Mat. ${deletingTecnico.matricula}) excluído com sucesso.`, 'success');
       setDelModalOpen(false);
       setDeletingTecnico(null);
+      setCascadeDelete(false);
       await refreshData();
     } catch (err: any) {
       showToast(err?.message || 'Falha ao excluir técnico offshore.', 'error');
@@ -256,53 +260,50 @@ export function TecnicosManager() {
       key: 'acoes',
       header: 'Ações',
       align: 'right',
-      width: '160px',
+      width: '180px',
       render: r => (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px', width: '100%' }}>
           <button
             type="button"
-            className="btn btn-ghost btn-xs"
+            className="btn btn-sm btn-ghost"
             title="Abrir ficha detalhada do técnico"
             aria-label="Abrir ficha do técnico"
             onClick={() => openFichaDrawer(r.matricula)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '4px 8px', fontSize: '0.78rem' }}
           >
             <FileText size={14} /> Ficha
           </button>
 
-          {isGlobal && (
-            <>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                title="Editar dados cadastrais"
-                aria-label="Editar técnico"
-                onClick={() => {
-                  setEditingTecnico(r);
-                  setModalOpen(true);
-                }}
-              >
-                <Edit3 size={14} />
-              </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-icon btn-ghost"
+            title="Editar dados cadastrais"
+            aria-label="Editar técnico"
+            onClick={() => {
+              setEditingTecnico(r);
+              setModalOpen(true);
+            }}
+          >
+            <Edit3 size={15} />
+          </button>
 
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs text-danger"
-                title={
-                  r.totalVinculos > 0
-                    ? `Técnico possui ${r.totalVinculos} registros de histórico. Exclusão bloqueada para integridade contratual.`
-                    : 'Excluir técnico do cadastro mestre'
-                }
-                aria-label="Excluir técnico"
-                disabled={r.totalVinculos > 0}
-                onClick={() => {
-                  setDeletingTecnico(r);
-                  setDelModalOpen(true);
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-icon btn-ghost text-danger"
+            title={
+              r.totalVinculos > 0
+                ? `Excluir técnico (${r.totalVinculos} registros de histórico)`
+                : 'Excluir técnico do cadastro mestre'
+            }
+            aria-label="Excluir técnico"
+            onClick={() => {
+              setDeletingTecnico(r);
+              setCascadeDelete(false);
+              setDelModalOpen(true);
+            }}
+          >
+            <Trash2 size={15} />
+          </button>
         </div>
       )
     }
@@ -345,30 +346,26 @@ export function TecnicosManager() {
               <FileSpreadsheet size={14} style={{ marginRight: '6px' }} /> Exportar Técnicos
             </button>
 
-            {isGlobal && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setImportModalOpen(true)}
-                  title="Importar lista de técnicos em lote via planilha"
-                >
-                  <Upload size={14} style={{ marginRight: '6px' }} /> Importar em Lote
-                </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setImportModalOpen(true)}
+              title="Importar lista de técnicos em lote via planilha"
+            >
+              <Upload size={14} style={{ marginRight: '6px' }} /> Importar em Lote
+            </button>
 
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={() => {
-                    setEditingTecnico(null);
-                    setModalOpen(true);
-                  }}
-                  title="Cadastrar um novo técnico manualmente"
-                >
-                  <Plus size={15} style={{ marginRight: '6px' }} /> Novo Técnico
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setEditingTecnico(null);
+                setModalOpen(true);
+              }}
+              title="Cadastrar um novo técnico manualmente"
+            >
+              <Plus size={15} style={{ marginRight: '6px' }} /> Novo Técnico
+            </button>
           </div>
         </div>
 
@@ -498,13 +495,63 @@ export function TecnicosManager() {
           onClose={() => !deleting && setDelModalOpen(false)}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <p style={{ margin: 0 }}>
-              Deseja realmente remover o técnico <b>{deletingTecnico.nome}</b> (Matrícula <b>{deletingTecnico.matricula}</b>) do cadastro mestre?
-            </p>
-            <div className="pill pill-warn" style={{ fontSize: '0.82rem', padding: '8px 12px' }}>
-              <AlertCircle size={14} style={{ marginRight: '6px' }} />
-              Esta ação removerá o registro mestre. A exclusão só é permitida porque o colaborador não possui apontamentos de HH nem embarques em carteira.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--ink)' }}>
+                {deletingTecnico.nome}
+              </div>
+              <span className="pill" style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>
+                Mat. {deletingTecnico.matricula}
+              </span>
+              <span className="sub" style={{ fontSize: '0.8rem' }}>
+                {deletingTecnico.funcao || 'Técnico Offshore'}
+              </span>
             </div>
+
+            {deletingTecnico.totalVinculos > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="pill pill-warn" style={{ fontSize: '0.82rem', padding: '10px 12px', lineHeight: 1.4 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--orange)' }} />
+                    <div>
+                      <b>Atenção: histórico operacional vinculado identificado!</b>
+                      <div style={{ marginTop: '4px' }}>
+                        Este colaborador possui <b>{deletingTecnico.hhCount} apontamento(s) de HH</b> e <b>{deletingTecnico.cartCount} embarque(s) em carteira</b>.
+                      </div>
+                      <div style={{ marginTop: '4px', fontSize: '0.78rem' }}>
+                        Para excluir este técnico do sistema, marque a opção de exclusão em cascata abaixo (todos os registros de apontamento e embarque vinculados serão limpos).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: cascadeDelete ? 'rgba(239, 68, 68, 0.05)' : undefined }}>
+                  <input
+                    type="checkbox"
+                    checked={cascadeDelete}
+                    onChange={e => setCascadeDelete(e.target.checked)}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <span style={{ fontSize: '0.84rem', color: 'var(--ink)' }}>
+                    <b>Confirmar exclusão em cascata</b>: estou ciente de que o técnico e todos os seus vínculos operacionais e históricos serão excluídos em definitivo.
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--ink)' }}>
+                  Deseja remover este técnico do diretório mestre? O colaborador não possui apontamentos no período ativo.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--ink-muted)', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={cascadeDelete}
+                    onChange={e => setCascadeDelete(e.target.checked)}
+                  />
+                  <span>Limpar preventivamente quaisquer registros legados caso existam no banco</span>
+                </label>
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
               <button
                 type="button"
@@ -518,7 +565,8 @@ export function TecnicosManager() {
                 type="button"
                 className="btn btn-danger"
                 onClick={handleDeleteConfirm}
-                disabled={deleting}
+                disabled={deleting || (deletingTecnico.totalVinculos > 0 && !cascadeDelete)}
+                title={deletingTecnico.totalVinculos > 0 && !cascadeDelete ? 'Marque a confirmação de exclusão em cascata para continuar' : undefined}
               >
                 {deleting ? 'Excluindo…' : 'Sim, Excluir'}
               </button>

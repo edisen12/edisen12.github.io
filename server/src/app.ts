@@ -290,7 +290,8 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
       if (method === 'DELETE' && pathname.startsWith('/api/v1/tecnicos/')) {
         const actor = await authenticate(true);
         const matricula = decodeURIComponent(pathname.slice('/api/v1/tecnicos/'.length));
-        await engine.deleteTecnico(actor, matricula);
+        const cascade = parsedUrl.searchParams.get('cascade') === 'true';
+        await engine.deleteTecnico(actor, matricula, cascade);
         return sendJson(res, 200, { ok: true, message: 'Técnico removido com sucesso.' });
       }
 

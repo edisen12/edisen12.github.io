@@ -99,7 +99,7 @@ export interface ClientDataPort {
   savePlataforma(plat: Partial<Plataforma> & { sigla: string }): Promise<void>;
   deletePlataforma(sigla: string): Promise<void>;
   saveTecnico(tec: Tecnico): Promise<void>;
-  deleteTecnico(matricula: string): Promise<void>;
+  deleteTecnico(matricula: string, cascade?: boolean): Promise<void>;
   savePessoa(input: SavePessoaInput): Promise<Pessoa>;
   deletePessoa(id: string): Promise<void>;
   batchImportHH(

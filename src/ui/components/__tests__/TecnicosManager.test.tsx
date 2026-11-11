@@ -204,7 +204,7 @@ describe('TecnicosManager (Gestão de Técnicos Offshore)', () => {
     });
   });
 
-  it('7. Bloqueia exclusão de técnico com apontamentos/embarques e permite exclusão de técnico sem histórico', async () => {
+  it('7. Exibe modal de confirmação ao clicar em excluir e suporta exclusão com ou sem histórico', async () => {
     const { refreshData } = renderTecnicosManager();
 
     // Ordenado por nome: [0] Ana Souza (0 vinculos), [1] Carlos Silva (2 vinculos), [2] Roberto Alves (0 vinculos)
@@ -213,22 +213,39 @@ describe('TecnicosManager (Gestão de Técnicos Offshore)', () => {
     const carlosDelBtn = delButtons[1];
     const robertoDelBtn = delButtons[2];
 
-    expect(carlosDelBtn).toHaveProperty('disabled', true);
+    // Todos os botões são interativos e habilitados no padrão UI/UX
     expect(anaDelBtn).toHaveProperty('disabled', false);
+    expect(carlosDelBtn).toHaveProperty('disabled', false);
     expect(robertoDelBtn).toHaveProperty('disabled', false);
 
+    // Teste 7A: Exclusão direta de técnico sem histórico ativo
     fireEvent.click(robertoDelBtn);
 
-    // Modal de confirmação
     expect(screen.getByText(/Excluir Técnico Offshore/i)).not.toBeNull();
-    expect(screen.getByText(/Deseja realmente remover o técnico/i)).not.toBeNull();
+    expect(screen.getByText(/Deseja remover este técnico do diretório mestre\?/i)).not.toBeNull();
 
     const confirmBtn = screen.getByRole('button', { name: /Sim, Excluir/i });
     fireEvent.click(confirmBtn);
 
     await waitFor(() => {
-      expect(deleteTecnico).toHaveBeenCalledWith('10233');
+      expect(deleteTecnico).toHaveBeenCalledWith('10233', false);
       expect(refreshData).toHaveBeenCalled();
+    });
+
+    // Teste 7B: Exclusão com histórico exige confirmação em cascata
+    fireEvent.click(carlosDelBtn);
+    expect(screen.getByText(/Atenção: histórico operacional vinculado identificado!/i)).not.toBeNull();
+
+    const cascadeCheckbox = screen.getByRole('checkbox', { name: /Confirmar exclusão em cascata/i });
+    expect(cascadeCheckbox).not.toBeNull();
+
+    // Com o checkbox desmarcado, o botão de exclusão fica desabilitado
+    fireEvent.click(cascadeCheckbox); // agora marcado
+    const confirmCascadeBtn = screen.getByRole('button', { name: /Sim, Excluir/i });
+    fireEvent.click(confirmCascadeBtn);
+
+    await waitFor(() => {
+      expect(deleteTecnico).toHaveBeenCalledWith('10231', true);
     });
   });
 

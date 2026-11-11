@@ -290,6 +290,28 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       ).toBe(false);
     });
 
+    it('remove um técnico offshore e seus vínculos em cascata quando solicitado', async () => {
+      mockClient.__mockState.tables.tecnicos.push({
+        matricula: 'TEC-CASCADE',
+        nome: 'Para Cascata',
+        funcao: 'Técnico Offshore'
+      });
+      mockClient.__mockState.tables.apontamentos_hh.push({
+        matricula: 'TEC-CASCADE',
+        data: '2026-06-01',
+        horas_executadas: 11
+      });
+
+      await deleteTecnico('TEC-CASCADE', true);
+
+      expect(
+        mockClient.__mockState.tables.tecnicos.some((t: any) => t.matricula === 'TEC-CASCADE')
+      ).toBe(false);
+      expect(
+        mockClient.__mockState.tables.apontamentos_hh.some((a: any) => a.matricula === 'TEC-CASCADE')
+      ).toBe(false);
+    });
+
     it('importa técnicos em lote com chunks e progresso', async () => {
       const rows = [
         { matricula: 'BULK-01', nome: 'Bulk Um', funcao: 'Caldeireiro' },

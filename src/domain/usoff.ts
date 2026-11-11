@@ -80,7 +80,8 @@ export const computeUsoffOperations = (
   P: PeriodWindow,
   dataset: AppDataset,
   filters: FilterState,
-  pidx: Record<string, Plataforma>
+  pidx: Record<string, Plataforma>,
+  groupBy: 'embarque' | 'operacao' = 'operacao'
 ): UsoffOperationRow[] => {
   const ate = computeDataAte(P, dataset.watermark.ultima_data_hh);
   const ops: Record<string, UsoffOperationRow> = {};
@@ -90,6 +91,7 @@ export const computeUsoffOperations = (
     key: string,
     meta: {
       op: string;
+      id_embarque?: string;
       tipo: 'Operação' | 'Embarque' | 'Sem programação';
       fonte: string;
     },
@@ -133,21 +135,34 @@ export const computeUsoffOperations = (
         us: null,
         pD: null,
         pP: null,
-        sharedAcrossPortfolios: false
+        sharedAcrossPortfolios: false,
+        totalOps: 0
       });
+
+    if (meta.id_embarque && !o.id_embarque) {
+      o.id_embarque = meta.id_embarque;
+    }
+    o.totalOps = (o.totalOps || 0) + 1;
 
     o.mats.add(mat);
     o.plats.add(l.p);
     o.regs.add(l.r);
     if (a < o.ini) o.ini = a;
     if (b > o.fim) o.fim = b;
-    o.dias += diffDays(a, b) + 1;
+
+    if (groupBy === 'embarque') {
+      o.dias = diffDays(o.ini, o.fim) + 1;
+      o.hd = o.dias * (dataset.config.hh_dia || 11);
+    } else {
+      o.dias += diffDays(a, b) + 1;
+      o.hd += hd;
+    }
+
     o.hp += hp;
     const effHpCarteira = hpCarteira !== undefined ? hpCarteira : hp;
     o.hpCarteira = (o.hpCarteira || 0) + effHpCarteira;
     o.hpForaCarteira = (o.hpForaCarteira || 0) + (hpForaCarteira || 0);
     o.hpAte += hpAte;
-    o.hd += hd;
     o.hc += hc;
 
     if (sharedAcrossPortfolios) {
@@ -157,9 +172,15 @@ export const computeUsoffOperations = (
     if (isDiaria) {
       // Regra contratual para unidades por Diária (Armador / afretadas / UMS):
       // Fórmula: (quantidade de dias + 1) * 10
-      const nDias = diffDays(a, b) + 1;
-      const usDiaria = (nDias + 1) * 10;
-      o.exHc += usDiaria;
+      if (groupBy === 'embarque') {
+        const nDias = diffDays(o.ini, o.fim) + 1;
+        o.exHc = (nDias + 1) * 10;
+        o.peHp = 0;
+      } else {
+        const nDias = diffDays(a, b) + 1;
+        const usDiaria = (nDias + 1) * 10;
+        o.exHc += usDiaria;
+      }
     } else if (w.pe == null || w.ex == null) {
       o.falta = true;
     } else {
@@ -217,7 +238,12 @@ export const computeUsoffOperations = (
       const hpCart = isCarteira ? hp : 0;
       const hpFora = !isCarteira ? hp : 0;
 
-      const embRef = dataset.carteira.find(ce => (ce.id_embarque && ce.id_embarque === op.id_embarque) || ce.matricula === op.matricula);
+      const embRef = dataset.carteira.find(ce =>
+        (op.id_embarque && ce.id_embarque === op.id_embarque) ||
+        (op.portal_id && ce.id_embarque === op.portal_id) ||
+        (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
+      ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
+
       const w = resolveUsoffWeights(embRef || null, l, dataset.config, dataset.usoffUnWeights);
 
       const isShared = !!(
@@ -226,17 +252,30 @@ export const computeUsoffOperations = (
         dataset.sharedOpsSet.has(op.operacao)
       );
 
-      const opKey = op.operacao
-        ? `op:${op.operacao}`
-        : (op.ordem ? `op:ORD_${op.ordem}` : `emb:${op.id_embarque || op.portal_id || op.matricula}`);
+      const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
+      const opKey = groupBy === 'embarque'
+        ? (embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`)
+        : (op.operacao
+            ? `op:${op.operacao}`
+            : (op.ordem ? `op:ORD_${op.ordem}` : `emb:${embId || op.matricula}`));
+
+      const meta = groupBy === 'embarque'
+        ? {
+            op: embId ? `ID ${embId}` : `Embarque ${op.matricula}`,
+            id_embarque: embId,
+            tipo: 'Embarque' as const,
+            fonte: isDiaria ? 'Diária (Armador)' : 'Portal Offshore'
+          }
+        : {
+            op: op.operacao || (op.ordem ? `Ordem ${op.ordem}` : ''),
+            id_embarque: embId,
+            tipo: (op.operacao ? 'Operação' : 'Embarque') as ('Operação' | 'Embarque'),
+            fonte: isDiaria ? 'Diária (Armador)' : 'Portal Offshore'
+          };
 
       add(
         opKey,
-        {
-          op: op.operacao || (op.ordem ? `Ordem ${op.ordem}` : ''),
-          tipo: op.operacao ? 'Operação' : 'Embarque',
-          fonte: isDiaria ? 'Diária (Armador)' : 'Portal Offshore'
-        },
+        meta,
         l,
         op.matricula,
         a,
@@ -294,20 +333,28 @@ export const computeUsoffOperations = (
       );
 
       const w = resolveUsoffWeights(c, l, dataset.config, dataset.usoffUnWeights);
-      const opKey = c.operacao
-        ? `op:${c.operacao}`
-        : `emb:${c.id || c.matricula + '_' + c.data_inicio}`;
+      const embId = c.id_embarque || c.id || '';
+      const opKey = groupBy === 'embarque'
+        ? (embId ? `emb:${embId}` : `emb:${c.matricula}_${a}_${c.plataforma_sigla || ''}`)
+        : (c.operacao
+            ? `op:${c.operacao}`
+            : `emb:${c.id || c.matricula + '_' + c.data_inicio}`);
+
+      const meta = {
+        op: groupBy === 'embarque'
+          ? (embId ? `ID ${embId}` : `Embarque ${c.matricula}`)
+          : (c.operacao || ''),
+        id_embarque: embId,
+        tipo: (groupBy === 'embarque' || !c.operacao) ? ('Embarque' as const) : ('Operação' as const),
+        fonte: hpSourceLabel(c, dataset.config, dataset.plataformas)
+      };
 
       const hpCart = calcHpCarteiraInInterval(c, a, b, dataset.config, dataset.plataformas);
       const hpFora = calcHpForaCarteiraInInterval(c, a, b);
 
       add(
         opKey,
-        {
-          op: c.operacao || '',
-          tipo: c.operacao ? 'Operação' : 'Embarque',
-          fonte: hpSourceLabel(c, dataset.config, dataset.plataformas)
-        },
+        meta,
         l,
         c.matricula,
         a,
@@ -339,9 +386,10 @@ export const computeUsoffOperations = (
         dataset.usoffUnWeights
       );
       add(
-        `sp:${x.mat}_${x.p}`,
+        groupBy === 'embarque' ? `emb:sp_${x.mat}_${x.p}_${x.D}` : `sp:${x.mat}_${x.p}`,
         {
-          op: '',
+          op: groupBy === 'embarque' ? `Sem prog. ${x.mat}` : '',
+          id_embarque: '',
           tipo: 'Sem programação',
           fonte: isDiaria ? 'Diária (Armador)' : 'sem programação'
         },

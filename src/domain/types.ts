@@ -339,6 +339,8 @@ export interface CobrancaStats {
 export interface UsoffOperationRow {
   key: string;
   op: string;
+  id_embarque?: string;
+  totalOps?: number;
   tipo: 'Operação' | 'Embarque' | 'Sem programação';
   fonte: string;
   mats: Set<string>;

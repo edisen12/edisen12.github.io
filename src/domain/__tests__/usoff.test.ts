@@ -1141,4 +1141,226 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(summary.us).toBe(10); // Apenas a operação executada pontuou!
     });
   });
+
+  describe('10. Agrupamento por Embarque / ID de Embarque (groupBy: "embarque")', () => {
+    it('consolida múltiplas operações de um mesmo embarque sem inflar dias e preservando a trava de execução zero', () => {
+      const dataset = createBaseDataset({
+        config: {
+          ...DEFAULT_CONFIG,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70
+        },
+        carteira: [
+          {
+            id: 'cart-emb-55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 130
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-1',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: 'ORD-1000',
+            operacao: 'OP-EXEC',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 10,
+            hh_confirmado: 10,
+            hh_confirmado_sap: 10,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-2',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: 'ORD-2000',
+            operacao: 'OP-NAO-EXEC',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 120,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Não Confirmado',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+
+      // 1. Agrupamento padrão por operação
+      const ops = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'operacao');
+      expect(ops).toHaveLength(2);
+
+      // 2. Agrupamento por embarque
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      expect(embarques).toHaveLength(1);
+
+      const emb = embarques[0];
+      expect(emb.key).toBe('emb:55104');
+      expect(emb.id_embarque).toBe('55104');
+      expect(emb.op).toBe('ID 55104');
+      expect(emb.tipo).toBe('Embarque');
+      expect(emb.totalOps).toBe(2);
+
+      // Não infla dias (14 dias físicos, não 28)
+      expect(emb.dias).toBe(14);
+      // HD = 14 * 11 = 154 horas
+      expect(emb.hd).toBe(154);
+
+      // Horas programadas e confirmadas consolidadas
+      expect(emb.hp).toBe(130);
+      expect(emb.hpCarteira).toBe(130);
+      expect(emb.hc).toBe(10);
+
+      // Trava de execução zero avaliada operação por operação e somada:
+      // OP-EXEC: 0.30 * 10 + 0.70 * 10 = 3 + 7 = 10
+      // OP-NAO-EXEC: 0 (HC = 0)
+      expect(emb.peHp).toBe(3);
+      expect(emb.exHc).toBe(7);
+      expect(emb.us).toBe(10);
+
+      const summary = summarizeUsoff(embarques);
+      expect(summary.n).toBe(1);
+      expect(summary.us).toBe(10);
+      expect(summary.hp).toBe(130);
+      expect(summary.hc).toBe(10);
+    });
+
+    it('aplica a fórmula de diária (dias + 1) * 10 uma única vez por embarque mesmo com múltiplas operações', () => {
+      const dataset = createBaseDataset({
+        plataformas: {
+          HFAB: {
+            sigla: 'HFAB',
+            chave_norm: 'hfab',
+            nome: 'B/A Far Saga',
+            un: 'Armador',
+            armador: 'Farstad',
+            gerencia: '',
+            tipo: 'AHTS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          }
+        },
+        carteira: [
+          {
+            id: 'cart-armador-1',
+            id_embarque: '56299',
+            matricula: '1002',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'HFAB',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-07',
+            horas_programadas: 0
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-arm-1',
+            portal_id: '56299',
+            id_embarque: '56299',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Técnico Dois',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'HFAB',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-07',
+            ordem: 'ORD-ARM-1',
+            operacao: 'OP-1',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 50,
+            hh_confirmado_sap: 50,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-arm-2',
+            portal_id: '56299',
+            id_embarque: '56299',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Técnico Dois',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'HFAB',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-07',
+            ordem: 'ORD-ARM-2',
+            operacao: 'OP-2',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 20,
+            hh_confirmado_sap: 20,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+
+      expect(embarques).toHaveLength(1);
+      const emb = embarques[0];
+      expect(emb.id_embarque).toBe('56299');
+      expect(emb.dias).toBe(7); // 1 a 7 de outubro = 7 dias
+      // Fórmula diária: (7 + 1) * 10 = 80
+      expect(emb.exHc).toBe(80);
+      expect(emb.peHp).toBe(0);
+      expect(emb.us).toBe(80);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-10 15:35 (BRT) · Suíte Completa: 29 arquivos / 556 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 6.46s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-10 16:05 (BRT) · Suíte Completa: 30 arquivos / 563 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 9.50s ✅ · Server Typecheck: 0 erros ✅
 
 ## 1. Resumo Executivo
 
@@ -70,36 +70,35 @@
 - `src/ui/components/__tests__/*` (30 testes em DataTable, SegmentedControl, Sidebar e ResponsiveShellAndPwa).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
 - `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (5 testes).
-- `src/ui/views/__tests__/*` (54 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView e OperationalViews).
+- `src/ui/views/__tests__/*` (59 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView, OperationalViews e MedicaoUsoffView).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
 ## 3. Estado Atual (Work in Progress)
 
 - **Frentes Concluídas e Validadas:**
-  - **Frente 1: Motor de Cálculo USOFF Refinado (Commit `90b1027` em `main`):**
-    - Apuração granular por tupla de ordem/operação via `mergeConfrontoOperations`.
-    - Trava de execução zero: $HC = 0 \implies USOFF = 0$.
+  - **Frente 1: Motor de Cálculo USOFF Granular com Agrupamento por Embarque:**
+    - Apuração matemática granular tupla por tupla de ordem/operação via `mergeConfrontoOperations`.
+    - Trava estrita de execução zero: $HC = 0 \implies USOFF = 0$ (não pontua programação nem execução, exceto exceção de Gangway $0{,}30 \times HP$).
     - Ponderações isoladas: Carteira (30% PE + 70% EX) e Fora da carteira (apenas 70% EX).
-    - Exceção de anotação de Gangway: $0{,}30 \times HP$.
-    - Unidades de Diária: $(\text{dias} + 1) \times 10$, protegendo unidades Petrobras/próprias de classificação indevida.
-  - **Frente 2: Visualização da Carteira do Embarque (Confronto SAP vs Portal Offshore):**
-    - Novo componente `CarteiraEmbarqueModal.tsx` integrado no fluxo global com `openCarteiraModal(matricula, idEmbarque?, dataRef?)`.
-    - Resumo institucional: Técnico, Matrícula, Função, Plataforma, UN, Período de Embarque e Contagem de Dias.
-    - Confronto de Horas: HH Programado (com separação Carteira vs Fora), HC Portal Offshore, HH Confirmado SAP, Saldo de Divergência ($HC_{\text{Portal}} - HH_{\text{SAP}}$).
-    - Notificação/Alerta visual quando há apontamentos confirmados no SAP não cadastrados no Portal.
-    - Filtros por busca textual e abas rápidas (Todas, Carteira, Fora da carteira, Não Cadastrado no Portal, Divergentes).
-    - Tabela de confronto detalhada por Ordem e Operação com status do confronto (`✓ OK`, `⚠️ Portal > SAP`, `ℹ️ SAP > Portal`, `Não Apontado no SAP`, `Não Cadastrada no Portal`).
-    - Exportação dedicada para Excel (.xlsx).
-    - Integrações ativas: `PainelDiaView` (modal e tabela diária), `EmbarqueAtualView` (coluna ID Embarque clicável) e `FichaTecnicoDrawer` (cabeçalho, footer, histórico diário e extrato SAP).
+    - Unidades de Diária: $(\text{dias} + 1) \times 10$, aplicada uma única vez no agrupamento do embarque sem inflar dias.
+    - Suporte nativo a `groupBy: 'embarque' | 'operacao'` em `computeUsoffOperations`.
+  - **Frente 2: Visualização e Filtro do USOFF por Embarque e ID de Embarque:**
+    - Visualização padrão na tela de USOFF alterada para **Por Embarque (ID)**, com identificador único `id_embarque`, técnico, plataforma, período, HP, HD, HC, MeterBars, PE, EX, Σ PE×HP, Σ EX×HC, USOFF e botão/link direto para a Carteira do Embarque.
+    - Busca instantânea habilitada por ID de embarque (`55104`, `EMB-99881`), técnico, matrícula ou plataforma.
+    - SegmentedControl completo com 5 abas: Por Embarque (ID), Por Operação, Por Unidade (UN), Por Preposto e Confronto SAP vs Portal.
+  - **Frente 3: Tela de Carteira do Embarque (Confronto SAP vs Portal Offshore):**
+    - Modal `CarteiraEmbarqueModal.tsx` integrado no fluxo global via `openCarteiraModal(matricula, idEmbarque?, dataRef?)`.
+    - Confronto de Horas: HH Programado (Carteira vs Fora), HC Portal Offshore, HH Confirmado SAP, Saldo de Divergência ($HC_{\text{Portal}} - HH_{\text{SAP}}$).
+    - Ícones profissionais vetoriais `lucide-react` padronizados, sem emojis inline no layout corporativo.
   - **Resultados de Qualidade:**
-    - Suíte de testes: **29 arquivos / 556 testes aprovados (100% verdes)**.
+    - Suíte de testes: **30 arquivos / 563 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 4.42s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 9.50s**.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da tela de Carteira do Embarque e integrações.
-2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pelo painel diário, quem está embarcado e drawer técnico para testar a abertura do modal da carteira com diferentes técnicos.
+1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da medição USOFF e carteira do embarque conforme solicitado pelo usuário.
+2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pela medição de USOFF, filtrar por IDs de embarque e abrir a carteira para conferência determinística.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-11 14:06 (BRT) · HEAD: 357b2e8 · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.52s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-11 14:10 (BRT) · HEAD: cff4198 · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.14s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
 
 ## 1. Resumo Executivo
 
@@ -122,9 +122,8 @@
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da medição USOFF, técnicos offshore e regime de diária.
-2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pela medição de USOFF, filtrar por IDs de embarque e conferir unidades sinalizadas como diária.
-3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+1. **Validação operacional em ambiente de produção / staging:** navegar pela medição de USOFF, gerenciar técnicos offshore em Configurações e conferir unidades sinalizadas como diária.
+2. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 
 

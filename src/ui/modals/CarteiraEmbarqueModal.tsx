@@ -5,14 +5,27 @@ import { StatusPill } from '../components/StatusPill';
 import {
   findCarteira,
   inferEmbarkation,
+  isArmadorPlatform,
+  lookupPlatform,
   mergeConfrontoOperations,
   resolveLocation,
+  resolvePlace,
   resolveTechName
 } from '../../domain/calculations';
+import { resolveUsoffWeights, hasGangwayJustification } from '../../domain/usoff';
 import type { CarteiraOperacao, ConfirmacaoSAP } from '../../domain/types';
 import { addDays, diffDays, formatBr, formatBrShort } from '../../utils/date';
-import { formatHours, formatSignedHours } from '../../utils/format';
-import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, Briefcase } from 'lucide-react';
+import { formatHours, formatSignedHours, formatUs } from '../../utils/format';
+import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, Briefcase, Calculator } from 'lucide-react';
+
+export interface OperacaoComUsoffRow extends CarteiraOperacao {
+  pe: number | null;
+  ex: number | null;
+  opPeHp: number;
+  opExHc: number;
+  opUsoff: number | null;
+  usoffMotivo: string;
+}
 
 export function CarteiraEmbarqueModal() {
   const {
@@ -83,10 +96,10 @@ export function CarteiraEmbarqueModal() {
   const platNome = pidx[platSigla]?.nome || platSigla;
   const unidade = embarque?.unidade_negocio || loc.r || 'UN Não Informada';
 
-  // Consolidação de operações do Portal Offshore e confirmações do SAP
+  // Consolidação de operações do Portal Offshore, confirmações do SAP e apuração do USOFF
   const { operacoes, summary } = useMemo(() => {
     if (!tecMat) {
-      return { operacoes: [], summary: null };
+      return { operacoes: [] as OperacaoComUsoffRow[], summary: null };
     }
 
     // 1. Filtra operações da carteira_operacoes pertencentes a este técnico e embarque
@@ -118,6 +131,23 @@ export function CarteiraEmbarqueModal() {
       dataset.tecnicos || {}
     );
 
+    // 4. Resolução dos parâmetros contratuais de USOFF
+    const effPlatSigla = platSigla || (opsDoEmbarque[0]?.plataforma_sigla ?? '');
+    const effUnidade = unidade || (opsDoEmbarque[0]?.unidade_negocio ?? '');
+    const platObj = lookupPlatform(pidx, effPlatSigla);
+    const isDiaria = isArmadorPlatform(platObj, effPlatSigla, effUnidade);
+    const hasGw = hasGangwayJustification(
+      tecMat,
+      dataInicio || activePeriod.ini,
+      dataFim || activePeriod.fim,
+      dataset.justMap
+    );
+    const place = resolvePlace(pidx, effPlatSigla, effUnidade);
+    const weights = resolveUsoffWeights(embarque, place, dataset.config, dataset.usoffUnWeights);
+    const pe = weights.pe ?? dataset.config.us_pe_padrao ?? 0.30;
+    const ex = weights.ex ?? dataset.config.us_ex_padrao ?? 0.70;
+    const weightsFalta = !isDiaria && weights.pe == null && dataset.config.us_pe_padrao == null;
+
     let totHp = 0;
     let totHpCarteira = 0;
     let totHpFora = 0;
@@ -127,27 +157,83 @@ export function CarteiraEmbarqueModal() {
     let divCount = 0;
     let naoCadastradoCount = 0;
     let naoApontadoSapCount = 0;
+    let totPeHp = 0;
+    let totExHc = 0;
+    let opsComZeroExec = 0;
 
-    merged.forEach(o => {
-      totHp += o.hh_programado || 0;
-      if (o.status_programacao === 'Carteira') {
-        totHpCarteira += o.hh_programado || 0;
-      } else if (o.status_programacao === 'Fora da carteira') {
-        totHpFora += o.hh_programado || 0;
+    const operacoesComUsoff: OperacaoComUsoffRow[] = merged.map(o => {
+      const hp = Number(o.hh_programado) || 0;
+      const hc = Math.max(Number(o.hh_confirmado_sap) || 0, Number(o.hh_confirmado) || 0);
+      const isCarteira = o.status_programacao === 'Carteira';
+      const isFora = o.status_programacao === 'Fora da carteira';
+      const hpCart = isCarteira ? hp : 0;
+      const hpFora = !isCarteira ? hp : 0;
+
+      let opPeHp = 0;
+      let opExHc = 0;
+      let opUsoff: number | null = null;
+      let usoffMotivo = '';
+
+      if (isDiaria) {
+        usoffMotivo = 'Diária (Armador)';
+      } else if (weightsFalta) {
+        usoffMotivo = 'Falta PE/EX';
+      } else {
+        if (hc === 0) {
+          if (hasGw) {
+            opPeHp = Math.round(pe * hpCart * 100) / 100;
+            opExHc = 0;
+            opUsoff = opPeHp;
+            usoffMotivo = 'Gangway (30% HP)';
+          } else {
+            opPeHp = 0;
+            opExHc = 0;
+            opUsoff = 0;
+            usoffMotivo = 'Execução Zero (HC=0)';
+            opsComZeroExec++;
+          }
+        } else {
+          opPeHp = Math.round(pe * hpCart * 100) / 100;
+          opExHc = Math.round(ex * hc * 100) / 100;
+          opUsoff = Math.round((opPeHp + opExHc) * 100) / 100;
+          usoffMotivo = isCarteira ? 'PE×HP + EX×HC' : 'Apenas EX (Fora)';
+        }
+      }
+
+      totHp += hp;
+      if (isCarteira) {
+        totHpCarteira += hp;
+      } else if (isFora) {
+        totHpFora += hp;
       }
       totPortal += o.hh_confirmado || 0;
       totSap += o.hh_confirmado_sap || 0;
+      totPeHp += opPeHp;
+      totExHc += opExHc;
 
       if (o.status_divergencia === 'OK') okCount++;
       else if (o.status_divergencia === 'Não Cadastrado no Portal') naoCadastradoCount++;
       else if (o.status_divergencia === 'Não Apontado no SAP') naoApontadoSapCount++;
       else divCount++;
+
+      return {
+        ...o,
+        pe: weightsFalta ? null : pe,
+        ex: weightsFalta ? null : ex,
+        opPeHp,
+        opExHc,
+        opUsoff,
+        usoffMotivo
+      };
     });
 
     const saldoDiv = Math.round((totPortal - totSap) * 100) / 100;
+    const finalUsoffTotal = isDiaria
+      ? (diasEmbarque + 1) * 10
+      : (weightsFalta ? null : Math.round((totPeHp + totExHc) * 100) / 100);
 
     return {
-      operacoes: merged,
+      operacoes: operacoesComUsoff,
       summary: {
         totHp: Math.round(totHp * 10) / 10,
         totHpCarteira: Math.round(totHpCarteira * 10) / 10,
@@ -159,10 +245,20 @@ export function CarteiraEmbarqueModal() {
         divCount,
         naoCadastradoCount,
         naoApontadoSapCount,
-        totalOps: merged.length
+        totalOps: merged.length,
+        // USOFF
+        totPeHp: isDiaria ? 0 : Math.round(totPeHp * 100) / 100,
+        totExHc: isDiaria ? finalUsoffTotal || 0 : Math.round(totExHc * 100) / 100,
+        usoffTotal: finalUsoffTotal,
+        opsComZeroExec,
+        pe: weightsFalta ? null : pe,
+        ex: weightsFalta ? null : ex,
+        weightsFalta,
+        isDiaria,
+        hasGw
       }
     };
-  }, [tecMat, idEmbFinal, dataInicio, dataFim, dataset.carteiraOperacoes, dataset.confirmacoesSap, embarque, dataset.tecnicos]);
+  }, [tecMat, idEmbFinal, dataInicio, dataFim, diasEmbarque, platSigla, unidade, dataset.carteiraOperacoes, dataset.confirmacoesSap, embarque, dataset.tecnicos, dataset.config, dataset.usoffUnWeights, dataset.justMap, pidx, activePeriod]);
 
   // Filtragem e busca nas operações
   const filteredOperacoes = useMemo(() => {
@@ -216,6 +312,12 @@ export function CarteiraEmbarqueModal() {
         'HC Portal Offshore',
         'HH Confirmado SAP',
         'Divergência (Portal - SAP)',
+        'PE',
+        'EX',
+        'PE x HP (Carteira)',
+        'EX x HC (Execução)',
+        'USoff',
+        'Motivo / Regra USoff',
         'Status do Confronto',
         'Início',
         'Fim'
@@ -234,6 +336,12 @@ export function CarteiraEmbarqueModal() {
         op.hh_confirmado || 0,
         op.hh_confirmado_sap || 0,
         op.divergencia_sap || 0,
+        op.pe != null ? op.pe : '',
+        op.ex != null ? op.ex : '',
+        op.opPeHp || 0,
+        op.opExHc || 0,
+        op.opUsoff != null ? op.opUsoff : '',
+        op.usoffMotivo || '',
         op.status_divergencia || 'Pendente',
         op.data_inicio ? formatBr(op.data_inicio) : '',
         op.data_fim ? formatBr(op.data_fim) : ''
@@ -258,7 +366,7 @@ export function CarteiraEmbarqueModal() {
     <Modal
       open={Boolean(carteiraModal)}
       onClose={closeCarteiraModal}
-      maxWidth="1020px"
+      maxWidth="1160px"
       title={
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Briefcase size={20} style={{ color: 'var(--brand-primary, #0ea5e9)', flexShrink: 0 }} />
@@ -400,6 +508,88 @@ export function CarteiraEmbarqueModal() {
           </div>
         </div>
 
+        {/* Card Apuração e Validação de USOFF */}
+        <div
+          style={{
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--line, #e2e8f0)',
+            borderLeft: '4px solid var(--blue, #0284c7)',
+            borderRadius: 'var(--radius-md, 8px)',
+            padding: '14px 18px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '16px'
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>
+              US<sub>off</sub> Apurado deste Embarque
+            </div>
+            <div style={{ fontFamily: 'var(--f-display)', fontSize: '1.65rem', fontWeight: 800, color: 'var(--blue, #0284c7)', fontVariantNumeric: 'tabular-nums' }}>
+              {summary?.weightsFalta ? '—' : (summary ? formatUs(summary.usoffTotal) : '—')}
+            </div>
+            <div className="sub" style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', marginTop: '2px' }}>
+              {summary?.isDiaria
+                ? `Fórmula de diária: (${diasEmbarque} dias + 1) × 10`
+                : `Pesos: PE ${summary?.pe != null ? formatUs(summary.pe) : '—'} · EX ${summary?.ex != null ? formatUs(summary.ex) : '—'}`}
+              {summary?.hasGw && (
+                <span style={{ marginLeft: '6px', color: 'var(--orange-dark, #b45309)', fontWeight: 600 }}>
+                  · Gangway ativa (30% HP)
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: '10px 18px',
+              background: 'var(--surface-alt, #f8fafc)',
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-sm, 6px)'
+            }}
+          >
+            <div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', display: 'block' }}>
+                &Sigma; PE &times; HP (Carteira)
+              </span>
+              <b style={{ fontSize: '0.98rem', color: 'var(--ink)' }}>
+                {summary?.weightsFalta ? '—' : formatUs(summary?.totPeHp ?? 0)}
+              </b>
+              <span className="sub" style={{ fontSize: '0.70rem', color: 'var(--ink-muted)', display: 'block' }}>
+                {summary?.opsComZeroExec ? `${summary.opsComZeroExec} op. com HC=0` : 'Horas em Carteira'}
+              </span>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', display: 'block' }}>
+                &Sigma; EX &times; HC (Execução)
+              </span>
+              <b style={{ fontSize: '0.98rem', color: 'var(--ink)' }}>
+                {summary?.weightsFalta ? '—' : formatUs(summary?.totExHc ?? 0)}
+              </b>
+              <span className="sub" style={{ fontSize: '0.70rem', color: 'var(--ink-muted)', display: 'block' }}>
+                {summary?.isDiaria ? 'Medição diária' : `${formatHours(summary?.totPortal || 0)} confirmadas`}
+              </span>
+            </div>
+
+            <div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--ink-muted)', display: 'block' }}>
+                Trava de Execução Zero
+              </span>
+              <b style={{ fontSize: '0.98rem', color: summary?.opsComZeroExec ? 'var(--orange-dark, #c2410c)' : 'var(--ok, #16a34a)' }}>
+                {summary?.opsComZeroExec ? `${summary.opsComZeroExec} op. sem USOFF` : '100% com execução'}
+              </b>
+              <span className="sub" style={{ fontSize: '0.70rem', color: 'var(--ink-muted)', display: 'block' }}>
+                HC = 0 &rArr; USOFF = 0
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Notificação/Alerta explicativo quando houver divergências ou ordens fora da carteira */}
         {summary && summary.naoCadastradoCount > 0 && (
           <div
@@ -476,7 +666,7 @@ export function CarteiraEmbarqueModal() {
           </div>
         </div>
 
-        {/* Tabela de Ordens e Operações da Carteira */}
+        {/* Tabela de Ordens e Operações da Carteira com apuração de USOFF */}
         <div className="table-responsive" style={{ maxHeight: '440px', overflowY: 'auto', overflowX: 'auto', border: '1px solid var(--line, #e2e8f0)', borderRadius: 'var(--radius-md, 8px)' }}>
           <table className="table-base" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
             <thead>
@@ -488,6 +678,9 @@ export function CarteiraEmbarqueModal() {
                 <th style={{ padding: '9px 12px', textAlign: 'right' }}>HC Portal</th>
                 <th style={{ padding: '9px 12px', textAlign: 'right' }}>HH SAP</th>
                 <th style={{ padding: '9px 12px', textAlign: 'right' }}>Divergência</th>
+                <th style={{ padding: '9px 12px', textAlign: 'right' }} title="Ponderação de Programação (incide apenas em Carteira com execução)">PE &times; HP</th>
+                <th style={{ padding: '9px 12px', textAlign: 'right' }} title="Ponderação de Execução confirmada">EX &times; HC</th>
+                <th style={{ padding: '9px 12px', textAlign: 'right', background: 'var(--blue-soft, #e0f2fe)' }} title="USOFF apurado desta operação">USoff</th>
                 <th style={{ padding: '9px 12px' }}>Confronto SAP vs Portal</th>
                 <th style={{ padding: '9px 12px' }}>Período Operação</th>
               </tr>
@@ -495,7 +688,7 @@ export function CarteiraEmbarqueModal() {
             <tbody>
               {filteredOperacoes.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '32px', color: 'var(--ink-muted)' }}>
+                  <td colSpan={12} style={{ textAlign: 'center', padding: '32px', color: 'var(--ink-muted)' }}>
                     Nenhuma ordem ou operação encontrada para os critérios selecionados.
                   </td>
                 </tr>
@@ -573,6 +766,56 @@ export function CarteiraEmbarqueModal() {
                         {div === 0 ? '0h' : formatSignedHours(div)}
                       </td>
 
+                      {/* PE × HP */}
+                      <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {summary?.isDiaria ? (
+                          <span className="sub" style={{ color: 'var(--ink-muted)' }}>diária</span>
+                        ) : summary?.weightsFalta ? (
+                          <span style={{ color: 'var(--bad)' }}>falta</span>
+                        ) : op.opPeHp > 0 ? (
+                          <b>{formatUs(op.opPeHp)}</b>
+                        ) : op.hh_programado && (op.hh_confirmado === 0 && (op.hh_confirmado_sap || 0) === 0) ? (
+                          <span className="sub" style={{ color: 'var(--orange-dark, #c2410c)' }}>0,00 (HC=0)</span>
+                        ) : !isCarteira ? (
+                          <span className="sub" style={{ color: 'var(--ink-muted)' }}>0,00 (fora)</span>
+                        ) : (
+                          <span style={{ color: 'var(--ink-muted)' }}>0,00</span>
+                        )}
+                      </td>
+
+                      {/* EX × HC */}
+                      <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                        {summary?.isDiaria ? (
+                          <span className="sub" style={{ color: 'var(--ink-muted)' }}>diária</span>
+                        ) : summary?.weightsFalta ? (
+                          <span style={{ color: 'var(--bad)' }}>falta</span>
+                        ) : op.opExHc > 0 ? (
+                          <b>{formatUs(op.opExHc)}</b>
+                        ) : (
+                          <span className="sub" style={{ color: 'var(--orange-dark, #c2410c)' }}>0,00 (HC=0)</span>
+                        )}
+                      </td>
+
+                      {/* USoff */}
+                      <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: isNaoCadastrado ? 'transparent' : 'var(--blue-soft, #e0f2fe)' }}>
+                        {summary?.isDiaria ? (
+                          <span className="sub" style={{ color: 'var(--blue, #0284c7)' }} title="Unidade por diária: fórmula (dias + 1) * 10">ver total</span>
+                        ) : summary?.weightsFalta ? (
+                          <span style={{ color: 'var(--bad)' }}>falta</span>
+                        ) : (
+                          <div>
+                            <b style={{ color: (op.opUsoff || 0) > 0 ? 'var(--blue, #0284c7)' : 'var(--ink-muted)', fontSize: '0.86rem' }}>
+                              {formatUs(op.opUsoff)}
+                            </b>
+                            {op.usoffMotivo && (
+                              <div className="sub" style={{ fontSize: '0.68rem', color: (op.opUsoff || 0) === 0 ? 'var(--orange-dark, #c2410c)' : 'var(--ink-muted)' }}>
+                                {op.usoffMotivo}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
                       {/* Confronto / Notificação Visual */}
                       <td style={{ padding: '9px 12px' }}>
                         {isOk ? (
@@ -607,6 +850,37 @@ export function CarteiraEmbarqueModal() {
                 })
               )}
             </tbody>
+            {filteredOperacoes.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--line, #cbd5e1)', background: 'var(--surface-alt, #f8fafc)', fontWeight: 700 }}>
+                  <td colSpan={3} style={{ padding: '9px 12px' }}>
+                    Total ({filteredOperacoes.length} {filteredOperacoes.length === 1 ? 'operação' : 'operações'})
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatHours(filteredOperacoes.reduce((acc, o) => acc + (o.hh_programado || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--blue, #0284c7)', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatHours(filteredOperacoes.reduce((acc, o) => acc + (o.hh_confirmado || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--ok, #16a34a)', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatHours(filteredOperacoes.reduce((acc, o) => acc + (o.hh_confirmado_sap || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {formatSignedHours(filteredOperacoes.reduce((acc, o) => acc + ((o.hh_confirmado || 0) - (o.hh_confirmado_sap || 0)), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {summary?.weightsFalta ? '—' : formatUs(filteredOperacoes.reduce((acc, o) => acc + (o.opPeHp || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {summary?.weightsFalta ? '—' : formatUs(filteredOperacoes.reduce((acc, o) => acc + (o.opExHc || 0), 0))}
+                  </td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--blue, #0284c7)', background: 'var(--blue-soft, #e0f2fe)', fontSize: '0.92rem', fontVariantNumeric: 'tabular-nums' }}>
+                    {summary?.isDiaria ? formatUs(summary.usoffTotal) : (summary?.weightsFalta ? '—' : formatUs(filteredOperacoes.reduce((acc, o) => acc + (o.opUsoff || 0), 0)))}
+                  </td>
+                  <td colSpan={2} style={{ padding: '9px 12px' }}></td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

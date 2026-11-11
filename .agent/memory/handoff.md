@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-10 16:10 (BRT) · HEAD: 0c63e1c · Suíte Completa: 30 arquivos / 563 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 9.50s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-10 16:35 (BRT) · HEAD: e53e7b4 · Suíte Completa: 30 arquivos / 565 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 8.23s ✅ · Server Typecheck: 0 erros ✅
 
 ## 1. Resumo Executivo
 
@@ -28,7 +28,7 @@
 - `src/ui/modals/AdminAccountModals.tsx` — desduplicação de ~550 linhas de modais administrativos (`NovoAdminModal`, `AdminResetPasswordModal`, `AdminToggleActiveModal`, `AdminDeleteUserModal`), registrando auditoria WORM `logSystemEvent` e layouts fluidos.
 - `src/ui/views/*` — todas as 13 views reestruturadas sem larguras fixas rígidas ou grids quebradas: `LoginView`, `FirstLoginGate`, `VisaoGeralView`, `PainelDiaView`, `EmbarqueAtualView`, `JustificativasView`, `MedicaoRelatoriosView`, `MedicaoUsoffView`, `PessoasPlataformasView`, `ImportarDadosView`, `ConfiguracoesView`, `UserSettingsView`, `AdminAuditView`.
 - `src/ui/modals/{EmailComposerModal,FichaTecnicoDrawer,JustificativaModal,ManualEntryModals}.tsx` — adaptados para mobile e padronizados com `.form-grid-2`.
-- `src/ui/modals/CarteiraEmbarqueModal.tsx` — modal de alta densidade corporativa para visualização da carteira do embarque, confronto determinístico entre ordens do Portal Offshore e apontamentos do SAP ($HC$ vs $HH_{\text{SAP}}$), filtros rápidos e exportação `.xlsx`.
+- `src/ui/modals/CarteiraEmbarqueModal.tsx` — modal de alta densidade corporativa para visualização da carteira do embarque, apuração granular de USOFF (card com pesos, trava de execução zero, exceção gangway e fórmula de diária, colunas PE×HP, EX×HC e USoff por operação com motivos explicativos e linha de totais), confronto determinístico entre ordens do Portal Offshore e apontamentos do SAP ($HC$ vs $HH_{\text{SAP}}$), filtros rápidos e exportação `.xlsx` estendida com colunas de USOFF.
 
 ### Motor de domínio (puro, coberto por testes — invariantes contratuais)
 - `src/domain/periods.ts` — ciclos de corte 1/16/21/26 + janela de lookback de 45 dias.
@@ -69,7 +69,7 @@
 - `src/services/__tests__/{auth,data,excel}.service.test.ts` (70 testes cobrindo autenticação, importação em lote, parsing e exportadores Excel com anti-formula injection e escopo parcial).
 - `src/ui/components/__tests__/*` (30 testes em DataTable, SegmentedControl, Sidebar e ResponsiveShellAndPwa).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
-- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (5 testes).
+- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (7 testes).
 - `src/ui/views/__tests__/*` (59 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView, OperationalViews e MedicaoUsoffView).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
@@ -90,10 +90,15 @@
     - Modal `CarteiraEmbarqueModal.tsx` integrado no fluxo global via `openCarteiraModal(matricula, idEmbarque?, dataRef?)`.
     - Confronto de Horas: HH Programado (Carteira vs Fora), HC Portal Offshore, HH Confirmado SAP, Saldo de Divergência ($HC_{\text{Portal}} - HH_{\text{SAP}}$).
     - Ícones profissionais vetoriais `lucide-react` padronizados, sem emojis inline no layout corporativo.
+  - **Frente 4: Cálculo e Validação de USOFF dentro da Carteira do Embarque:**
+    - Card de Apuração de USOFF no topo da modal exibindo: Total USOFF do embarque, pesos contratuais PE/EX aplicados, Gangway ativa ($0{,}30 \times HP$), e badge com status da Trava de Execução Zero ($HC = 0 \implies USOFF = 0$).
+    - Colunas granulares na tabela de operações: `PE × HP`, `EX × HC` e `USoff`, com badges e motivos contratuais em cada linha (`PE×HP + EX×HC`, `Apenas EX (Fora)`, `Execução Zero (HC=0)`, `Gangway (30% HP)`, `Diária (Armador)`).
+    - Linha de totais (`tfoot`) consolidando horas, divergência, PE×HP, EX×HC e USOFF total.
+    - Exportador Excel (`.xlsx`) atualizado com todas as colunas de USOFF e regras aplicadas.
   - **Resultados de Qualidade:**
-    - Suíte de testes: **30 arquivos / 563 testes aprovados (100% verdes)**.
+    - Suíte de testes: **30 arquivos / 565 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 9.50s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 8.23s**.
 
 ## 4. Próximos Passos (priorizados)
 

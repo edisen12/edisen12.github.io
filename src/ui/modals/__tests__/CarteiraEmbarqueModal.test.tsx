@@ -264,4 +264,67 @@ describe('CarteiraEmbarqueModal', () => {
 
     expect(closeCarteiraModal).toHaveBeenCalledTimes(1);
   });
+
+  it('exibe o card e as colunas de USOFF quando configurados os pesos PE e EX', () => {
+    const ds = createSyntheticDataset();
+    ds.config.us_pe_padrao = 0.30;
+    ds.config.us_ex_padrao = 0.70;
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-99881' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: ds,
+      pidx: MOCK_PIDX,
+      activePeriod: MOCK_PERIOD,
+      currentUser: MOCK_USER
+    });
+
+    renderWithToast(<CarteiraEmbarqueModal />);
+
+    // Card de Apuração de USOFF
+    expect(screen.getByText(/Apurado deste Embarque/i)).not.toBeNull();
+    expect(screen.getByText(/PE × HP \(Carteira\)/i)).not.toBeNull();
+    expect(screen.getByText(/EX × HC \(Execução\)/i)).not.toBeNull();
+    expect(screen.getByText('Trava de Execução Zero')).not.toBeNull();
+
+    // Colunas na tabela
+    expect(screen.getByRole('columnheader', { name: /PE × HP/i })).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: /EX × HC/i })).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: /^USoff$/i })).not.toBeNull();
+
+    // Motivos das operações
+    expect(screen.getByText('PE×HP + EX×HC')).not.toBeNull();
+    expect(screen.getAllByText('Apenas EX (Fora)').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('aplica a trava de execução zero (HC = 0 -> USOFF = 0)', () => {
+    const ds = createSyntheticDataset();
+    ds.config.us_pe_padrao = 0.30;
+    ds.config.us_ex_padrao = 0.70;
+    // Força execução zero na primeira operação
+    if (ds.carteiraOperacoes && ds.carteiraOperacoes[0]) {
+      ds.carteiraOperacoes[0].hh_confirmado = 0;
+    }
+    if (ds.confirmacoesSap) {
+      ds.confirmacoesSap = ds.confirmacoesSap.filter(s => s.ordem !== 'ORD-1001');
+    }
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-99881' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: ds,
+      pidx: MOCK_PIDX,
+      activePeriod: MOCK_PERIOD,
+      currentUser: MOCK_USER
+    });
+
+    renderWithToast(<CarteiraEmbarqueModal />);
+
+    // Trava de execução zero deve aparecer
+    expect(screen.getByText('Trava de Execução Zero')).not.toBeNull();
+    expect(screen.getByText('1 op. sem USOFF')).not.toBeNull();
+    expect(screen.getByText('Execução Zero (HC=0)')).not.toBeNull();
+  });
 });

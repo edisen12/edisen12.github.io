@@ -11,6 +11,7 @@ import type {
   Pessoa,
   Plataforma,
   SystemAuditLog,
+  Tecnico,
   UsoffUnWeight
 } from '../domain/types';
 import type {
@@ -68,6 +69,30 @@ export async function savePlataforma(
  */
 export async function deletePlataforma(sigla: string): Promise<void> {
   return getClientDatabaseProvider().data.deletePlataforma(sigla);
+}
+
+/**
+ * Salva ou atualiza um técnico offshore no cadastro mestre.
+ */
+export async function saveTecnico(tec: Tecnico): Promise<void> {
+  return getClientDatabaseProvider().data.saveTecnico(tec);
+}
+
+/**
+ * Remove um técnico offshore do cadastro mestre.
+ */
+export async function deleteTecnico(matricula: string): Promise<void> {
+  return getClientDatabaseProvider().data.deleteTecnico(matricula);
+}
+
+/**
+ * Importa técnicos offshore em lote com callback de progresso.
+ */
+export async function batchImportTecnicos(
+  rows: Array<{ matricula: string; nome: string; funcao: string }>,
+  onProgress?: ProgressCallback
+): Promise<void> {
+  return getClientDatabaseProvider().data.batchImportTecnicos(rows, onProgress);
 }
 
 /**

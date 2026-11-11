@@ -25,11 +25,13 @@ import { saveConfiguracoes } from '../../services/data.service';
 import { OPCOES_DIA_CORTE } from '../../config/constants';
 import type { ContractConfig, DiaCorteMedicao, MedCriterio, UsoffUnWeight } from '../../domain/types';
 import { formatHours } from '../../utils/format';
+import { isArmadorPlatform } from '../../domain/calculations';
+import { TecnicosManager } from '../components/TecnicosManager';
 
-type ConfigTab = 'geral' | 'ciclo' | 'usoff' | 'comunicacao' | 'memorial';
+type ConfigTab = 'geral' | 'ciclo' | 'usoff' | 'tecnicos' | 'comunicacao' | 'memorial';
 
 export const ConfiguracoesView: React.FC = () => {
-  const { dataset, isGlobal, refreshData } = useApp();
+  const { dataset, isGlobal, refreshData, setActiveTab: setAppTab } = useApp();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<ConfigTab>('geral');
@@ -54,8 +56,15 @@ export const ConfiguracoesView: React.FC = () => {
   const [bulkEmailText, setBulkEmailText] = useState<string>('');
 
   // Grade estruturada de pesos por Unidade de Negócio
-  const [unWeightsList, setUnWeightsList] = useState<Array<{ un: string; pe: string; ex: string }>>([]);
+  const [unWeightsList, setUnWeightsList] = useState<Array<{ un: string; pe: string; ex: string; tipoMedicao: 'hh' | 'diaria' }>>([]);
   const [novaUn, setNovaUn] = useState<string>('');
+
+  // Plataformas sinalizadas como Diária
+  const plataformasDiariaList = useMemo(() => {
+    return Object.values(dataset.plataformas || {}).filter(p =>
+      isArmadorPlatform(p, p.sigla, p.un, dataset.usoffUnWeights)
+    );
+  }, [dataset.plataformas, dataset.usoffUnWeights]);
 
   // Carrega configurações do dataset
   const resetToDataset = () => {
@@ -87,13 +96,28 @@ export const ConfiguracoesView: React.FC = () => {
       if (u && u.trim()) allKnownUns.add(u.trim());
     });
 
+    const diariaUnSet = new Set<string>();
+    (dataset.config?.regionais_extras || []).forEach(r => {
+      if (r.startsWith('DIARIA_UN:')) {
+        diariaUnSet.add(r.replace('DIARIA_UN:', '').trim());
+      }
+    });
+
     const sortedUns = Array.from(allKnownUns).sort((a, b) => a.localeCompare(b));
     const items = sortedUns.map(un => {
       const existing = dataset.usoffUnWeights[un];
+      const isDiaria =
+        existing?.tipo_medicao === 'diaria' ||
+        diariaUnSet.has(un) ||
+        un === 'Armador' ||
+        un === 'FPSOs afretados' ||
+        /di[áa]ria/i.test(un);
+
       return {
         un,
         pe: existing?.pe != null ? String(existing.pe) : '',
-        ex: existing?.ex != null ? String(existing.ex) : ''
+        ex: existing?.ex != null ? String(existing.ex) : '',
+        tipoMedicao: (isDiaria ? 'diaria' : 'hh') as 'hh' | 'diaria'
       };
     });
 
@@ -124,6 +148,13 @@ export const ConfiguracoesView: React.FC = () => {
     if (originalEmails !== currentEmails) return true;
 
     const origWeightsMap = dataset.usoffUnWeights || {};
+    const diariaUnSet = new Set<string>();
+    (dataset.config?.regionais_extras || []).forEach(r => {
+      if (r.startsWith('DIARIA_UN:')) {
+        diariaUnSet.add(r.replace('DIARIA_UN:', '').trim());
+      }
+    });
+
     const allUns = new Set<string>([
       ...Object.keys(origWeightsMap),
       ...unWeightsList.map(u => u.un)
@@ -133,9 +164,11 @@ export const ConfiguracoesView: React.FC = () => {
       const curr = unWeightsList.find(u => u.un === un);
       const origPe = orig?.pe != null ? String(orig.pe) : '';
       const origEx = orig?.ex != null ? String(orig.ex) : '';
+      const origTipo = orig?.tipo_medicao || (diariaUnSet.has(un) || un === 'Armador' || un === 'FPSOs afretados' || /di[áa]ria/i.test(un) ? 'diaria' : 'hh');
       const currPe = curr?.pe ?? '';
       const currEx = curr?.ex ?? '';
-      if (origPe !== currPe || origEx !== currEx) return true;
+      const currTipo = curr?.tipoMedicao || 'hh';
+      if (origPe !== currPe || origEx !== currEx || origTipo !== currTipo) return true;
     }
 
     return false;
@@ -196,11 +229,17 @@ export const ConfiguracoesView: React.FC = () => {
       showToast('Esta Unidade de Negócio já consta na lista.', 'warn');
       return;
     }
-    setUnWeightsList(prev => [...prev, { un: clean, pe: '', ex: '' }].sort((a, b) => a.un.localeCompare(b.un)));
+    const isDiaria = clean === 'Armador' || clean === 'FPSOs afretados' || /di[áa]ria/i.test(clean);
+    setUnWeightsList(prev =>
+      [...prev, { un: clean, pe: '', ex: '', tipoMedicao: (isDiaria ? 'diaria' : 'hh') as 'hh' | 'diaria' }].sort((a, b) =>
+        a.un.localeCompare(b.un)
+      )
+    );
     setNovaUn('');
+    showToast(`Unidade "${clean}" adicionada à grade.`, 'info');
   };
 
-  const handleUpdateWeight = (index: number, field: 'pe' | 'ex', val: string) => {
+  const handleUpdateWeight = (index: number, field: 'pe' | 'ex' | 'tipoMedicao', val: string) => {
     setUnWeightsList(prev => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: val };
@@ -219,6 +258,11 @@ export const ConfiguracoesView: React.FC = () => {
       const numPe = usPePadrao.trim() ? parseFloat(usPePadrao.replace(',', '.')) : null;
       const numEx = usExPadrao.trim() ? parseFloat(usExPadrao.replace(',', '.')) : null;
 
+      const cleanRegionais = (dataset.config?.regionais_extras || []).filter(r => !r.startsWith('DIARIA_UN:'));
+      const diariaUnMarkers = unWeightsList
+        .filter(item => item.tipoMedicao === 'diaria')
+        .map(item => `DIARIA_UN:${item.un}`);
+
       const updatedConfig: ContractConfig = {
         ...dataset.config,
         hh_dia: Number(hhDia) || 11,
@@ -230,13 +274,15 @@ export const ConfiguracoesView: React.FC = () => {
         med_criterio: medCriterio,
         us_pe_padrao: numPe != null && !isNaN(numPe) ? numPe : null,
         us_ex_padrao: numEx != null && !isNaN(numEx) ? numEx : null,
-        slogan: slogan.trim()
+        slogan: slogan.trim(),
+        regionais_extras: [...cleanRegionais, ...diariaUnMarkers]
       };
 
       const weightsToSave: UsoffUnWeight[] = unWeightsList.map(item => ({
         unidade_negocio: item.un,
-        pe: item.pe.trim() ? parseFloat(item.pe.replace(',', '.')) : null,
-        ex: item.ex.trim() ? parseFloat(item.ex.replace(',', '.')) : null
+        pe: item.tipoMedicao === 'diaria' ? null : (item.pe.trim() ? parseFloat(item.pe.replace(',', '.')) : null),
+        ex: item.tipoMedicao === 'diaria' ? null : (item.ex.trim() ? parseFloat(item.ex.replace(',', '.')) : null),
+        tipo_medicao: item.tipoMedicao
       }));
 
       const emailsToSave = emailsList
@@ -265,6 +311,7 @@ export const ConfiguracoesView: React.FC = () => {
     { value: 'geral', label: 'Geral & Metas' },
     { value: 'ciclo', label: 'Ciclo de Medição' },
     { value: 'usoff', label: 'Ponderações USOFF', count: unWeightsList.length },
+    { value: 'tecnicos', label: 'Técnicos Offshore', count: Object.keys(dataset.tecnicos || {}).length },
     { value: 'comunicacao', label: 'Comunicação & Notificações', count: emailsList.length },
     { value: 'memorial', label: 'Memorial de Cálculo' }
   ];
@@ -905,8 +952,46 @@ export const ConfiguracoesView: React.FC = () => {
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Grade de Ponderação por Unidade de Negócio ({unWeightsList.length})</h3>
                 <p className="sub" style={{ margin: '2px 0 0', fontSize: '0.82rem' }}>
-                  Valores em branco herdam automaticamente o padrão global configurado acima.
+                  Valores em branco herdam automaticamente o padrão global configurado acima. Unidades marcadas como Diária utilizam a fórmula (dias + 1) × 10.
                 </p>
+              </div>
+            </div>
+
+            {/* Card informativo de Diárias */}
+            <div className="card note note-info" style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Check size={18} style={{ color: 'var(--ok, #16a34a)' }} />
+                  <b style={{ fontSize: '0.92rem' }}>Regra de Negócio: Identificação de Unidades Medidas por Diária</b>
+                </div>
+                {setAppTab && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setAppTab('pes')}
+                    style={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--blue)' }}
+                  >
+                    Configurar plataformas individuais na tela de Plataformas &rarr;
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: '0.84rem', color: 'var(--ink)' }}>
+                Embarques em unidades ou plataformas identificadas por <b>Diária</b> apuram o USOFF pela fórmula contratual <b>(dias + 1) × 10</b>, considerando a diária mesmo se houver horas de HH apontadas no período. A grade abaixo permite sinalizar toda uma Unidade de Negócio como Diária, ou você pode marcar plataformas específicas na tela de Plataformas.
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
+                <span className="sub" style={{ fontSize: '0.78rem', fontWeight: 600 }}>Plataformas em Regime de Diária ({plataformasDiariaList.length}):</span>
+                {plataformasDiariaList.length === 0 ? (
+                  <span className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>Nenhuma plataforma operando por diária no momento.</span>
+                ) : (
+                  plataformasDiariaList.slice(0, 10).map(p => (
+                    <span key={p.sigla} className="pill pill-ok" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                      {p.sigla} {p.un ? `(${p.un})` : ''}
+                    </span>
+                  ))
+                )}
+                {plataformasDiariaList.length > 10 && (
+                  <span className="sub" style={{ fontSize: '0.75rem' }}>+{plataformasDiariaList.length - 10} outras</span>
+                )}
               </div>
             </div>
 
@@ -914,17 +999,18 @@ export const ConfiguracoesView: React.FC = () => {
               <table className="tb">
                 <thead>
                   <tr>
-                    <th style={{ width: '280px', minWidth: '240px' }}>Unidade de Negócio</th>
-                    <th style={{ width: '160px', minWidth: '140px' }}>PE (Prog.)</th>
-                    <th style={{ width: '160px', minWidth: '140px' }}>EX (Exec.)</th>
-                    <th style={{ width: '160px', minWidth: '140px' }}>Status</th>
+                    <th style={{ width: '260px', minWidth: '220px' }}>Unidade de Negócio</th>
+                    <th style={{ width: '150px', minWidth: '130px' }}>Regime de Medição</th>
+                    <th style={{ width: '150px', minWidth: '130px' }}>PE (Prog.)</th>
+                    <th style={{ width: '150px', minWidth: '130px' }}>EX (Exec.)</th>
+                    <th style={{ width: '170px', minWidth: '150px' }}>Status</th>
                     <th style={{ width: '80px', textAlign: 'center' }}>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {unWeightsList.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-muted)' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--ink-muted)' }}>
                         Nenhuma Unidade de Negócio cadastrada. Utilize o campo acima para adicionar.
                       </td>
                     </tr>
@@ -933,6 +1019,7 @@ export const ConfiguracoesView: React.FC = () => {
                       const hasCustomPe = row.pe.trim() !== '';
                       const hasCustomEx = row.ex.trim() !== '';
                       const isCustom = hasCustomPe || hasCustomEx;
+                      const isDiaria = row.tipoMedicao === 'diaria';
 
                       return (
                         <tr key={row.un}>
@@ -943,15 +1030,45 @@ export const ConfiguracoesView: React.FC = () => {
                             </div>
                           </td>
                           <td>
+                            <div style={{ display: 'inline-flex', gap: '4px' }}>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${row.tipoMedicao === 'hh' ? 'btn-primary' : 'btn-ghost'}`}
+                                onClick={() => handleUpdateWeight(idx, 'tipoMedicao', 'hh')}
+                                disabled={saving}
+                                style={{ padding: '2px 8px', fontSize: '0.78rem' }}
+                                title="Medição padrão por Homem-Hora (PE × HP + EX × HC)"
+                              >
+                                HH
+                              </button>
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${row.tipoMedicao === 'diaria' ? 'btn-primary' : 'btn-ghost'}`}
+                                onClick={() => handleUpdateWeight(idx, 'tipoMedicao', 'diaria')}
+                                disabled={saving}
+                                style={{
+                                  padding: '2px 8px',
+                                  fontSize: '0.78rem',
+                                  ...(row.tipoMedicao === 'diaria'
+                                    ? { background: 'var(--ok, #16a34a)', borderColor: 'var(--ok, #16a34a)', color: '#fff' }
+                                    : {})
+                                }}
+                                title="Medição contratual por Diária: fórmula (dias + 1) × 10"
+                              >
+                                Diária
+                              </button>
+                            </div>
+                          </td>
+                          <td>
                             <input
                               type="number"
                               step="0.01"
                               min="0"
-                              placeholder={usPePadrao ? `Padrão (${usPePadrao})` : '—'}
-                              value={row.pe}
+                              placeholder={isDiaria ? '— (Diária)' : (usPePadrao ? `Padrão (${usPePadrao})` : '—')}
+                              value={isDiaria ? '' : row.pe}
                               onChange={e => handleUpdateWeight(idx, 'pe', e.target.value)}
                               style={{ width: '100%', padding: '6px 8px', fontSize: '0.85rem' }}
-                              disabled={saving}
+                              disabled={saving || isDiaria}
                             />
                           </td>
                           <td>
@@ -959,15 +1076,19 @@ export const ConfiguracoesView: React.FC = () => {
                               type="number"
                               step="0.01"
                               min="0"
-                              placeholder={usExPadrao ? `Padrão (${usExPadrao})` : '—'}
-                              value={row.ex}
+                              placeholder={isDiaria ? '— (Diária)' : (usExPadrao ? `Padrão (${usExPadrao})` : '—')}
+                              value={isDiaria ? '' : row.ex}
                               onChange={e => handleUpdateWeight(idx, 'ex', e.target.value)}
                               style={{ width: '100%', padding: '6px 8px', fontSize: '0.85rem' }}
-                              disabled={saving}
+                              disabled={saving || isDiaria}
                             />
                           </td>
                           <td>
-                            {isCustom ? (
+                            {isDiaria ? (
+                              <span className="pill pill-ok" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                                Diária ((dias+1)×10)
+                              </span>
+                            ) : isCustom ? (
                               <span className="pill pill-ok" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
                                 Personalizado
                               </span>
@@ -999,6 +1120,13 @@ export const ConfiguracoesView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA TÉCNICOS OFFSHORE: GERENCIAMENTO DE TÉCNICOS                          */}
+      {/* ========================================================================= */}
+      {activeTab === 'tecnicos' && (
+        <TecnicosManager />
       )}
 
       {/* ========================================================================= */}

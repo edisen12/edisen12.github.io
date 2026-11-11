@@ -6,7 +6,7 @@ export type MedCriterio = 'enc' | 'dias';
 export type DiaCorteMedicao = 1 | 16 | 21 | 26;
 export type StatusMeta = 'ok' | 'warn' | 'bad' | 'sem' | 'info';
 export type TabId = 'ger' | 'dia' | 'emb' | 'jus' | 'med' | 'us' | 'pes' | 'imp' | 'cfg' | 'adm' | 'perfil';
-export type ImportKind = 'hh' | 'cart' | 'plat' | 'pes' | 'sap';
+export type ImportKind = 'hh' | 'cart' | 'plat' | 'pes' | 'sap' | 'tec';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type TableDensity = 'comfortable' | 'compact';
 
@@ -58,6 +58,7 @@ export interface Plataforma {
   tipo: string;
   situacao: string;
   cadastro_pendente: boolean;
+  tipo_medicao?: 'hh' | 'diaria';
 }
 
 export interface Pessoa {
@@ -187,6 +188,7 @@ export interface UsoffUnWeight {
   unidade_negocio: string;
   pe: number | null;
   ex: number | null;
+  tipo_medicao?: 'hh' | 'diaria';
 }
 
 export interface FluxoImportacao {

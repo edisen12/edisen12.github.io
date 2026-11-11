@@ -218,3 +218,31 @@
   - *Card de Validação e Apuração do USOFF:* Integrado card dedicado no topo com o total apurado de USOFF do embarque, pesos $PE/EX$ aplicados (ou indicação de diária $(\text{dias} + 1) \times 10$), anotação de Gangway ativa ($0{,}30 \times HP$), e monitoramento da Trava de Execução Zero ($HC = 0 \implies USOFF = 0$).
   - *Colunas Granulares por Operação:* Adicionadas colunas na tabela de ordens/operações: `PE × HP`, `EX × HC` e `USoff`, com indicação textual da regra/motivo aplicado a cada linha (`PE×HP + EX×HC`, `Apenas EX (Fora)`, `Execução Zero (HC=0)`, `Gangway (30% HP)` ou `Diária (Armador)`).
   - *Totais e Exportação Excel:* Linha de totais (`tfoot`) somando as parcelas `PE × HP`, `EX × HC` e `USoff`, e exportação `.xlsx` estendida com todas as colunas de ponderação e motivos contratuais para conciliação direta.
+- **2026-11-11** — Remoção da Sub-visão Global "Por Operação" na Medição de USOFF (`MedicaoUsoffView.tsx`):
+  - *Decisão do Usuário:* A visualização genérica "Por Operação" foi removida por ser redundante e desconectada do contexto de embarque.
+  - *Fluxo Canônico:* A conferência de USOFF ocorre estritamente no nível de **Embarque (ID)**, com auditoria granular de cada operação diretamente dentro da modal da Carteira do Embarque correspondente. O `SegmentedControl` da tela mantém as abas: Por Embarque (ID), Por Unidade (UN), Por Preposto e Confronto SAP vs Portal.
+- **2026-11-11** — Módulo de Gerenciamento de Técnicos Offshore na Configuração e Diretório Mestre:
+  - *Decisão do Usuário:* O sistema passa a oferecer gerenciamento ativo e autônomo dos técnicos offshore (`tecnicos`), eliminando a dependência de criação exclusiva por auto-inserção durante o upload de planilhas.
+  - *Pontos de Acesso:* Disponibilizado na aba `Configurações` (`ConfiguracoesView`, sub-aba "Técnicos Offshore") e também na aba `Pessoas, plataformas e acessos` (`PessoasPlataformasView`, sub-aba "Técnicos Offshore").
+  - *Recursos e Salvaguardas:*
+    1. CRUD completo: Criação (`saveTecnico`), edição e exclusão com 2 cliques (`deleteTecnico`).
+    2. Salvaguarda de Integridade: Técnicos que já possuem apontamentos de HH ou embarques na carteira têm a exclusão bloqueada pela UI e pelo banco (`ON DELETE RESTRICT`), prevenindo perda de histórico ou orfandade de dados.
+    3. Importação e Exportação: Importador em lote de planilhas (`.xlsx`/`.csv`) com remapeamento de colunas e pré-visualização; exportador dedicado da base de técnicos para Excel (`exportTecnicosListXlsx`) com contadores de apontamentos e embarques; e gerador de planilha modelo (`exportModeloXlsx('tec')`).
+    4. Sincronização e Auditoria (Migration 021): Trigger Realtime `trg_heartbeat_tecnicos` disparando `fn_touch_heartbeat()` e trigger WORM `trg_audit_tecnicos` registrando inserções, atualizações e exclusões em `system_audit_logs`.
+    5. Dual-Topology: Implementado tanto para BaaS (Supabase) quanto para backend universal self-hosted Node.js (`/api/v1/tecnicos`).
+- **2026-11-11** — Identificação e Configuração do Regime de Medição por Diária (UNs e Plataformas):
+  - *Decisão do Usuário:* Criar uma forma explícita de identificar quais unidades e plataformas operam no regime de **Diária**, para que o motor de cálculo do USOFF compute diárias ($(\text{dias} + 1) \times 10$) em vez de exigir HH ou aplicar pesos de Homem-Hora, mesmo quando houver horas de HH apontadas.
+  - *Configuração no Nível de Unidade de Negócio (UN):*
+    - Disponibilizado em `ConfiguracoesView.tsx` na tabela de pesos de USOFF por Regional/UN, com seletor interativo de dois estados (`HH` | `Diária`) por UN.
+    - Persistência resiliente: gravado em `config_usoff_un.tipo_medicao` (Migration 022) e sincronizado defensivamente em `configuracoes.regionais_extras` com marcadores `DIARIA_UN:<un>` para garantir funcionamento imediato mesmo sem migração prévia do schema.
+  - *Configuração no Nível de Plataforma (Unidade Marítima):*
+    - Disponibilizado em `PessoasPlataformasView.tsx` no formulário de cadastro/edição de plataformas com seletor de "Regime de Medição / Remuneração" (`Homem-Hora (HH)` vs `Diária`).
+    - Filtro dedicado na toolbar de plataformas: "Todos", "Apenas Diária" e "Apenas HH", com contadores em tempo real.
+    - Coluna de status visual na tabela de plataformas com badges `Diária` (verde) e `HH` (neutro).
+    - Suporte a importação e exportação de planilhas Excel com a coluna `Regime de medição` / `medicao`.
+    - Persistência retrocompatível: além do campo `tipo_medicao` em `plataformas` (Migration 022), a string `tipo` armazena `(Diária)` garantindo compatibilidade com versões anteriores de banco e PostgREST.
+  - *Impacto no Motor de Cálculo USOFF e Carteira:*
+    - `isArmadorPlatform` em `calculations.ts` e `isArmadorDiariaSemProg` passam a receber o mapa `dataset.usoffUnWeights` e verificar tanto a flag explícita da plataforma quanto a flag da UN.
+    - Se a UN ou a plataforma estiver sinalizada como `diaria`, o cálculo de USOFF adota a fórmula de diária $(\text{dias} + 1) \times 10$ em todos os cenários (carteira de operações, carteira legacy e sem programação), marcando `falta: false` e exibindo badge e rótulo explicativo `'Diária'` / `'Diária (Armador)'`.
+    - Modal da Carteira do Embarque (`CarteiraEmbarqueModal.tsx`) reconhece a configuração e exibe a fórmula de diária no card de resumo e nas linhas de operações.
+

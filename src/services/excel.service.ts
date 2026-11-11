@@ -90,7 +90,8 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'un', label: 'Unidade de negócio', synonyms: ['unidade de neg', 'negocio', 'regional', 'bacia', 'un'] },
     { key: 'nome', label: 'Nome', synonyms: ['nome', 'plataforma', 'descricao'] },
     { key: 'armador', label: 'Armador', synonyms: ['armador', 'empresa'] },
-    { key: 'tipo', label: 'Tipo', synonyms: ['tipo', 'categoria'] }
+    { key: 'tipo', label: 'Tipo', synonyms: ['tipo', 'categoria'] },
+    { key: 'medicao', label: 'Regime de medição', synonyms: ['regime', 'medicao', 'medição', 'tipo medicao', 'tipo medição', 'diaria', 'diária'] }
   ],
   pes: [
     { key: 'nome', label: 'Nome', synonyms: ['nome', 'pessoa'] },
@@ -108,6 +109,11 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'op', label: 'Operação', synonyms: ['operacao', 'op'] },
     { key: 'contador', label: 'Contador Confirmação', synonyms: ['contador confirmacao', 'contador de confirmacao', 'contador_confirmacao', 'contador', 'num confirmacao', 'confirmacao', 'confirmação', 'rmzhl', 'rueck'] },
     { key: 'hc', label: 'Horas Confirmadas', synonyms: ['hc', 'horas confirmadas', 'horas'] }
+  ],
+  tec: [
+    { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro', 'id'] },
+    { key: 'nome', label: 'Nome', synonyms: ['nome', 'colaborador', 'tecnico', 'empregado'] },
+    { key: 'funcao', label: 'Função', synonyms: ['funcao', 'cargo', 'especialidade', 'função', 'ocupacao'] }
   ]
 };
 
@@ -116,7 +122,8 @@ const REQUIRED_KEY_BY_KIND: Record<ImportKind, string> = {
   cart: 'mat',
   plat: 'sigla',
   pes: 'nome',
-  sap: 'mat'
+  sap: 'mat',
+  tec: 'mat'
 };
 
 export interface ParsedPreviewState {
@@ -267,6 +274,12 @@ export function guessImportKind(headers: string[]): ImportKind {
   if (/papel/.test(joined) || (/email/.test(joined) && /plat/.test(joined))) {
     return 'pes';
   }
+  if (
+    (/funcao|cargo|especialidade/.test(joined) || /tecnico/.test(joined)) &&
+    !/data|embarque|desembarque|execut|horas|hh/.test(joined)
+  ) {
+    return 'tec';
+  }
   return 'hh';
 }
 
@@ -314,12 +327,16 @@ function extractRowsFromSheet(
     if (kind === 'plat') {
       const sigla = String(getVal('sigla') || '').trim();
       if (!sigla) continue;
+      const rawTipo = String(getVal('tipo') || '').trim();
+      const rawMed = String(getVal('medicao') || '').trim().toLowerCase();
+      const isDiaria = rawMed.includes('diaria') || rawMed.includes('diária') || /di[áa]ria/i.test(rawTipo);
       rows.push({
         sigla,
         nome: String(getVal('nome') || sigla).trim(),
         un: String(getVal('un') || '').trim(),
         armador: String(getVal('armador') || '').trim(),
-        tipo: String(getVal('tipo') || '').trim()
+        tipo: rawTipo,
+        tipo_medicao: isDiaria ? 'diaria' : 'hh'
       });
       continue;
     }
@@ -436,6 +453,17 @@ function extractRowsFromSheet(
         hc: hc != null ? hc : 0,
         contador
       });
+    } else if (kind === 'tec') {
+      const nome = String(getVal('nome') || '').trim();
+      if (!mat || !nome) {
+        errors.push(`Linha ${i + 1}: matrícula ou nome do técnico ausente`);
+        continue;
+      }
+      rows.push({
+        mat,
+        nome,
+        funcao: String(getVal('funcao') || '').trim() || 'Técnico Offshore'
+      });
     }
   }
 
@@ -538,7 +566,7 @@ export async function parseSpreadsheetFile(
  */
 export function rebuildPreviewRows(
   preview: ParsedPreviewState,
-  pidx: Record<string, Plataforma>,
+  pidx: Record<string, Plataforma> = {},
   changeKind?: ImportKind
 ): ParsedPreviewState {
   const activeKind = changeKind || preview.kind;
@@ -1123,7 +1151,7 @@ export async function exportTecnicoXlsx(
 // ------------------------------------------------------------------------------
 
 export async function exportModeloXlsx(
-  kind: 'cad' | 'hh' | 'cart' | 'sap',
+  kind: 'cad' | 'hh' | 'cart' | 'sap' | 'tec',
   dataset?: AppDataset
 ): Promise<void> {
   const XLSX = await import('xlsx');
@@ -1139,7 +1167,7 @@ export async function exportModeloXlsx(
       : [];
 
     const platRows: any[][] = [
-      ['Sigla', 'Nome', 'Unidade de negócio', 'Armador', 'Tipo', 'Situação'],
+      ['Sigla', 'Nome', 'Unidade de negócio', 'Armador', 'Tipo', 'Regime de medição', 'Situação'],
       ...(platList.length > 0
         ? platList.map(p => [
             p.sigla,
@@ -1147,14 +1175,15 @@ export async function exportModeloXlsx(
             p.un || '',
             p.armador || '',
             p.tipo || '',
+            p.tipo_medicao === 'diaria' || /di[áa]ria/i.test(p.tipo || '') ? 'Diária' : 'HH',
             p.situacao || 'Mobilizada'
           ])
         : [
-            ['P58', 'Plataforma P-58', 'UN-BSPS', 'Petrobras', 'FPSO', 'Mobilizada'],
-            ['P74', 'Plataforma P-74', 'UN-BUZIOS', 'Petrobras', 'FPSO', 'Mobilizada']
+            ['P58', 'Plataforma P-58', 'UN-BSPS', 'Petrobras', 'FPSO', 'HH', 'Mobilizada'],
+            ['P74', 'Plataforma P-74', 'UN-BUZIOS', 'Petrobras', 'FPSO', 'HH', 'Mobilizada']
           ])
     ];
-    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, platRows, [10, 40, 26, 24, 30, 14]), 'Plataformas');
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, platRows, [10, 40, 26, 24, 24, 18, 14]), 'Plataformas');
 
     // 2. Aba Pessoas pré-populada
     const pessoasList = dataset
@@ -1266,7 +1295,77 @@ export async function exportModeloXlsx(
     XLSX.utils.book_append_sheet(wb, createSheet(XLSX, instrRows, [100]), 'Instruções');
 
     saveWorkbook(XLSX, wb, 'Modelo confirmacoes SAP.xlsx');
+    return;
   }
+
+  if (kind === 'tec') {
+    const tecList = dataset
+      ? Object.values(dataset.tecnicos).sort((a, b) => a.nome.localeCompare(b.nome))
+      : [];
+
+    const tecRows: any[][] = [
+      ['Matrícula', 'Nome', 'Função'],
+      ...(tecList.length > 0
+        ? tecList.map(t => [t.matricula, t.nome, t.funcao || 'Técnico Offshore'])
+        : [
+            ['10231', 'Técnico de Manutenção Exemplo', 'Técnico de Manutenção'],
+            ['10232', 'Instrumentista Exemplo', 'Instrumentista']
+          ])
+    ];
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, tecRows, [14, 35, 26]), 'Técnicos Offshore');
+
+    const instrRows: any[][] = [
+      ['Instruções para Cadastro de Técnicos Offshore'],
+      ['Uma linha por colaborador / técnico embarcado.'],
+      ['Matrícula: identificador único e numérico/alfanumérico do técnico.'],
+      ['Nome: nome completo do técnico.'],
+      ['Função: especialidade offshore (ex.: Técnico Offshore, Instrumentista, Caldeireiro, Delineador).'],
+      ['Enviar a mesma matrícula atualiza os dados cadastrais (nome e função) sem duplicar.'],
+      [],
+      ['Criado por Luanna de Abreu Teixeira']
+    ];
+    XLSX.utils.book_append_sheet(wb, createSheet(XLSX, instrRows, [100]), 'Instruções');
+
+    saveWorkbook(XLSX, wb, 'Modelo tecnicos offshore.xlsx');
+  }
+}
+
+/**
+ * Exporta a lista completa de técnicos offshore com contadores de apontamentos e embarques.
+ */
+export async function exportTecnicosListXlsx(dataset: AppDataset): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+
+  const hhCounts: Record<string, number> = {};
+  Object.values(dataset.hhMap || {}).forEach(r => {
+    if (r?.matricula) {
+      hhCounts[r.matricula] = (hhCounts[r.matricula] || 0) + 1;
+    }
+  });
+
+  const cartCounts: Record<string, number> = {};
+  (dataset.carteira || []).forEach(emb => {
+    cartCounts[emb.matricula] = (cartCounts[emb.matricula] || 0) + 1;
+  });
+
+  const tecList = Object.values(dataset.tecnicos || {}).sort((a, b) =>
+    a.nome.localeCompare(b.nome) || a.matricula.localeCompare(b.matricula)
+  );
+
+  const rows: any[][] = [
+    ['Matrícula', 'Nome do Colaborador', 'Função / Cargo Offshore', 'Apontamentos HH Registrados', 'Embarques em Carteira'],
+    ...tecList.map(t => [
+      sanitizeSpreadsheetCell(t.matricula),
+      sanitizeSpreadsheetCell(t.nome),
+      sanitizeSpreadsheetCell(t.funcao || 'Técnico Offshore'),
+      hhCounts[t.matricula] || 0,
+      cartCounts[t.matricula] || 0
+    ])
+  ];
+
+  XLSX.utils.book_append_sheet(wb, createSheet(XLSX, rows, [14, 38, 28, 26, 22]), 'Técnicos Offshore');
+  saveWorkbook(XLSX, wb, `Tecnicos Offshore - ${todayIso()}.xlsx`);
 }
 
 /**

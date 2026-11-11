@@ -46,7 +46,7 @@ export function MedicaoUsoffView() {
   } = useApp();
 
   const { showToast } = useToast();
-  const [usoffTab, setUsoffTab] = useState<'embarques' | 'operacoes' | 'unidades' | 'prepostos' | 'confronto'>('embarques');
+  const [usoffTab, setUsoffTab] = useState<'embarques' | 'unidades' | 'prepostos' | 'confronto'>('embarques');
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingConfronto, setIsExportingConfronto] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
@@ -59,11 +59,6 @@ export function MedicaoUsoffView() {
   // Embarques calculados da USOFF (agrupamento principal para conferência e validação)
   const embarques = useMemo(() => {
     return computeUsoffOperations(P, dataset, filters, pidx, 'embarque');
-  }, [P, dataset, filters, pidx]);
-
-  // Operações detalhadas calculadas da USOFF
-  const ops = useMemo(() => {
-    return computeUsoffOperations(P, dataset, filters, pidx, 'operacao');
   }, [P, dataset, filters, pidx]);
 
   // Sumário geral baseado na consolidação dos embarques do período
@@ -418,184 +413,6 @@ export function MedicaoUsoffView() {
           </button>
         );
       }
-    }
-  ];
-
-  // Tabela de Operações detalhada
-  const opColumns: DataTableColumn<UsoffOperationRow>[] = [
-    {
-      key: 'op',
-      header: 'Operação',
-      width: '180px',
-      render: r => (
-        <div>
-          {r.op ? (
-            <b>{r.op}</b>
-          ) : (
-            <StatusPill
-              status={r.tipo === 'Sem programação' ? 'warn' : 'info'}
-              text={r.tipo}
-            />
-          )}
-          {r.sharedAcrossPortfolios && (
-            <div
-              style={{
-                display: 'inline-block',
-                marginTop: '4px',
-                padding: '2px 6px',
-                borderRadius: '8px',
-                background: 'var(--orange-soft)',
-                color: 'var(--orange-dark)',
-                fontSize: '0.72rem',
-                fontWeight: 700
-              }}
-              title="Esta operação possui técnicos em plataformas de outras carteiras além da sua."
-            >
-              Parcial da OP na sua carteira
-            </div>
-          )}
-          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-            HP: {r.fonte}
-          </div>
-        </div>
-      )
-    },
-    {
-      key: 'mats',
-      header: 'Técnico',
-      width: '220px',
-      render: r => {
-        const mats = Array.from(r.mats);
-        return (
-          <div style={{ minWidth: '200px' }}>
-            {mats.slice(0, 2).map(m => {
-              const nome = dataset.tecnicos[m]?.nome || `Mat. ${m}`;
-              return (
-                <div key={m}>
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => openFichaDrawer(m)}
-                    style={{ fontSize: '0.82rem', color: 'var(--blue)', whiteSpace: 'nowrap' }}
-                  >
-                    {nome}
-                  </button>
-                </div>
-              );
-            })}
-            {mats.length > 2 && (
-              <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-                +{mats.length - 2}
-              </div>
-            )}
-          </div>
-        );
-      }
-    },
-    {
-      key: 'plats',
-      header: 'Plataforma',
-      width: '180px',
-      render: r => (
-        <div>
-          <b>{Array.from(r.plats).join(', ')}</b>
-          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
-            {Array.from(r.regs).join(', ')}
-          </div>
-        </div>
-      )
-    },
-    {
-      key: 'periodo',
-      header: 'No período',
-      render: r => (
-        <div>
-          <div>{formatBrShort(r.ini)} a {formatBrShort(r.fim)}</div>
-          <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
-            {plural(r.dias, 'dia', 'dias')}
-          </div>
-        </div>
-      )
-    },
-    {
-      key: 'hp',
-      header: 'HP',
-      align: 'right',
-      sortValue: r => r.hp,
-      render: r => formatHours(r.hp)
-    },
-    {
-      key: 'hd',
-      header: 'HD',
-      align: 'right',
-      sortValue: r => r.hd,
-      render: r => formatHours(r.hd)
-    },
-    {
-      key: 'hc',
-      header: 'HC',
-      align: 'right',
-      sortValue: r => r.hc,
-      render: r => formatHours(r.hc)
-    },
-    {
-      key: 'pD',
-      header: 'HC ÷ HD',
-      sortValue: r => r.pD ?? -1,
-      render: r => <MeterBar pct={r.pD} status={statusOf(r.pD, dataset.config)} />
-    },
-    {
-      key: 'pP',
-      header: 'HC ÷ HP',
-      sortValue: r => r.pP ?? -1,
-      render: r => (
-        r.hpAte > 0 ? (
-          <MeterBar pct={r.pP} status={statusOf(r.pP, dataset.config)} />
-        ) : (
-          <span className="sub">sem programação</span>
-        )
-      )
-    },
-    {
-      key: 'pe',
-      header: 'PE',
-      align: 'right',
-      render: r => {
-        if (r.falta) return <span style={{ color: 'var(--bad)' }}>falta</span>;
-        const pes = Array.from(r.pes);
-        return pes.length === 1 ? formatUs(pes[0]) : (pes.length > 1 ? 'vários' : '—');
-      }
-    },
-    {
-      key: 'ex',
-      header: 'EX',
-      align: 'right',
-      render: r => {
-        if (r.falta) return <span style={{ color: 'var(--bad)' }}>falta</span>;
-        const exs = Array.from(r.exs);
-        return exs.length === 1 ? formatUs(exs[0]) : (exs.length > 1 ? 'vários' : '—');
-      }
-    },
-    {
-      key: 'peHp',
-      header: 'PE × HP',
-      align: 'right',
-      sortValue: r => r.peHp,
-      render: r => (r.falta ? '—' : formatUs(r.peHp))
-    },
-    {
-      key: 'exHc',
-      header: 'EX × HC',
-      align: 'right',
-      sortValue: r => r.exHc,
-      render: r => (r.falta ? '—' : formatUs(r.exHc))
-    },
-    {
-      key: 'us',
-      header: 'USoff',
-      align: 'right',
-      sortValue: r => r.us ?? -1,
-      render: r => <b>{formatUs(r.us)}</b>
     }
   ];
 
@@ -1097,10 +914,9 @@ export function MedicaoUsoffView() {
           {/* Seção com SegmentedControl e Tabelas */}
           <div style={{ marginBottom: '28px' }}>
             <div className="section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-              <SegmentedControl<'embarques' | 'operacoes' | 'unidades' | 'prepostos' | 'confronto'>
+              <SegmentedControl<'embarques' | 'unidades' | 'prepostos' | 'confronto'>
                 options={[
                   { value: 'embarques', label: 'Por Embarque (ID)', count: embarques.length },
-                  { value: 'operacoes', label: 'Por Operação', count: ops.length },
                   { value: 'unidades', label: 'Por Unidade (UN)', count: groupUn.length },
                   { value: 'prepostos', label: 'Por Preposto', count: groupPreposto.length },
                   {
@@ -1132,27 +948,6 @@ export function MedicaoUsoffView() {
                     ? 'Exibindo embarques com desembarque no período. Clique no ID ou em Carteira para detalhar ordens e confirmações SAP.'
                     : 'Exibindo embarques ativos no período. Clique no ID ou em Carteira para detalhar ordens e confirmações SAP.'}{' '}
                   A apuração de USOFF é calculada individualmente por operação com trava de execução zero e consolidada por embarque.
-                </p>
-              </div>
-            )}
-
-            {/* Sub-visão 2: Por Operação */}
-            {usoffTab === 'operacoes' && (
-              <div>
-                <DataTable
-                  data={ops}
-                  columns={opColumns}
-                  rowKey={r => r.key}
-                  searchable
-                  searchPlaceholder="Buscar por código de operação, técnico ou plataforma..."
-                  getSearchString={r => `${r.op} ${Array.from(r.mats).join(' ')} ${Array.from(r.plats).join(' ')} ${Array.from(r.regs).join(' ')}`}
-                  emptyMessage="Nenhuma operação encontrada no período."
-                />
-                <p className="sub" style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                  {isEnc
-                    ? 'HP = horas programadas do embarque inteiro.'
-                    : 'HP do período = horas programadas do embarque × dias do embarque dentro do período ÷ dias do embarque.'}{' '}
-                  HC ÷ HP compara o executado com o programado até {formatBr(ate)}, o último dia recebido; no fechamento da medição as duas datas coincidem.
                 </p>
               </div>
             )}

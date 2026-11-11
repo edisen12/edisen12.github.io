@@ -29,6 +29,9 @@ import {
   saveConfiguracoes,
   savePlataforma,
   deletePlataforma,
+  saveTecnico,
+  deleteTecnico,
+  batchImportTecnicos,
   savePessoa,
   deletePessoa,
   batchImportHH,
@@ -252,6 +255,53 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       expect(
         mockClient.__mockState.tables.plataformas.some((p: any) => p.sigla === 'P25')
       ).toBe(false);
+    });
+  });
+
+  describe('5.1 saveTecnico, deleteTecnico & batchImportTecnicos', () => {
+    it('salva ou atualiza um técnico offshore no cadastro mestre', async () => {
+      await saveTecnico({
+        matricula: 'TEC-99001',
+        nome: 'Técnico Especialista de Teste',
+        funcao: 'Instrumentista Especialista'
+      });
+
+      const tec = mockClient.__mockState.tables.tecnicos.find((t: any) => t.matricula === 'TEC-99001');
+      expect(tec).toBeDefined();
+      expect(tec.nome).toBe('Técnico Especialista de Teste');
+      expect(tec.funcao).toBe('Instrumentista Especialista');
+    });
+
+    it('remove um técnico offshore do cadastro mestre', async () => {
+      mockClient.__mockState.tables.tecnicos.push({
+        matricula: 'TEC-TO-DELETE',
+        nome: 'Para Exclusão',
+        funcao: 'Técnico Offshore'
+      });
+
+      expect(
+        mockClient.__mockState.tables.tecnicos.some((t: any) => t.matricula === 'TEC-TO-DELETE')
+      ).toBe(true);
+
+      await deleteTecnico('TEC-TO-DELETE');
+
+      expect(
+        mockClient.__mockState.tables.tecnicos.some((t: any) => t.matricula === 'TEC-TO-DELETE')
+      ).toBe(false);
+    });
+
+    it('importa técnicos em lote com chunks e progresso', async () => {
+      const rows = [
+        { matricula: 'BULK-01', nome: 'Bulk Um', funcao: 'Caldeireiro' },
+        { matricula: 'BULK-02', nome: 'Bulk Dois', funcao: 'Delineador' }
+      ];
+
+      const progressSpy = vi.fn();
+      await batchImportTecnicos(rows, progressSpy);
+
+      expect(mockClient.__mockState.tables.tecnicos.some((t: any) => t.matricula === 'BULK-01')).toBe(true);
+      expect(mockClient.__mockState.tables.tecnicos.some((t: any) => t.matricula === 'BULK-02')).toBe(true);
+      expect(progressSpy).toHaveBeenCalled();
     });
   });
 

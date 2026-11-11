@@ -228,7 +228,7 @@ export const computeUsoffOperations = (
       if (!passesFilter(l, filters, dataset.pessoas)) return;
 
       const platObj = lookupPlatform(pidx, op.plataforma_sigla || undefined);
-      const isDiaria = isArmadorPlatform(platObj, op.plataforma_sigla || undefined, op.unidade_negocio);
+      const isDiaria = isArmadorPlatform(platObj, op.plataforma_sigla || undefined, op.unidade_negocio, dataset.usoffUnWeights);
       const hasGw = hasGangwayJustification(op.matricula, a, b, dataset.justMap);
 
       const hp = Number(op.hh_programado) || 0;
@@ -323,7 +323,7 @@ export const computeUsoffOperations = (
       });
 
       const platObj = lookupPlatform(pidx, c.plataforma_sigla);
-      const isDiaria = isArmadorPlatform(platObj, c.plataforma_sigla, c.unidade_negocio);
+      const isDiaria = isArmadorPlatform(platObj, c.plataforma_sigla, c.unidade_negocio, dataset.usoffUnWeights);
       const hasGw = hasGangwayJustification(c.matricula, a, b, dataset.justMap);
 
       const isShared = !!(
@@ -377,7 +377,7 @@ export const computeUsoffOperations = (
     computePeriodDays(P, dataset, filters, pidx).forEach(x => {
       if (findCarteira(dataset.carteira, x.mat, x.D)) return;
       const platObj = lookupPlatform(pidx, x.p);
-      const isDiaria = isArmadorPlatform(platObj, x.p, x.r);
+      const isDiaria = isArmadorPlatform(platObj, x.p, x.r, dataset.usoffUnWeights);
       const hasGw = hasGangwayJustification(x.mat, x.D, x.D, dataset.justMap);
       const w = resolveUsoffWeights(
         null,

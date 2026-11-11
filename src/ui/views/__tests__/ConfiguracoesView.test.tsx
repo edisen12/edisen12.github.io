@@ -89,6 +89,7 @@ describe('ConfiguracoesView (Central de Parametrização Contratual)', () => {
     expect(screen.getByRole('tab', { name: /Geral & Metas/i })).not.toBeNull();
     expect(screen.getByRole('tab', { name: /Ciclo de Medição/i })).not.toBeNull();
     expect(screen.getByRole('tab', { name: /Ponderações USOFF/i })).not.toBeNull();
+    expect(screen.getByRole('tab', { name: /Técnicos Offshore/i })).not.toBeNull();
     expect(screen.getByRole('tab', { name: /Comunicação & Notificações/i })).not.toBeNull();
     expect(screen.getByRole('tab', { name: /Memorial de Cálculo/i })).not.toBeNull();
   });
@@ -206,5 +207,24 @@ describe('ConfiguracoesView (Central de Parametrização Contratual)', () => {
     fireEvent.click(discardBtn);
 
     expect(screen.queryByText(/Você possui alterações não salvas no contrato/i)).toBeNull();
+  });
+
+  it('9. Permite alternar para a aba Técnicos Offshore e renderizar o gerenciador de técnicos', () => {
+    renderConfiguracoesView({
+      dataset: {
+        ...MOCK_DATASET,
+        tecnicos: {
+          '10231': { matricula: '10231', nome: 'Carlos Silva', funcao: 'Técnico de Manutenção' }
+        }
+      }
+    });
+
+    const tecTabBtn = screen.getByRole('tab', { name: /Técnicos Offshore/i });
+    fireEvent.click(tecTabBtn);
+
+    expect(screen.getByText(/Gerenciamento de Técnicos Offshore/i)).not.toBeNull();
+    expect(screen.getByText(/Carlos Silva/i)).not.toBeNull();
+    expect(screen.getByText('10231')).not.toBeNull();
+    expect(screen.getAllByText('Técnico de Manutenção').length).toBeGreaterThan(0);
   });
 });

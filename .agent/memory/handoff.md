@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-10 16:35 (BRT) · HEAD: 432631e · Suíte Completa: 30 arquivos / 565 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 8.23s ✅ · Server Typecheck: 0 erros ✅
+> Última atualização: 2026-11-11 13:46 (BRT) · HEAD: d0981ae · Suíte Completa: 31 arquivos / 577 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.52s ✅ · Server Typecheck: 0 erros ✅
 
 ## 1. Resumo Executivo
 
@@ -22,7 +22,7 @@
 
 ### Arquitetura CSS Responsiva e Shell Multi-Tela (320px celular até 1920px+ ultrawide)
 - `src/styles/{tokens,reset,layout,components}.css` — eliminação de estouro horizontal em grades (`minmax(min(100%, ...), 1fr)`), suporte a `env(safe-area-inset-*)`, prevenção de auto-zoom em iOS Safari (`font-size: 16px` em inputs), tabelas responsivas (`.table-responsive`, `.table-base`), cabeçalhos flexíveis (`.card-header-view`) e classes utilitárias (`.form-grid-2`, `.toolbar-responsive`, `.pwa-mobile-banner`).
-- `src/ui/components/{AppShell,Sidebar,TopHeader,StickyFilterBar,DataTable,SegmentedControl,Modal,Drawer,ToastContext,ScopeBanner,KpiCard}.tsx` — `StickyFilterBar` compacta e recolhível no mobile, `Sidebar` com gaveta em largura total no mobile mesmo se colapsada no desktop, `DataTable` com scroll touch contido, e modais/drawers fluidos.
+- `src/ui/components/{AppShell,Sidebar,TopHeader,StickyFilterBar,DataTable,SegmentedControl,Modal,Drawer,ToastContext,ScopeBanner,KpiCard,TecnicosManager}.tsx` — `StickyFilterBar` compacta e recolhível no mobile, `Sidebar` com gaveta em largura total no mobile mesmo se colapsada no desktop, `DataTable` com scroll touch contido, modais/drawers fluidos e `TecnicosManager` com CRUD completo de técnicos offshore, importação em lote e exportação Excel.
 
 ### Modais Compartilhados e Telas Adaptadas
 - `src/ui/modals/AdminAccountModals.tsx` — desduplicação de ~550 linhas de modais administrativos (`NovoAdminModal`, `AdminResetPasswordModal`, `AdminToggleActiveModal`, `AdminDeleteUserModal`), registrando auditoria WORM `logSystemEvent` e layouts fluidos.
@@ -52,7 +52,7 @@
 - `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 6 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
-- `supabase/migrations/001` → `020` — **imutáveis**.
+- `supabase/migrations/001` → `022` — **imutáveis** (021: heartbeat e auditoria de técnicos; 022: unidades e plataformas por diária).
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 com rollback compensatório em todas as etapas SQL pós-GoTrue e travas anti-lockout + auditoria WORM.
 - `src/types/database.types.ts` — gerado via schema.
 
@@ -85,7 +85,7 @@
   - **Frente 2: Visualização e Filtro do USOFF por Embarque e ID de Embarque:**
     - Visualização padrão na tela de USOFF alterada para **Por Embarque (ID)**, com identificador único `id_embarque`, técnico, plataforma, período, HP, HD, HC, MeterBars, PE, EX, Σ PE×HP, Σ EX×HC, USOFF e botão/link direto para a Carteira do Embarque.
     - Busca instantânea habilitada por ID de embarque (`55104`, `EMB-99881`), técnico, matrícula ou plataforma.
-    - SegmentedControl completo com 5 abas: Por Embarque (ID), Por Operação, Por Unidade (UN), Por Preposto e Confronto SAP vs Portal.
+    - SegmentedControl com 4 abas: Por Embarque (ID), Por Unidade (UN), Por Preposto e Confronto SAP vs Portal (sub-visão global Por Operação removida a pedido do usuário).
   - **Frente 3: Tela de Carteira do Embarque (Confronto SAP vs Portal Offshore):**
     - Modal `CarteiraEmbarqueModal.tsx` integrado no fluxo global via `openCarteiraModal(matricula, idEmbarque?, dataRef?)`.
     - Confronto de Horas: HH Programado (Carteira vs Fora), HC Portal Offshore, HH Confirmado SAP, Saldo de Divergência ($HC_{\text{Portal}} - HH_{\text{SAP}}$).
@@ -95,15 +95,36 @@
     - Colunas granulares na tabela de operações: `PE × HP`, `EX × HC` e `USoff`, com badges e motivos contratuais em cada linha (`PE×HP + EX×HC`, `Apenas EX (Fora)`, `Execução Zero (HC=0)`, `Gangway (30% HP)`, `Diária (Armador)`).
     - Linha de totais (`tfoot`) consolidando horas, divergência, PE×HP, EX×HC e USOFF total.
     - Exportador Excel (`.xlsx`) atualizado com todas as colunas de USOFF e regras aplicadas.
+  - **Frente 5: Gerenciamento Ativo de Técnicos Offshore (`TecnicosManager`):**
+    - Módulo corporativo `TecnicosManager.tsx` integrado nas abas `Configurações` (`ConfiguracoesView`, sub-aba "Técnicos Offshore") e `Pessoas, plataformas e acessos` (`PessoasPlataformasView`, sub-aba "Técnicos Offshore").
+    - Elimina a limitação de inserção exclusiva por upload de arquivos, oferecendo autonomia cadastral completa.
+    - Busca instantânea (nome, matrícula, função) e filtros combinados por função e situação de histórico operacional.
+    - Cadastro manual (`saveTecnico`) com validação de matrícula única e formulário com datalist de especialidades offshore.
+    - Edição inline de dados cadastrais mantendo a integridade referencial da matrícula.
+    - Exclusão com 2 cliques (`deleteTecnico`) protegida por trava de histórico: técnicos com apontamentos de HH ou embarques em carteira têm o botão desabilitado e recebem tooltip de proteção contratual (`ON DELETE RESTRICT`).
+    - Importação em lote via planilha (`.xlsx`/`.csv`) com SheetJS, remapeamento de colunas e tabela de pré-visualização.
+    - Exportador Excel dedicado (`exportTecnicosListXlsx`) enriquecido com total de HH e embarques de cada técnico, e gerador de planilha modelo vazia (`exportModeloXlsx('tec')`).
+    - Integração de visualização rápida da Ficha do Técnico (`openFichaDrawer`).
+    - Backend Dual-Topology implementado (Supabase Connector + Server Node.js `/api/v1/tecnicos`).
+    - Migration `021_tecnicos_heartbeat_e_auditoria.sql` com trigger Realtime `trg_heartbeat_tecnicos` e auditoria forense WORM `trg_audit_tecnicos` gravando em `system_audit_logs`.
+  - **Frente 6: Identificação de Unidades e Plataformas por Diária e Cálculo USOFF:**
+    - Atendimento integral à demanda de identificação das unidades medidas por diária (mesmo com HH apontado):
+      1. *Nível de Unidade de Negócio (UN) em `ConfiguracoesView`:* Seletor interativo `HH` vs `Diária` por regional na tabela de pesos de USOFF, permitindo marcar uma UN inteira (ex.: Armador, FPSOs afretados) como regime de diária. Card explicativo detalhando a fórmula de diária $(\text{dias} + 1) \times 10$.
+      2. *Nível de Plataforma em `PessoasPlataformasView`:* Campo "Regime de Medição / Remuneração" (`Homem-Hora (HH)` vs `Diária`) no formulário de edição/criação de plataformas, com filtro por regime na barra de ferramentas (`Todos`, `Apenas Diária`, `Apenas HH`) com contadores e coluna com badges visuais (`Diária` verde vs `HH`).
+      3. *Motor de Cálculo USOFF e Carteira:* `isArmadorPlatform` e `computeUsoffOperations` consideram a marcação de diária tanto da plataforma quanto da UN. Unidades de diária apuram o USOFF pela fórmula contratual $(\text{dias} + 1) \times 10$, com `falta: false` e rótulo `'Diária'` / `'Diária (Armador)'`, sem penalizar apontamentos de HH nem pendências de pesos $PE/EX$.
+      4. *Modal Carteira do Embarque (`CarteiraEmbarqueModal.tsx`):* Card de apuração e tabela de ordens/operações reconhecem unidades de diária e exibem o badge e a fórmula correspondente.
+      5. *Importação e Exportação Excel (`excel.service.ts`):* Suporte à coluna `Regime de medição` / `medicao` nas planilhas de cadastro de plataformas.
+      6. *Persistência Resiliente e Migration:* Colunas `tipo_medicao text NOT NULL DEFAULT 'hh'` em `plataformas` e `config_usoff_un` adicionadas via migration `022_unidades_e_plataformas_diaria.sql`, com salvaguardas de compatibilidade (`(Diária)` em `tipo` e `DIARIA_UN:<un>` em `regionais_extras`).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **30 arquivos / 565 testes aprovados (100% verdes)**.
+    - Suíte de testes: **31 arquivos / 577 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 8.23s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 7.52s**.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da medição USOFF e carteira do embarque conforme solicitado pelo usuário.
-2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pela medição de USOFF, filtrar por IDs de embarque e abrir a carteira para conferência determinística.
+1. **Subir atualizações para o repositório remoto GitHub (`main`):** realizar commit e push das alterações da medição USOFF, técnicos offshore e regime de diária.
+2. **Validar fluxos de usuário em ambiente de staging / pré-produção:** navegar pela medição de USOFF, filtrar por IDs de embarque e conferir unidades sinalizadas como diária.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+
 
 

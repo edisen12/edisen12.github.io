@@ -232,20 +232,22 @@ describe('MedicaoUsoffView - Medição USOFF & Visualização por Embarque', () 
     expect(mockOpenFichaDrawer).toHaveBeenCalledWith('1001');
   });
 
-  it('permite alternar para a aba Por Operação e lista as operações individuais', () => {
+  it('não exibe a aba Por Operação e permite alternar para a aba Por Unidade (UN)', () => {
     render(
       <ToastProvider>
         <MedicaoUsoffView />
       </ToastProvider>
     );
 
-    // Clica na aba Por Operação
-    const opTabBtn = screen.getByRole('tab', { name: /Por Operação/i });
-    fireEvent.click(opTabBtn);
+    // Confirma que a aba "Por Operação" não existe mais
+    expect(screen.queryByRole('tab', { name: /Por Operação/i })).toBeNull();
 
-    // Lista as operações individuais OP-0010 e OP-0020
-    expect(screen.getByText('OP-0010')).not.toBeNull();
-    expect(screen.getByText('OP-0020')).not.toBeNull();
+    // Clica na aba Por Unidade (UN)
+    const unTabBtn = screen.getByRole('tab', { name: /Por Unidade \(UN\)/i });
+    fireEvent.click(unTabBtn);
+
+    // Tabela exibe a coluna Unidade
+    expect(screen.getByRole('columnheader', { name: /Unidade/i })).not.toBeNull();
   });
 
   it('permite alternar para a aba Confronto SAP vs Portal', () => {

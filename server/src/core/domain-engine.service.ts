@@ -1044,6 +1044,70 @@ export class SelfHostedDomainEngine {
     }
   }
 
+  async saveTecnico(
+    actor: AuthenticatedActor,
+    tec: Tecnico
+  ): Promise<void> {
+    this.assertGlobalRole(actor);
+    const matricula = (tec.matricula || '').trim();
+    const nome = (tec.nome || '').trim();
+    const funcao = (tec.funcao || '').trim() || 'Técnico Offshore';
+
+    if (!matricula) throw new Error('A matrícula do técnico é obrigatória.');
+    if (!nome) throw new Error('O nome do técnico é obrigatório.');
+
+    const row: Tecnico = {
+      matricula,
+      nome,
+      funcao
+    };
+
+    await this.storage.upsertMany('tecnicos', [row], ['matricula']);
+
+    await this.storage.appendImmutable('system_audit_logs', {
+      id: generateUuid(),
+      actor_id: actor.id,
+      actor_nome: actor.nome,
+      actor_email: actor.email,
+      actor_role: actor.role,
+      action: 'tecnico_saved',
+      category: 'cadastros',
+      target_id: matricula,
+      target_label: `${nome} (${matricula})`,
+      details: { funcao },
+      created_at: new Date().toISOString()
+    });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
+  }
+
+  async deleteTecnico(
+    actor: AuthenticatedActor,
+    matricula: string
+  ): Promise<void> {
+    this.assertGlobalRole(actor);
+    const cleanMat = (matricula || '').trim();
+    if (!cleanMat) throw new Error('Matrícula inválida.');
+
+    const deleted = await this.storage.deleteMany('tecnicos', { matricula: cleanMat });
+    if (deleted > 0) {
+      await this.storage.appendImmutable('system_audit_logs', {
+        id: generateUuid(),
+        actor_id: actor.id,
+        actor_nome: actor.nome,
+        actor_email: actor.email,
+        actor_role: actor.role,
+        action: 'tecnico_deleted',
+        category: 'cadastros',
+        target_id: cleanMat,
+        target_label: cleanMat,
+        details: {},
+        created_at: new Date().toISOString()
+      });
+      this.realtimeHub?.broadcast('sync_heartbeat');
+    }
+  }
+
   async savePessoa(
     actor: AuthenticatedActor,
     input: {

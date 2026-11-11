@@ -659,6 +659,11 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
     if (error) throw error;
   },
 
+  async deleteTecnico(matricula: string): Promise<void> {
+    const { error } = await supabase.from('tecnicos').delete().eq('matricula', matricula);
+    if (error) throw error;
+  },
+
   async upsertApontamentosChunk(rows: Array<Record<string, unknown>>): Promise<void> {
     const { error } = await supabase
       .from('apontamentos_hh')

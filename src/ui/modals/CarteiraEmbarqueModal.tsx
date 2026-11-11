@@ -135,7 +135,7 @@ export function CarteiraEmbarqueModal() {
     const effPlatSigla = platSigla || (opsDoEmbarque[0]?.plataforma_sigla ?? '');
     const effUnidade = unidade || (opsDoEmbarque[0]?.unidade_negocio ?? '');
     const platObj = lookupPlatform(pidx, effPlatSigla);
-    const isDiaria = isArmadorPlatform(platObj, effPlatSigla, effUnidade);
+    const isDiaria = isArmadorPlatform(platObj, effPlatSigla, effUnidade, dataset.usoffUnWeights);
     const hasGw = hasGangwayJustification(
       tecMat,
       dataInicio || activePeriod.ini,

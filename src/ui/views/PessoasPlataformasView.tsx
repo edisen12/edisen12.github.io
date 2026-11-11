@@ -46,7 +46,7 @@ import {
   exportModeloXlsx,
   type ParsedPreviewState
 } from '../../services/excel.service';
-import { findResponsiblePeople } from '../../domain/calculations';
+import { findResponsiblePeople, isArmadorPlatform } from '../../domain/calculations';
 import { PAPEIS_LABEL, ROLES_LABEL, SITUACOES_PLATAFORMA } from '../../config/constants';
 import type { ImportKind, PapelOperacional, Pessoa, Plataforma, SystemRole, UserOnboarding, UserProfile } from '../../domain/types';
 import { normalizeText, platformKey } from '../../utils/format';
@@ -59,8 +59,9 @@ import {
   AdminToggleActiveModal,
   AdminDeleteUserModal
 } from '../modals/AdminAccountModals';
+import { TecnicosManager } from '../components/TecnicosManager';
 
-type SubTab = 'pessoas' | 'plataformas';
+type SubTab = 'pessoas' | 'plataformas' | 'tecnicos';
 type PapelFilter = 'todos' | 'preposto' | 'controlador' | 'gestor';
 
 export const PessoasPlataformasView: React.FC = () => {
@@ -76,6 +77,7 @@ export const PessoasPlataformasView: React.FC = () => {
   const [platUn, setPlatUn] = useState('');
   const [platBusca, setPlatBusca] = useState('');
   const [pendentesOnly, setPendentesOnly] = useState(false);
+  const [medicaoFilter, setMedicaoFilter] = useState<'todos' | 'diaria' | 'hh'>('todos');
 
   // Confirmações de exclusão em 2 cliques
   const [delPesId, setDelPesId] = useState<string | null>(null);
@@ -105,11 +107,13 @@ export const PessoasPlataformasView: React.FC = () => {
   // Opções para SegmentedControl de Sub-Abas principais
   const countPessoas = Object.keys(dataset.pessoas).length;
   const countPlataformas = Object.keys(dataset.plataformas).length;
+  const countTecnicos = Object.keys(dataset.tecnicos || {}).length;
 
   const mainTabOptions = useMemo<SegmentedOption<SubTab>[]>(() => [
     { value: 'pessoas', label: 'Pessoas e Acessos', count: countPessoas },
-    { value: 'plataformas', label: 'Catálogo de Plataformas', count: countPlataformas }
-  ], [countPessoas, countPlataformas]);
+    { value: 'plataformas', label: 'Catálogo de Plataformas', count: countPlataformas },
+    { value: 'tecnicos', label: 'Técnicos Offshore', count: countTecnicos }
+  ], [countPessoas, countPlataformas, countTecnicos]);
 
   // Contagens e Opções para SegmentedControl de Papéis Operacionais
   const papelCounts = useMemo(() => {
@@ -181,6 +185,17 @@ export const PessoasPlataformasView: React.FC = () => {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [dataset.plataformas]);
 
+  // Contadores de medição (Diária vs HH)
+  const countPlatDiarias = useMemo(() => {
+    return Object.values(dataset.plataformas).filter(p =>
+      isArmadorPlatform(p, p.sigla, p.un, dataset.usoffUnWeights)
+    ).length;
+  }, [dataset.plataformas, dataset.usoffUnWeights]);
+
+  const countPlatHh = useMemo(() => {
+    return Object.keys(dataset.plataformas).length - countPlatDiarias;
+  }, [dataset.plataformas, countPlatDiarias]);
+
   // --- SEÇÃO 2: Plataformas e UNs ---
   const filteredPlataformas = useMemo(() => {
     const list = Object.values(dataset.plataformas).sort((a, b) =>
@@ -192,11 +207,14 @@ export const PessoasPlataformasView: React.FC = () => {
     return list.filter(p => {
       if (platUn && (p.un || 'Sem unidade') !== platUn) return false;
       if (pendentesOnly && !p.cadastro_pendente) return false;
+      const isDiaria = isArmadorPlatform(p, p.sigla, p.un, dataset.usoffUnWeights);
+      if (medicaoFilter === 'diaria' && !isDiaria) return false;
+      if (medicaoFilter === 'hh' && isDiaria) return false;
       if (!q) return true;
-      const t = `${p.sigla} ${p.nome} ${p.armador || ''} ${p.tipo || ''}`;
+      const t = `${p.sigla} ${p.nome} ${p.armador || ''} ${p.tipo || ''} ${isDiaria ? 'diaria diária' : 'hh homem-hora'}`;
       return normalizeText(t).includes(q);
     });
-  }, [dataset.plataformas, platUn, pendentesOnly, platBusca]);
+  }, [dataset.plataformas, platUn, pendentesOnly, platBusca, medicaoFilter, dataset.usoffUnWeights]);
 
   // Definição das colunas para DataTable de Plataformas
   const platColumns: DataTableColumn<Plataforma>[] = [
@@ -237,6 +255,32 @@ export const PessoasPlataformasView: React.FC = () => {
       key: 'un',
       header: 'Unidade de negócio',
       render: p => <span>{p.un || '—'}</span>
+    },
+    {
+      key: 'medicao',
+      header: 'Medição',
+      width: '105px',
+      sortValue: p => (isArmadorPlatform(p, p.sigla, p.un, dataset.usoffUnWeights) ? 'diaria' : 'hh'),
+      render: p => {
+        const isDiaria = isArmadorPlatform(p, p.sigla, p.un, dataset.usoffUnWeights);
+        return isDiaria ? (
+          <span
+            className="pill pill-ok"
+            style={{ fontWeight: 700, fontSize: '0.74rem', padding: '2px 8px' }}
+            title="Unidade com apuração por Diária: fórmula contratual (dias + 1) × 10"
+          >
+            Diária
+          </span>
+        ) : (
+          <span
+            className="pill"
+            style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', padding: '2px 8px', background: 'var(--surface-alt)' }}
+            title="Unidade com apuração por Homem-Hora (PE × HP + EX × HC)"
+          >
+            HH
+          </span>
+        );
+      }
     },
     {
       key: 'armador',
@@ -809,6 +853,17 @@ export const PessoasPlataformasView: React.FC = () => {
                   ))}
                 </select>
 
+                <select
+                  value={medicaoFilter}
+                  onChange={e => setMedicaoFilter(e.target.value as any)}
+                  style={{ padding: '6px 12px' }}
+                  aria-label="Filtrar plataformas por regime de medição"
+                >
+                  <option value="todos">Todos os regimes ({Object.keys(dataset.plataformas).length})</option>
+                  <option value="diaria">Apenas Diária ({countPlatDiarias})</option>
+                  <option value="hh">Apenas HH ({countPlatHh})</option>
+                </select>
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -1024,6 +1079,13 @@ export const PessoasPlataformasView: React.FC = () => {
         )}
       </div>
       </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SEÇÃO 3: GERENCIAMENTO DE TÉCNICOS OFFSHORE                               */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'tecnicos' && (
+        <TecnicosManager />
       )}
 
       {/* ========================================================================= */}
@@ -1472,11 +1534,23 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
 }) => {
   const { showToast } = useToast();
 
+  const isInitialDiaria =
+    initialPlat?.tipo_medicao === 'diaria' ||
+    /di[áa]ria/i.test(initialPlat?.tipo || '') ||
+    isArmadorPlatform(initialPlat, initialPlat?.sigla, initialPlat?.un);
+
+  const cleanInitialTipo = (initialPlat?.tipo || '')
+    .replace(/\s*\([Dd]i[áa]ria\)/g, '')
+    .replace(/\s*\[[Dd]i[áa]ria\]/g, '')
+    .replace(/^[Dd]i[áa]ria$/g, '')
+    .trim();
+
   const [sigla, setSigla] = useState(initialPlat?.sigla || '');
   const [nome, setNome] = useState(initialPlat?.nome || '');
   const [un, setUn] = useState(initialPlat?.un || '');
   const [armador, setArmador] = useState(initialPlat?.armador || '');
-  const [tipo, setTipo] = useState(initialPlat?.tipo || '');
+  const [tipo, setTipo] = useState(cleanInitialTipo);
+  const [tipoMedicao, setTipoMedicao] = useState<'hh' | 'diaria'>(isInitialDiaria ? 'diaria' : 'hh');
   const [situacao, setSituacao] = useState(initialPlat?.situacao || 'Mobilizada');
   const [saving, setSaving] = useState(false);
   const [delConfirm, setDelConfirm] = useState(false);
@@ -1499,7 +1573,8 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
         un: un.trim(),
         armador: armador.trim(),
         tipo: tipo.trim(),
-        situacao: situacao.trim()
+        situacao: situacao.trim(),
+        tipo_medicao: tipoMedicao
       });
       showToast('Plataforma salva com sucesso!', 'success');
       await onSaved();
@@ -1686,6 +1761,43 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
               ))}
             </select>
           </label>
+        </div>
+
+        <div
+          className="card"
+          style={{
+            padding: '12px 14px',
+            background: tipoMedicao === 'diaria' ? 'var(--blue-soft, #f0fdf4)' : 'var(--surface-alt)',
+            border: tipoMedicao === 'diaria' ? '1px solid var(--blue, #22c55e)' : '1px solid var(--border)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>Regime de Medição / Remuneração</span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${tipoMedicao === 'hh' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setTipoMedicao('hh')}
+                disabled={saving}
+              >
+                Homem-Hora (HH)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${tipoMedicao === 'diaria' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setTipoMedicao('diaria')}
+                disabled={saving}
+                style={tipoMedicao === 'diaria' ? { background: 'var(--ok, #16a34a)', borderColor: 'var(--ok, #16a34a)', color: '#fff' } : undefined}
+              >
+                Diária
+              </button>
+            </div>
+          </div>
+          <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+            {tipoMedicao === 'diaria'
+              ? 'Unidade sinalizada por diária contratual: apuração de USOFF via fórmula (dias + 1) × 10. Considera a remuneração por diária mesmo se houver horas apontadas no período (HH).'
+              : 'Padrão contratual por Homem-Hora: apuração de USOFF aplicando os pesos de Programação (PE) e Execução (EX).'}
+          </div>
         </div>
 
         <datalist id="dlUnPlatModal">

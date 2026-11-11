@@ -27,7 +27,7 @@ import type {
 import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES } from '../../config/constants';
 import { todayIso } from '../../utils/date';
 import { parseIdEmbarque, platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
-import { lookupPlatform } from '../../domain/calculations';
+import { lookupPlatform, isArmadorPlatform } from '../../domain/calculations';
 import type { ClientDatabaseProvider } from '../../ports/client-provider.port';
 import type { BaaSConnectorPort, RawBaaSDatasetPayload } from '../../ports/baas-connector.port';
 import type { ClientAuthPort } from '../../ports/auth.port';
@@ -556,15 +556,31 @@ export async function assembleAppDataset(
       }
     : { ...DEFAULT_CONFIG };
 
+  const diariaUnSet = new Set<string>();
+  (config.regionais_extras || []).forEach(r => {
+    if (r.startsWith('DIARIA_UN:')) {
+      diariaUnSet.add(r.replace('DIARIA_UN:', '').trim());
+    }
+  });
+
   // 2. Pesos USOFF por UN
   const usoffUnWeights: Record<string, UsoffUnWeight> = {};
   (raw.usoffWeightRows || []).forEach(row => {
     const un = String(row.unidade_negocio || '');
     if (un) {
+      const rowTipoMedicao = (row as any).tipo_medicao as string | undefined;
+      const isDiaria =
+        rowTipoMedicao === 'diaria' ||
+        diariaUnSet.has(un) ||
+        un === 'Armador' ||
+        un === 'FPSOs afretados' ||
+        /di[áa]ria/i.test(un);
+
       usoffUnWeights[un] = {
         unidade_negocio: un,
         pe: row.pe != null ? Number(row.pe) : null,
-        ex: row.ex != null ? Number(row.ex) : null
+        ex: row.ex != null ? Number(row.ex) : null,
+        tipo_medicao: isDiaria ? 'diaria' : 'hh'
       };
     }
   });
@@ -574,16 +590,28 @@ export async function assembleAppDataset(
   (raw.plataformaRows || []).forEach(row => {
     const sigla = String(row.sigla || '');
     if (sigla) {
+      const tipo = String(row.tipo || '');
+      const un = String(row.un || '');
+      const armador = String(row.armador || '');
+      const rawTipoMedicao = (row as any).tipo_medicao as string | undefined;
+      const isDiaria =
+        rawTipoMedicao === 'diaria' ||
+        /di[áa]ria/i.test(tipo) ||
+        diariaUnSet.has(un) ||
+        usoffUnWeights[un]?.tipo_medicao === 'diaria' ||
+        isArmadorPlatform(null, sigla, un, usoffUnWeights);
+
       plataformas[sigla] = {
         sigla,
         chave_norm: String(row.chave_norm || platformKey(sigla)),
         nome: String(row.nome || sigla),
-        un: String(row.un || ''),
-        armador: String(row.armador || ''),
+        un,
+        armador,
         gerencia: String(row.gerencia || ''),
-        tipo: String(row.tipo || ''),
+        tipo,
         situacao: String(row.situacao || 'Mobilizada'),
-        cadastro_pendente: Boolean(row.cadastro_pendente)
+        cadastro_pendente: Boolean(row.cadastro_pendente),
+        tipo_medicao: isDiaria ? 'diaria' : 'hh'
       };
     }
   });
@@ -959,6 +987,19 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
     async savePlataforma(plat) {
       const siglaUpper = sanitizePlatformCode(plat.sigla);
       const chaveNorm = platformKey(siglaUpper);
+      let tipoFinal = plat.tipo?.trim() || '';
+      if (plat.tipo_medicao === 'diaria') {
+        if (!/di[áa]ria/i.test(tipoFinal)) {
+          tipoFinal = tipoFinal ? `${tipoFinal} (Diária)` : 'Diária';
+        }
+      } else if (plat.tipo_medicao === 'hh') {
+        tipoFinal = tipoFinal
+          .replace(/\s*\([Dd]i[áa]ria\)/g, '')
+          .replace(/\s*\[[Dd]i[áa]ria\]/g, '')
+          .replace(/^[Dd]i[áa]ria$/g, '')
+          .trim();
+      }
+
       await connector.upsertPlataformasChunk([
         {
           sigla: siglaUpper,
@@ -967,7 +1008,7 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
           un: plat.un?.trim() || '',
           armador: plat.armador?.trim() || '',
           gerencia: plat.gerencia?.trim() || '',
-          tipo: plat.tipo?.trim() || '',
+          tipo: tipoFinal,
           situacao: plat.situacao || 'Mobilizada',
           cadastro_pendente: false,
           updated_at: new Date().toISOString()
@@ -976,6 +1017,27 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
     },
     async deletePlataforma(sigla: string) {
       await connector.deletePlataforma(sigla);
+    },
+    async saveTecnico(tec: Tecnico) {
+      const cleanMat = (tec.matricula || '').trim();
+      const cleanNome = (tec.nome || '').trim();
+      const cleanFuncao = (tec.funcao || '').trim() || 'Técnico Offshore';
+      if (!cleanMat) throw new Error('A matrícula do técnico é obrigatória.');
+      if (!cleanNome) throw new Error('O nome do técnico é obrigatório.');
+      await connector.upsertTecnicosChunk([
+        {
+          matricula: cleanMat,
+          nome: cleanNome,
+          funcao: cleanFuncao
+        }
+      ]);
+    },
+    async deleteTecnico(matricula: string) {
+      const cleanMat = (matricula || '').trim();
+      if (!cleanMat) throw new Error('Matrícula inválida para exclusão.');
+      if (typeof connector.deleteTecnico === 'function') {
+        await connector.deleteTecnico(cleanMat);
+      }
     },
     async savePessoa(input: SavePessoaInput) {
       const cleanNome = input.nome.trim();
@@ -1095,6 +1157,24 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         });
         count++;
         onProgress?.(count, total);
+      }
+    },
+    async batchImportTecnicos(rows, onProgress) {
+      if (!rows.length) return;
+      const cleanRows = rows
+        .map(r => ({
+          matricula: (r.matricula || '').trim(),
+          nome: (r.nome || '').trim(),
+          funcao: (r.funcao || '').trim() || 'Técnico Offshore'
+        }))
+        .filter(r => r.matricula && r.nome);
+      const total = cleanRows.length;
+      let gravadas = 0;
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+        const chunk = cleanRows.slice(i, i + CHUNK_SIZE);
+        await connector.upsertTecnicosChunk(chunk);
+        gravadas += chunk.length;
+        onProgress?.(gravadas, total);
       }
     },
     async batchImportConfirmacoesSAP(rows, onProgress) {

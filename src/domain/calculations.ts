@@ -18,7 +18,8 @@ import type {
   ResolvedPlace,
   ResolvedRecord,
   StatusMeta,
-  Tecnico
+  Tecnico,
+  UsoffUnWeight
 } from './types';
 import {
   addDays,
@@ -145,16 +146,36 @@ export const UMS_PROGRAMADAS_SIGLAS = UMS_HH_ARMADOR_SIGLAS;
 export const isArmadorPlatform = (
   plat?: Plataforma | null,
   rawPlatSigla?: string,
-  rawUn?: string
+  rawUn?: string,
+  usoffUnWeights?: Record<string, UsoffUnWeight>
 ): boolean => {
   const sigla = (plat?.sigla || rawPlatSigla || '').trim().toUpperCase();
   const un = (plat?.un || rawUn || '').trim();
   const armador = (plat?.armador || '').trim();
   const tipo = (plat?.tipo || '').toLowerCase();
+  const tipoMedicao = (plat?.tipo_medicao || '').toLowerCase();
+
+  // 1. Sinalização explícita na plataforma (coluna tipo_medicao ou tag Diária no tipo)
+  if (tipoMedicao === 'diaria' || tipo.includes('diaria') || tipo.includes('diária')) {
+    return true;
+  }
+
+  // Se a plataforma foi expressamente cadastrada como 'hh', respeita
+  if (tipoMedicao === 'hh') {
+    return false;
+  }
 
   // UMS medidas por HH (UMAR, UMCP, UMPA) NÃO são tratadas como armador de diária isento
   if (UMS_HH_ARMADOR_SIGLAS.has(sigla)) {
     return false;
+  }
+
+  // 2. Sinalização explícita na Unidade de Negócio (UN configurada como diária ou nome)
+  if (un === 'Armador' || un === 'FPSOs afretados' || /di[áa]ria/i.test(un)) {
+    return true;
+  }
+  if (usoffUnWeights && usoffUnWeights[un]?.tipo_medicao === 'diaria') {
+    return true;
   }
 
   // Demais UMS operam por diária do armador (sem carteira programada)
@@ -162,7 +183,6 @@ export const isArmadorPlatform = (
     return true;
   }
 
-  if (un === 'Armador' || un === 'FPSOs afretados') return true;
   if (
     armador !== '' &&
     armador !== 'Não informado' &&
@@ -183,14 +203,15 @@ export const isArmadorPlatform = (
  */
 export const isArmadorDiariaSemProg = (
   c: CarteiraEmbarque,
-  plataformas?: Record<string, Plataforma>
+  plataformas?: Record<string, Plataforma>,
+  usoffUnWeights?: Record<string, UsoffUnWeight>
 ): boolean => {
   const hp = c.horas_programadas != null ? Number(c.horas_programadas) : null;
   if (hp != null && !isNaN(hp) && hp > 0) {
     return false;
   }
   const pFound = plataformas ? lookupPlatform(buildPlatformIndex(plataformas), c.plataforma_sigla) : null;
-  return isArmadorPlatform(pFound, c.plataforma_sigla, c.unidade_negocio);
+  return isArmadorPlatform(pFound, c.plataforma_sigla, c.unidade_negocio, usoffUnWeights);
 };
 
 export const calcCarteiraHP = (

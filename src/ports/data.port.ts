@@ -12,6 +12,7 @@ import type {
   Pessoa,
   Plataforma,
   SystemAuditLog,
+  Tecnico,
   UsoffUnWeight
 } from '../domain/types';
 
@@ -97,6 +98,8 @@ export interface ClientDataPort {
   saveConfiguracoes(cfg: ContractConfig, unWeights: UsoffUnWeight[], emailsResumo: string[]): Promise<void>;
   savePlataforma(plat: Partial<Plataforma> & { sigla: string }): Promise<void>;
   deletePlataforma(sigla: string): Promise<void>;
+  saveTecnico(tec: Tecnico): Promise<void>;
+  deleteTecnico(matricula: string): Promise<void>;
   savePessoa(input: SavePessoaInput): Promise<Pessoa>;
   deletePessoa(id: string): Promise<void>;
   batchImportHH(
@@ -117,6 +120,10 @@ export interface ClientDataPort {
   ): Promise<void>;
   batchImportPessoas(
     rows: BatchImportPessoaRow[],
+    onProgress?: ProgressCallback
+  ): Promise<void>;
+  batchImportTecnicos(
+    rows: Array<{ matricula: string; nome: string; funcao: string }>,
     onProgress?: ProgressCallback
   ): Promise<void>;
   batchImportConfirmacoesSAP?(

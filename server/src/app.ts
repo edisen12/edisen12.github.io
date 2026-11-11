@@ -278,6 +278,23 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
       }
 
       // ------------------------------------------------------------------------
+      // 10.1 TÉCNICOS: SALVAR E EXCLUIR
+      // ------------------------------------------------------------------------
+      if (method === 'PUT' && pathname === '/api/v1/tecnicos') {
+        const actor = await authenticate(true);
+        const body = await readJsonBody(req);
+        await engine.saveTecnico(actor, body);
+        return sendJson(res, 200, { ok: true, message: 'Técnico salvo com sucesso.' });
+      }
+
+      if (method === 'DELETE' && pathname.startsWith('/api/v1/tecnicos/')) {
+        const actor = await authenticate(true);
+        const matricula = decodeURIComponent(pathname.slice('/api/v1/tecnicos/'.length));
+        await engine.deleteTecnico(actor, matricula);
+        return sendJson(res, 200, { ok: true, message: 'Técnico removido com sucesso.' });
+      }
+
+      // ------------------------------------------------------------------------
       // 11. PESSOAS: SALVAR E EXCLUIR
       // ------------------------------------------------------------------------
       if (method === 'POST' && pathname === '/api/v1/pessoas') {

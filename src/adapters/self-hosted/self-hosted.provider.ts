@@ -22,6 +22,7 @@ import type {
   Pessoa,
   Plataforma,
   SystemAuditLog,
+  Tecnico,
   UserPreferences,
   UsoffUnWeight
 } from '../../domain/types';
@@ -173,6 +174,25 @@ export function createSelfHostedClientProvider(
 
     async deletePlataforma(sigla: string): Promise<void> {
       await http.delete(`/plataformas/${encodeURIComponent(sigla)}`);
+    },
+
+    async saveTecnico(tec: Tecnico): Promise<void> {
+      const cleanMat = (tec.matricula || '').trim();
+      const cleanNome = (tec.nome || '').trim();
+      const cleanFuncao = (tec.funcao || '').trim() || 'Técnico Offshore';
+      if (!cleanMat) throw new Error('A matrícula do técnico é obrigatória.');
+      if (!cleanNome) throw new Error('O nome do técnico é obrigatório.');
+      await http.put('/tecnicos', {
+        matricula: cleanMat,
+        nome: cleanNome,
+        funcao: cleanFuncao
+      });
+    },
+
+    async deleteTecnico(matricula: string): Promise<void> {
+      const cleanMat = (matricula || '').trim();
+      if (!cleanMat) throw new Error('Matrícula inválida para exclusão.');
+      await http.delete(`/tecnicos/${encodeURIComponent(cleanMat)}`);
     },
 
     async savePessoa(input: SavePessoaInput): Promise<Pessoa> {
@@ -332,6 +352,30 @@ export function createSelfHostedClientProvider(
         await this.savePessoa(r);
         count++;
         onProgress?.(count, total);
+      }
+    },
+
+    async batchImportTecnicos(
+      rows: Array<{ matricula: string; nome: string; funcao: string }>,
+      onProgress?: ProgressCallback
+    ): Promise<void> {
+      if (!rows.length) return;
+      const cleanRows = rows
+        .map(r => ({
+          matricula: (r.matricula || '').trim(),
+          nome: (r.nome || '').trim(),
+          funcao: (r.funcao || '').trim() || 'Técnico Offshore'
+        }))
+        .filter(r => r.matricula && r.nome);
+      const total = cleanRows.length;
+
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+        const chunk = cleanRows.slice(i, i + CHUNK_SIZE);
+        await http.post('/imports/batch', {
+          kind: 'tecnicos',
+          rows: chunk
+        });
+        onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
       }
     },
 

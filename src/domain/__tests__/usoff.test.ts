@@ -986,7 +986,7 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(op.us).toBe(30);
     });
 
-    it('unidade classificada por diária (ex: UMS UMAC afretada) calcula USOFF = (dias + 1) * 10', () => {
+    it('unidade classificada por diária (ex: UMS UMAC afretada) calcula USOFF = dias * 10', () => {
       const umsCatalog = {
         ...createBaseDataset().plataformas,
         UMAC: {
@@ -1026,9 +1026,9 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
 
       expect(ops).toHaveLength(1);
       const op = ops[0];
-      // 14 dias: (14 + 1) * 10 = 150
+      // 14 dias: 14 * 10 = 140
       expect(op.dias).toBe(14);
-      expect(op.us).toBe(150);
+      expect(op.us).toBe(140);
       expect(op.falta).toBe(false);
       expect(op.fonte).toBe('Diária (Armador)');
     });
@@ -1263,7 +1263,7 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(summary.hc).toBe(10);
     });
 
-    it('aplica a fórmula de diária (dias + 1) * 10 uma única vez por embarque mesmo com múltiplas operações', () => {
+    it('aplica a fórmula de diária dias * 10 uma única vez por embarque mesmo com múltiplas operações', () => {
       const dataset = createBaseDataset({
         plataformas: {
           HFAB: {
@@ -1357,10 +1357,10 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       const emb = embarques[0];
       expect(emb.id_embarque).toBe('56299');
       expect(emb.dias).toBe(7); // 1 a 7 de outubro = 7 dias
-      // Fórmula diária: (7 + 1) * 10 = 80
-      expect(emb.exHc).toBe(80);
+      // Fórmula diária: 7 * 10 = 70
+      expect(emb.exHc).toBe(70);
       expect(emb.peHp).toBe(0);
-      expect(emb.us).toBe(80);
+      expect(emb.us).toBe(70);
     });
   });
 });

@@ -952,7 +952,7 @@ export const ConfiguracoesView: React.FC = () => {
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Grade de Ponderação por Unidade de Negócio ({unWeightsList.length})</h3>
                 <p className="sub" style={{ margin: '2px 0 0', fontSize: '0.82rem' }}>
-                  Valores em branco herdam automaticamente o padrão global configurado acima. Unidades marcadas como Diária utilizam a fórmula (dias + 1) × 10.
+                  Valores em branco herdam automaticamente o padrão global configurado acima. Unidades marcadas como Diária utilizam a fórmula dias × 10.
                 </p>
               </div>
             </div>
@@ -976,7 +976,7 @@ export const ConfiguracoesView: React.FC = () => {
                 )}
               </div>
               <div style={{ fontSize: '0.84rem', color: 'var(--ink)' }}>
-                Embarques em unidades ou plataformas identificadas por <b>Diária</b> apuram o USOFF pela fórmula contratual <b>(dias + 1) × 10</b>, considerando a diária mesmo se houver horas de HH apontadas no período. A grade abaixo permite sinalizar toda uma Unidade de Negócio como Diária, ou você pode marcar plataformas específicas na tela de Plataformas.
+                Embarques em unidades ou plataformas identificadas por <b>Diária</b> apuram o USOFF pela fórmula contratual <b>dias × 10</b>, considerando a diária mesmo se houver horas de HH apontadas no período. A grade abaixo permite sinalizar toda uma Unidade de Negócio como Diária, ou você pode marcar plataformas específicas na tela de Plataformas.
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
                 <span className="sub" style={{ fontSize: '0.78rem', fontWeight: 600 }}>Plataformas em Regime de Diária ({plataformasDiariaList.length}):</span>
@@ -1053,7 +1053,7 @@ export const ConfiguracoesView: React.FC = () => {
                                     ? { background: 'var(--ok, #16a34a)', borderColor: 'var(--ok, #16a34a)', color: '#fff' }
                                     : {})
                                 }}
-                                title="Medição contratual por Diária: fórmula (dias + 1) × 10"
+                                title="Medição contratual por Diária: fórmula dias × 10"
                               >
                                 Diária
                               </button>

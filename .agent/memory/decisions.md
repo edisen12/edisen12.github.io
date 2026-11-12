@@ -238,6 +238,10 @@
   - *Configuração no Nível de Plataforma (Unidade Marítima):*
     - Disponibilizado em `PessoasPlataformasView.tsx` no formulário de cadastro/edição de plataformas com seletor de "Regime de Medição / Remuneração" (`Homem-Hora (HH)` vs `Diária`).
     - Filtro dedicado na toolbar de plataformas: "Todos", "Apenas Diária" e "Apenas HH", com contadores em tempo real.
+- **2026-11-12** — Ajuste da Fórmula de Diária do USOFF ($\text{dias} \times 10$):
+  - *Decisão do Usuário:* A fórmula de apuração do USOFF por diária foi corrigida de $(\text{dias} + 1) \times 10$ para $\text{dias} \times 10$.
+  - *Motivação e Alinhamento com o Portal Offshore:* A soma de $+1$ havia sido solicitada pelo usuário considerando a subtração do Excel (`Fim - Início`), que não inclui a data de início. Como o motor do sistema já computa os dias de forma inclusiva ($\text{diffDays} + 1$), o $+1$ adicional na fórmula resultava em um dia a mais (ex.: 14 dias embarcado apurava 15 dias = 150 USOFF). Com o ajuste, 14 dias apuram exatamente $14 \times 10 = 140\text{ USOFF}$.
+  - *Arquivos Atualizados:* `src/domain/usoff.ts`, `src/ui/modals/CarteiraEmbarqueModal.tsx`, `src/ui/views/ConfiguracoesView.tsx`, `src/ui/views/PessoasPlataformasView.tsx`, `supabase/migrations/022_unidades_e_plataformas_diaria.sql` e testes em `src/domain/__tests__/usoff.test.ts`.
     - Coluna de status visual na tabela de plataformas com badges `Diária` (verde) e `HH` (neutro).
     - Suporte a importação e exportação de planilhas Excel com a coluna `Regime de medição` / `medicao`.
     - Persistência retrocompatível: além do campo `tipo_medicao` em `plataformas` (Migration 022), a string `tipo` armazena `(Diária)` garantindo compatibilidade com versões anteriores de banco e PostgREST.

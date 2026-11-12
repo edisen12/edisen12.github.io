@@ -229,7 +229,7 @@ export function CarteiraEmbarqueModal() {
 
     const saldoDiv = Math.round((totPortal - totSap) * 100) / 100;
     const finalUsoffTotal = isDiaria
-      ? (diasEmbarque + 1) * 10
+      ? diasEmbarque * 10
       : (weightsFalta ? null : Math.round((totPeHp + totExHc) * 100) / 100);
 
     return {
@@ -532,7 +532,7 @@ export function CarteiraEmbarqueModal() {
             </div>
             <div className="sub" style={{ fontSize: '0.74rem', color: 'var(--ink-muted)', marginTop: '2px' }}>
               {summary?.isDiaria
-                ? `Fórmula de diária: (${diasEmbarque} dias + 1) × 10`
+                ? `Fórmula de diária: ${diasEmbarque} dias × 10`
                 : `Pesos: PE ${summary?.pe != null ? formatUs(summary.pe) : '—'} · EX ${summary?.ex != null ? formatUs(summary.ex) : '—'}`}
               {summary?.hasGw && (
                 <span style={{ marginLeft: '6px', color: 'var(--orange-dark, #b45309)', fontWeight: 600 }}>
@@ -799,7 +799,7 @@ export function CarteiraEmbarqueModal() {
                       {/* USoff */}
                       <td style={{ padding: '9px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: isNaoCadastrado ? 'transparent' : 'var(--blue-soft, #e0f2fe)' }}>
                         {summary?.isDiaria ? (
-                          <span className="sub" style={{ color: 'var(--blue, #0284c7)' }} title="Unidade por diária: fórmula (dias + 1) * 10">ver total</span>
+                          <span className="sub" style={{ color: 'var(--blue, #0284c7)' }} title="Unidade por diária: fórmula dias * 10">ver total</span>
                         ) : summary?.weightsFalta ? (
                           <span style={{ color: 'var(--bad)' }}>falta</span>
                         ) : (

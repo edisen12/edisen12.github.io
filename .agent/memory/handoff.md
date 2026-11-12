@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-11 14:35 (BRT) · HEAD: 7cad668 · Suíte Completa: 31 arquivos / 578 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 6.57s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
+> Última atualização: 2026-11-12 10:25 (BRT) · HEAD: 0b0e2a9 · Suíte Completa: 31 arquivos / 578 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.26s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
 
 ## 1. Resumo Executivo
 
@@ -33,7 +33,7 @@
 ### Motor de domínio (puro, coberto por testes — invariantes contratuais)
 - `src/domain/periods.ts` — ciclos de corte 1/16/21/26 + janela de lookback de 45 dias.
 - `src/domain/calculations.ts` — resolução diária, "Não chegou", gangway, agregações, embarques, SLA de cobrança.
-- `src/domain/usoff.ts` — agrupamento por OP/ordem, cascata PE/EX em 3 níveis, trava `falta`, Regra dos 12 dias ($US_{off} = PE \times HP_{carteira} + EX \times HC$), trava de execução zero ($HC = 0 \implies US = 0$), exceção de Gangway desconectada ($0{,}30 \times HP$), unidades de diária ($(\text{dias} + 1) \times 10$) e apuração granular cruzando Portal e SAP.
+- `src/domain/usoff.ts` — agrupamento por OP/ordem, cascata PE/EX em 3 níveis, trava `falta`, Regra dos 12 dias ($US_{off} = PE \times HP_{carteira} + EX \times HC$), trava de execução zero ($HC = 0 \implies US = 0$), exceção de Gangway desconectada ($0{,}30 \times HP$), unidades de diária ($\text{dias} \times 10$) e apuração granular cruzando Portal e SAP.
 - `src/domain/communications.ts` — textos e deeplinks Outlook/mailto/WhatsApp com sanitização.
 - `src/domain/demo.ts` — overlay sintético sem PII.
 - `src/domain/types.ts` — contratos centrais (`ConfirmacaoSAP` inclui `contador_confirmacao`).
@@ -107,18 +107,18 @@
     - Integração de visualização rápida da Ficha do Técnico (`openFichaDrawer`).
     - Backend Dual-Topology implementado (Supabase Connector + Server Node.js `/api/v1/tecnicos`).
     - Migration `021_tecnicos_heartbeat_e_auditoria.sql` com trigger Realtime `trg_heartbeat_tecnicos` e auditoria forense WORM `trg_audit_tecnicos` gravando em `system_audit_logs`.
-  - **Frente 6: Identificação de Unidades e Plataformas por Diária e Cálculo USOFF:**
+  - **Frente 6: Identificação de Unidades e Plataformas por Diária e Cálculo USOFF ($\text{dias} \times 10$):**
     - Atendimento integral à demanda de identificação das unidades medidas por diária (mesmo com HH apontado):
-      1. *Nível de Unidade de Negócio (UN) em `ConfiguracoesView`:* Seletor interativo `HH` vs `Diária` por regional na tabela de pesos de USOFF, permitindo marcar uma UN inteira (ex.: Armador, FPSOs afretados) como regime de diária. Card explicativo detalhando a fórmula de diária $(\text{dias} + 1) \times 10$.
+      1. *Nível de Unidade de Negócio (UN) em `ConfiguracoesView`:* Seletor interativo `HH` vs `Diária` por regional na tabela de pesos de USOFF, permitindo marcar uma UN inteira (ex.: Armador, FPSOs afretados) como regime de diária. Card explicativo detalhando a fórmula de diária corrigida $\text{dias} \times 10$ (eliminando o $+1$ excedente do Excel).
       2. *Nível de Plataforma em `PessoasPlataformasView`:* Campo "Regime de Medição / Remuneração" (`Homem-Hora (HH)` vs `Diária`) no formulário de edição/criação de plataformas, com filtro por regime na barra de ferramentas (`Todos`, `Apenas Diária`, `Apenas HH`) com contadores e coluna com badges visuais (`Diária` verde vs `HH`).
-      3. *Motor de Cálculo USOFF e Carteira:* `isArmadorPlatform` e `computeUsoffOperations` consideram a marcação de diária tanto da plataforma quanto da UN. Unidades de diária apuram o USOFF pela fórmula contratual $(\text{dias} + 1) \times 10$, com `falta: false` e rótulo `'Diária'` / `'Diária (Armador)'`, sem penalizar apontamentos de HH nem pendências de pesos $PE/EX$.
-      4. *Modal Carteira do Embarque (`CarteiraEmbarqueModal.tsx`):* Card de apuração e tabela de ordens/operações reconhecem unidades de diária e exibem o badge e a fórmula correspondente.
+      3. *Motor de Cálculo USOFF e Carteira:* `isArmadorPlatform` e `computeUsoffOperations` consideram a marcação de diária tanto da plataforma quanto da UN. Unidades de diária apuram o USOFF pela fórmula contratual $\text{dias} \times 10$ (ex.: 14 dias = 140 USOFF), com `falta: false` e rótulo `'Diária'` / `'Diária (Armador)'`, sem penalizar apontamentos de HH nem pendências de pesos $PE/EX$.
+      4. *Modal Carteira do Embarque (`CarteiraEmbarqueModal.tsx`):* Card de apuração e tabela de ordens/operações reconhecem unidades de diária e exibem o badge e a fórmula $\text{dias} \times 10$ correspondente.
       5. *Importação e Exportação Excel (`excel.service.ts`):* Suporte à coluna `Regime de medição` / `medicao` nas planilhas de cadastro de plataformas.
       6. *Persistência Resiliente e Migration:* Colunas `tipo_medicao text NOT NULL DEFAULT 'hh'` em `plataformas` e `config_usoff_un` adicionadas via migration `022_unidades_e_plataformas_diaria.sql`, com salvaguardas de compatibilidade (`(Diária)` em `tipo` e `DIARIA_UN:<un>` em `regionais_extras`).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **31 arquivos / 577 testes aprovados (100% verdes)**.
+    - Suíte de testes: **31 arquivos / 578 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 7.52s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 5.26s**.
 
 ## 4. Próximos Passos (priorizados)
 

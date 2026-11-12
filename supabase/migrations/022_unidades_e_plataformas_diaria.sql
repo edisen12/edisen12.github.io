@@ -1,6 +1,6 @@
 -- Migration 022: Sinalização e Identificação de Unidades e Plataformas por Diária
 -- Permite identificar explicitamente quais unidades/plataformas operam no regime de diária
--- contratual (fórmula (dias + 1) * 10), mesmo com apontamentos de HH.
+-- contratual (fórmula dias * 10), mesmo com apontamentos de HH.
 
 -- 1. Coluna tipo_medicao na tabela plataformas ('hh' ou 'diaria')
 ALTER TABLE public.plataformas

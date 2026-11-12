@@ -171,14 +171,14 @@ export const computeUsoffOperations = (
 
     if (isDiaria) {
       // Regra contratual para unidades por Diária (Armador / afretadas / UMS):
-      // Fórmula: (quantidade de dias + 1) * 10
+      // Fórmula: quantidade de dias * 10
       if (groupBy === 'embarque') {
         const nDias = diffDays(o.ini, o.fim) + 1;
-        o.exHc = (nDias + 1) * 10;
+        o.exHc = nDias * 10;
         o.peHp = 0;
       } else {
         const nDias = diffDays(a, b) + 1;
-        const usDiaria = (nDias + 1) * 10;
+        const usDiaria = nDias * 10;
         o.exHc += usDiaria;
       }
     } else if (w.pe == null || w.ex == null) {

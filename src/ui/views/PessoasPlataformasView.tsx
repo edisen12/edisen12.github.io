@@ -267,7 +267,7 @@ export const PessoasPlataformasView: React.FC = () => {
           <span
             className="pill pill-ok"
             style={{ fontWeight: 700, fontSize: '0.74rem', padding: '2px 8px' }}
-            title="Unidade com apuração por Diária: fórmula contratual (dias + 1) × 10"
+            title="Unidade com apuração por Diária: fórmula contratual dias × 10"
           >
             Diária
           </span>
@@ -1795,7 +1795,7 @@ const PlataformaModal: React.FC<PlataformaModalProps> = ({
           </div>
           <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
             {tipoMedicao === 'diaria'
-              ? 'Unidade sinalizada por diária contratual: apuração de USOFF via fórmula (dias + 1) × 10. Considera a remuneração por diária mesmo se houver horas apontadas no período (HH).'
+              ? 'Unidade sinalizada por diária contratual: apuração de USOFF via fórmula dias × 10. Considera a remuneração por diária mesmo se houver horas apontadas no período (HH).'
               : 'Padrão contratual por Homem-Hora: apuração de USOFF aplicando os pesos de Programação (PE) e Execução (EX).'}
           </div>
         </div>

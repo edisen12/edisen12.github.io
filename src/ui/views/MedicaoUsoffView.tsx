@@ -68,11 +68,11 @@ export function MedicaoUsoffView() {
     return summarizeUsoff(embarques);
   }, [embarques]);
 
-  // Exportação Excel USOFF
+  // Exportação Excel USOFF (Por Embarque)
   const handleExportUsoff = async () => {
     setIsExporting(true);
     try {
-      await exportUsoffXlsx(dataset, P, scopeLabel);
+      await exportUsoffXlsx(dataset, P, scopeLabel, filters);
       showToast('Relatório de USOFF exportado com sucesso!', 'success');
     } catch (err: any) {
       console.error(err);
@@ -134,12 +134,15 @@ export function MedicaoUsoffView() {
       key: 'name',
       header: label,
       width: '240px',
+      minWidth: '180px',
       render: r => <b style={{ whiteSpace: 'nowrap' }}>{r.name}</b>
     },
     {
       key: 'n',
       header: 'Embarques',
       align: 'right',
+      width: '96px',
+      minWidth: '88px',
       sortValue: r => r.summary.n,
       render: r => r.summary.n
     },
@@ -147,6 +150,8 @@ export function MedicaoUsoffView() {
       key: 'hp',
       header: 'HP',
       align: 'right',
+      width: '88px',
+      minWidth: '80px',
       sortValue: r => r.summary.hp,
       render: r => formatHours(r.summary.hp)
     },
@@ -154,6 +159,8 @@ export function MedicaoUsoffView() {
       key: 'hd',
       header: 'HD',
       align: 'right',
+      width: '88px',
+      minWidth: '80px',
       sortValue: r => r.summary.hd,
       render: r => formatHours(r.summary.hd)
     },
@@ -161,18 +168,24 @@ export function MedicaoUsoffView() {
       key: 'hc',
       header: 'HC',
       align: 'right',
+      width: '88px',
+      minWidth: '80px',
       sortValue: r => r.summary.hc,
       render: r => formatHours(r.summary.hc)
     },
     {
       key: 'pD',
       header: 'HC ÷ HD',
+      width: '175px',
+      minWidth: '165px',
       sortValue: r => r.summary.pD ?? -1,
       render: r => <MeterBar pct={r.summary.pD} status={statusOf(r.summary.pD, dataset.config)} />
     },
     {
       key: 'pP',
       header: 'HC ÷ HP',
+      width: '175px',
+      minWidth: '165px',
       sortValue: r => r.summary.pP ?? -1,
       render: r => <MeterBar pct={r.summary.pP} status={statusOf(r.summary.pP, dataset.config)} />
     },
@@ -180,6 +193,8 @@ export function MedicaoUsoffView() {
       key: 'peHp',
       header: 'Σ PE × HP',
       align: 'right',
+      width: '100px',
+      minWidth: '90px',
       sortValue: r => r.summary.peHp,
       render: r => (r.summary.falta > 0 ? '—' : formatUs(r.summary.peHp))
     },
@@ -187,6 +202,8 @@ export function MedicaoUsoffView() {
       key: 'exHc',
       header: 'Σ EX × HC',
       align: 'right',
+      width: '100px',
+      minWidth: '90px',
       sortValue: r => r.summary.exHc,
       render: r => (r.summary.falta > 0 ? '—' : formatUs(r.summary.exHc))
     },
@@ -194,6 +211,8 @@ export function MedicaoUsoffView() {
       key: 'us',
       header: 'USoff',
       align: 'right',
+      width: '92px',
+      minWidth: '84px',
       sortValue: r => r.summary.us ?? -1,
       render: r => <b>{formatUs(r.summary.us)}</b>
     }
@@ -293,7 +312,8 @@ export function MedicaoUsoffView() {
     {
       key: 'plats',
       header: 'Plataforma / UN',
-      width: '180px',
+      width: '165px',
+      minWidth: '140px',
       render: r => (
         <div>
           <b>{Array.from(r.plats).join(', ')}</b>
@@ -306,7 +326,8 @@ export function MedicaoUsoffView() {
     {
       key: 'periodo',
       header: 'Período',
-      width: '150px',
+      width: '145px',
+      minWidth: '135px',
       sortValue: r => r.ini,
       render: r => (
         <div>
@@ -321,6 +342,8 @@ export function MedicaoUsoffView() {
       key: 'hp',
       header: 'HP',
       align: 'right',
+      width: '110px',
+      minWidth: '95px',
       sortValue: r => r.hp,
       render: r => (
         <div>
@@ -337,6 +360,8 @@ export function MedicaoUsoffView() {
       key: 'hd',
       header: 'HD',
       align: 'right',
+      width: '86px',
+      minWidth: '78px',
       sortValue: r => r.hd,
       render: r => formatHours(r.hd)
     },
@@ -344,18 +369,24 @@ export function MedicaoUsoffView() {
       key: 'hc',
       header: 'HC',
       align: 'right',
+      width: '86px',
+      minWidth: '78px',
       sortValue: r => r.hc,
       render: r => <b>{formatHours(r.hc)}</b>
     },
     {
       key: 'pD',
       header: 'HC ÷ HD',
+      width: '175px',
+      minWidth: '165px',
       sortValue: r => r.pD ?? -1,
       render: r => <MeterBar pct={r.pD} status={statusOf(r.pD, dataset.config)} />
     },
     {
       key: 'pP',
       header: 'HC ÷ HP',
+      width: '175px',
+      minWidth: '165px',
       sortValue: r => r.pP ?? -1,
       render: r => (
         r.hpAte > 0 ? (
@@ -369,6 +400,8 @@ export function MedicaoUsoffView() {
       key: 'pe',
       header: 'PE',
       align: 'right',
+      width: '74px',
+      minWidth: '68px',
       render: r => {
         if (r.fonte.includes('Diária')) return <span className="sub">diária</span>;
         if (r.falta) return <span style={{ color: 'var(--bad)' }}>falta</span>;
@@ -380,6 +413,8 @@ export function MedicaoUsoffView() {
       key: 'ex',
       header: 'EX',
       align: 'right',
+      width: '74px',
+      minWidth: '68px',
       render: r => {
         if (r.fonte.includes('Diária')) return <span className="sub">diária</span>;
         if (r.falta) return <span style={{ color: 'var(--bad)' }}>falta</span>;
@@ -391,6 +426,8 @@ export function MedicaoUsoffView() {
       key: 'peHp',
       header: 'Σ PE × HP',
       align: 'right',
+      width: '100px',
+      minWidth: '90px',
       sortValue: r => r.peHp,
       render: r => (r.falta ? '—' : formatUs(r.peHp))
     },
@@ -398,6 +435,8 @@ export function MedicaoUsoffView() {
       key: 'exHc',
       header: 'Σ EX × HC',
       align: 'right',
+      width: '100px',
+      minWidth: '90px',
       sortValue: r => r.exHc,
       render: r => (r.falta ? '—' : formatUs(r.exHc))
     },
@@ -405,6 +444,8 @@ export function MedicaoUsoffView() {
       key: 'us',
       header: 'USoff',
       align: 'right',
+      width: '92px',
+      minWidth: '84px',
       sortValue: r => r.us ?? -1,
       render: r => <b style={{ color: 'var(--blue)' }}>{formatUs(r.us)}</b>
     },

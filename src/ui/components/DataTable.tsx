@@ -9,6 +9,7 @@ export interface DataTableColumn<T> {
   sortValue?: (row: T) => string | number | null | undefined;
   align?: 'left' | 'center' | 'right';
   width?: string;
+  minWidth?: string;
   className?: string;
 }
 
@@ -222,7 +223,7 @@ export function DataTable<T>({
                     className={`${alignClass} ${col.className || ''}`.trim()}
                     style={{
                       width: col.width,
-                      minWidth: col.width,
+                      minWidth: col.minWidth ?? col.width,
                       cursor: isSortable ? 'pointer' : 'default',
                       userSelect: 'none'
                     }}
@@ -275,7 +276,7 @@ export function DataTable<T>({
                           className={`${alignClass} ${col.className || ''}`.trim()}
                           style={{
                             width: col.width,
-                            minWidth: col.width,
+                            minWidth: col.minWidth ?? col.width,
                             verticalAlign: 'middle',
                             textAlign: col.align === 'right' ? 'right' : col.align === 'center' ? 'center' : 'left'
                           }}

@@ -260,5 +260,13 @@
     - Modal de exclusão com diagnóstico em tempo real: exibe contagem de apontamentos de HH e embarques vinculados ao técnico.
     - Se o técnico possuir histórico, exige confirmação explícita via checkbox de exclusão em cascata.
     - Backend Dual-Topology (Supabase Connector + Server Node.js) atualizado com suporte a `deleteTecnico(matricula, cascade = true)`: remove em ordem referencial reversa (`justificativas` -> `carteira_operacoes` -> `carteira_embarques` -> `apontamentos_hh` -> `confirmacoes_sap` -> `tecnicos`), eliminando falhas de chave estrangeira (`23503`).
+- **2026-11-12** — Refinamento de UX: Transição entre Ficha do Técnico e Carteira do Embarque, Pilha de Overlays e Legibilidade de Barras de Progresso/Colunas:
+  - *Decisão do Usuário:* Eliminar a sobreposição visual estranha ao abrir a Carteira do Embarque a partir da Ficha lateral do técnico (`FichaTecnicoDrawer`) e corrigir o esmagamento de colunas com `<MeterBar />` em tabelas onde percentuais baixos apareciam apenas como um ponto vermelho sem barra perceptível.
+  - *Padrão de Transição Drawer ↔ Carteira (`AppContext.tsx`, `CarteiraEmbarqueModal.tsx`, `PainelDiaView.tsx`):*
+    - Superfícies de detalhamento amplo nunca competem na tela: abrir `CarteiraEmbarqueModal` a partir do `FichaTecnicoDrawer` fecha o Drawer, registra `returnToFichaMat` em `CarteiraModalState` e oferece ações diretas de retorno (**`Voltar à Ficha`** / **`Voltar para a Ficha do Técnico`**); abrir o Drawer pela carteira fecha a modal automaticamente. Em `PainelDiaView.tsx`, abrir a carteira pelo modal de ordens do dia (`modalOrdens`) também fecha `modalOrdens` antes.
+    - Sub-modais compactos sobrepostos ao Drawer (ex.: `JustificativaModal`) permanecem empilhados com segurança: `.modal-overlay` tem `z-index: 120` (acima de `.drawer-box` em `101`), usando `acquireScrollLock` por contagem de referências e `registerEscapeLayer` por prioridade/LIFO (`src/utils/scrollLock.ts`).
+  - *Padrão de Tabelas e `<MeterBar />` (`DataTable.tsx`, `MeterBar.tsx`, `components.css`, views operacionais):*
+    - `DataTableColumn<T>` passa a suportar `minWidth?: string`, eliminando declarações inválidas de CSS Grid como `minmax(...)` em células `<table>`.
+    - Toda coluna com `<MeterBar />` deve declarar largura mínima confortável (`width: '175px'`–`'180px'`, `minWidth: '165px'`–`'170px'`) acompanhada das regras base `.meter` (`min-width: 148px`), `.meter-val` (`min-width: 52px`) e `.meter-track` (`min-width: 76px`, fundo contrastado `--line` e borda `--line-strong`), mantendo valores positivos baixos visíveis (`minWidth: '4px'`).
 
 

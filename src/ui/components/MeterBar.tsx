@@ -13,12 +13,24 @@ export function MeterBar({ pct, status, className = '' }: MeterBarProps) {
   const fillWidth = pct == null ? 0 : Math.min(100, Math.max(0, pct));
 
   return (
-    <div className={`meter ${className}`.trim()} title={pct != null ? `${displayPct}` : 'Sem dados'}>
+    <div
+      className={`meter ${className}`.trim()}
+      title={pct != null ? `${displayPct} de aderência/progresso` : 'Sem dados'}
+    >
       <span className="meter-val">{displayPct}</span>
-      <div className="meter-track" role="progressbar" aria-valuenow={pct ?? 0} aria-valuemin={0} aria-valuemax={100}>
+      <div
+        className="meter-track"
+        role="progressbar"
+        aria-valuenow={pct ?? 0}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
         <div
           className={`meter-fill ${status}`}
-          style={{ width: `${fillWidth}%` }}
+          style={{
+            width: `${fillWidth}%`,
+            minWidth: fillWidth > 0 ? '4px' : undefined
+          }}
         />
       </div>
     </div>

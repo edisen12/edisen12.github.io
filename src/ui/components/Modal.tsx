@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
+import { acquireScrollLock, registerEscapeLayer } from '../../utils/scrollLock';
 
 export interface ModalProps {
   open: boolean;
@@ -25,26 +26,21 @@ export function Modal({
   className = ''
 }: ModalProps) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  // Fecha no Escape e trava o scroll do fundo
+  // Fecha no Escape (respeitando pilha de overlays) e trava o scroll do fundo
   useEffect(() => {
     if (!open) return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', handleKeyDown);
+    const releaseScrollLock = acquireScrollLock();
+    const releaseEscapeLayer = registerEscapeLayer(() => onCloseRef.current(), 120);
 
     return () => {
-      document.body.style.overflow = originalOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
+      releaseEscapeLayer();
+      releaseScrollLock();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

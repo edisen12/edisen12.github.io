@@ -251,4 +251,41 @@ describe('DataTable (Componente de Tabelas Corporativas)', () => {
 
     vi.useRealTimers();
   });
+
+  it('aplica width e minWidth customizados nos cabeçalhos e células da tabela', () => {
+    const colsWithMinWidth: DataTableColumn<SampleRow>[] = [
+      {
+        key: 'nome',
+        header: 'Nome do Colaborador',
+        width: '220px',
+        minWidth: '185px'
+      },
+      {
+        key: 'horas',
+        header: 'Progresso',
+        width: '175px',
+        minWidth: '165px',
+        align: 'right'
+      }
+    ];
+
+    render(
+      <DataTable
+        data={SAMPLE_DATA.slice(0, 1)}
+        columns={colsWithMinWidth}
+        rowKey={r => r.id}
+      />
+    );
+
+    const thNome = screen.getByRole('columnheader', { name: 'Nome do Colaborador' });
+    const thProg = screen.getByRole('columnheader', { name: 'Progresso' });
+    expect(thNome.style.width).toBe('220px');
+    expect(thNome.style.minWidth).toBe('185px');
+    expect(thProg.style.width).toBe('175px');
+    expect(thProg.style.minWidth).toBe('165px');
+
+    const cellNome = screen.getByText('Carlos Silva').closest('td');
+    expect(cellNome?.style.width).toBe('220px');
+    expect(cellNome?.style.minWidth).toBe('185px');
+  });
 });

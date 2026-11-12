@@ -149,7 +149,8 @@ export function MedicaoRelatoriosView() {
     {
       key: 'nome',
       header: 'Técnico',
-      width: 'minmax(170px, 240px)',
+      width: '220px',
+      minWidth: '185px',
       render: t => (
         <div style={{ minWidth: 'min(100%, 170px)', textAlign: 'left', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           <button
@@ -288,6 +289,9 @@ export function MedicaoRelatoriosView() {
     {
       key: 'acoes',
       header: '',
+      align: 'right',
+      width: '110px',
+      minWidth: '96px',
       render: t => (
         <button
           type="button"
@@ -429,6 +433,8 @@ export function MedicaoRelatoriosView() {
                     {
                       key: 'plat',
                       header: 'Plataforma',
+                      width: '240px',
+                      minWidth: '200px',
                       render: r => (
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -447,6 +453,8 @@ export function MedicaoRelatoriosView() {
                       key: 'tec',
                       header: 'Técnicos',
                       align: 'right',
+                      width: '92px',
+                      minWidth: '82px',
                       sortValue: r => r.mats.size,
                       render: r => r.mats.size
                     },
@@ -454,6 +462,8 @@ export function MedicaoRelatoriosView() {
                       key: 'disp',
                       header: 'Disponível',
                       align: 'right',
+                      width: '108px',
+                      minWidth: '96px',
                       sortValue: r => r.d,
                       render: r => formatHours(r.d)
                     },
@@ -461,12 +471,16 @@ export function MedicaoRelatoriosView() {
                       key: 'exec',
                       header: 'Executado',
                       align: 'right',
+                      width: '108px',
+                      minWidth: '96px',
                       sortValue: r => r.e,
                       render: r => formatHours(r.e)
                     },
                     {
                       key: 'pct',
                       header: '%',
+                      width: '180px',
+                      minWidth: '170px',
                       sortValue: r => r.p ?? -1,
                       render: r => <MeterBar pct={r.p} status={r.st} />
                     },
@@ -474,6 +488,8 @@ export function MedicaoRelatoriosView() {
                       key: 'gw',
                       header: 'Gangway',
                       align: 'right',
+                      width: '104px',
+                      minWidth: '92px',
                       sortValue: r => r.gw,
                       render: r => (r.gw > 0 ? formatHours(r.gw) : '—')
                     },
@@ -481,6 +497,8 @@ export function MedicaoRelatoriosView() {
                       key: 'pend',
                       header: 'Pendentes',
                       align: 'right',
+                      width: '104px',
+                      minWidth: '92px',
                       sortValue: r => r.pend,
                       render: r => (r.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.pend}</span> : '—')
                     }
@@ -503,6 +521,8 @@ export function MedicaoRelatoriosView() {
                     {
                       key: 'un',
                       header: 'Unidade',
+                      width: '220px',
+                      minWidth: '185px',
                       render: r => (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <StatusPill status={r.st} text={formatPct(r.p)} />
@@ -514,6 +534,8 @@ export function MedicaoRelatoriosView() {
                       key: 'tec',
                       header: 'Técnicos',
                       align: 'right',
+                      width: '92px',
+                      minWidth: '82px',
                       sortValue: r => r.mats.size,
                       render: r => r.mats.size
                     },
@@ -521,6 +543,8 @@ export function MedicaoRelatoriosView() {
                       key: 'disp',
                       header: 'Disponível',
                       align: 'right',
+                      width: '108px',
+                      minWidth: '96px',
                       sortValue: r => r.d,
                       render: r => formatHours(r.d)
                     },
@@ -528,12 +552,16 @@ export function MedicaoRelatoriosView() {
                       key: 'exec',
                       header: 'Executado',
                       align: 'right',
+                      width: '108px',
+                      minWidth: '96px',
                       sortValue: r => r.e,
                       render: r => formatHours(r.e)
                     },
                     {
                       key: 'pct',
                       header: '%',
+                      width: '180px',
+                      minWidth: '170px',
                       sortValue: r => r.p ?? -1,
                       render: r => <MeterBar pct={r.p} status={r.st} />
                     },
@@ -541,6 +569,8 @@ export function MedicaoRelatoriosView() {
                       key: 'gw',
                       header: 'Gangway',
                       align: 'right',
+                      width: '104px',
+                      minWidth: '92px',
                       sortValue: r => r.gw,
                       render: r => (r.gw > 0 ? formatHours(r.gw) : '—')
                     },
@@ -548,6 +578,8 @@ export function MedicaoRelatoriosView() {
                       key: 'pend',
                       header: 'Pendentes',
                       align: 'right',
+                      width: '104px',
+                      minWidth: '92px',
                       sortValue: r => r.pend,
                       render: r => (r.pend > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{r.pend}</span> : '—')
                     }

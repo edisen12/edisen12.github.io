@@ -192,7 +192,9 @@ describe('CarteiraEmbarqueModal', () => {
     vi.clearAllMocks();
   });
 
-  function setupModalMock(modalState: { matricula: string; idEmbarque?: string; dataRef?: string } | null) {
+  function setupModalMock(
+    modalState: { matricula: string; idEmbarque?: string; dataRef?: string; returnToFichaMat?: string } | null
+  ) {
     (useApp as any).mockReturnValue({
       carteiraModal: modalState,
       closeCarteiraModal,
@@ -326,5 +328,20 @@ describe('CarteiraEmbarqueModal', () => {
     expect(screen.getByText('Trava de Execução Zero')).not.toBeNull();
     expect(screen.getByText('1 op. sem USOFF')).not.toBeNull();
     expect(screen.getByText('Execução Zero (HC=0)')).not.toBeNull();
+  });
+
+  it('exibe botões de retorno à Ficha do Técnico quando aberta a partir do Drawer (returnToFichaMat)', () => {
+    setupModalMock({ matricula: '10231', idEmbarque: 'EMB-99881', returnToFichaMat: '10231' });
+    renderWithToast(<CarteiraEmbarqueModal />);
+
+    const headerBackBtn = screen.getByRole('button', { name: /Voltar à Ficha/i });
+    const footerBackBtn = screen.getByRole('button', { name: /Voltar para a Ficha do Técnico/i });
+    expect(headerBackBtn).not.toBeNull();
+    expect(footerBackBtn).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /Ver Ficha Completa do Técnico/i })).toBeNull();
+
+    fireEvent.click(footerBackBtn);
+    expect(closeCarteiraModal).toHaveBeenCalledTimes(1);
+    expect(openFichaDrawer).toHaveBeenCalledWith('10231');
   });
 });

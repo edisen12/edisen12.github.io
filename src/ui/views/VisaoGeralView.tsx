@@ -337,7 +337,8 @@ export function VisaoGeralView() {
       {
         key: 'pct',
         header: '% no período',
-        width: '140px',
+        width: '175px',
+        minWidth: '165px',
         sortValue: r => r.a.p ?? -1,
         render: r => (r.a.n > 0 ? <MeterBar pct={r.a.p} status={r.a.st} /> : <span className="sub">—</span>)
       },
@@ -540,7 +541,8 @@ export function VisaoGeralView() {
         {
           key: 'dia',
           header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
-          width: '130px',
+          width: '175px',
+          minWidth: '165px',
           render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
         },
         {
@@ -554,7 +556,8 @@ export function VisaoGeralView() {
         {
           key: 'acc',
           header: 'Acumulado do período',
-          width: '130px',
+          width: '175px',
+          minWidth: '165px',
           render: r => <MeterBar pct={r.A.p} status={r.A.st} />
         },
         {
@@ -1068,7 +1071,8 @@ export function VisaoGeralView() {
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
@@ -1082,7 +1086,8 @@ export function VisaoGeralView() {
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
@@ -1213,13 +1218,15 @@ export function VisaoGeralView() {
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
@@ -1345,7 +1352,8 @@ export function VisaoGeralView() {
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
@@ -1359,7 +1367,8 @@ export function VisaoGeralView() {
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {
@@ -1485,13 +1494,15 @@ export function VisaoGeralView() {
                   {
                     key: 'dia',
                     header: D ? `Dia ${formatBrShort(D)}` : 'Dia',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => (r.Ad.n > 0 ? <MeterBar pct={r.Ad.p} status={r.Ad.st} /> : <span className="sub">sem dados</span>)
                   },
                   {
                     key: 'acc',
                     header: 'Acumulado do período',
-                    width: '130px',
+                    width: '175px',
+                    minWidth: '165px',
                     render: r => <MeterBar pct={r.A.p} status={r.A.st} />
                   },
                   {

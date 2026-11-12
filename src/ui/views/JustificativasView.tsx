@@ -155,11 +155,15 @@ export function JustificativasView() {
     {
       key: 'st',
       header: 'Situação',
+      width: '145px',
+      minWidth: '130px',
       render: r => <StatusPill status={r.M.st} text={r.M.stTxt} />
     },
     {
       key: 'resp',
       header: 'Responsável',
+      width: '250px',
+      minWidth: '210px',
       render: r => (
         <div>
           <b>{r.p.nome}</b>
@@ -174,6 +178,8 @@ export function JustificativasView() {
       key: 'need',
       header: 'A justificar',
       align: 'right',
+      width: '96px',
+      minWidth: '86px',
       sortValue: r => r.M.need,
       render: r => r.M.need
     },
@@ -181,12 +187,16 @@ export function JustificativasView() {
       key: 'ok',
       header: 'Justificados',
       align: 'right',
+      width: '104px',
+      minWidth: '92px',
       sortValue: r => r.M.ok,
       render: r => r.M.ok
     },
     {
       key: 'pj',
       header: '% justificado',
+      width: '180px',
+      minWidth: '170px',
       sortValue: r => r.M.pJ ?? -1,
       render: r => (r.M.need > 0 ? <MeterBar pct={r.M.pJ} status={r.M.st} /> : <span className="sub">—</span>)
     },
@@ -194,6 +204,8 @@ export function JustificativasView() {
       key: 'noPrazo',
       header: 'Pendentes no prazo',
       align: 'right',
+      width: '132px',
+      minWidth: '115px',
       sortValue: r => r.M.noPrazo,
       render: r => (r.M.noPrazo > 0 ? r.M.noPrazo : '—')
     },
@@ -201,12 +213,16 @@ export function JustificativasView() {
       key: 'venc',
       header: 'Vencidas',
       align: 'right',
+      width: '92px',
+      minWidth: '82px',
       sortValue: r => r.M.venc,
       render: r => (r.M.venc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700 }}>{r.M.venc}</span> : '—')
     },
     {
       key: 'oldest',
       header: 'Mais antiga pendente',
+      width: '155px',
+      minWidth: '140px',
       render: r => {
         if (!r.M.oldest) return '—';
         return (
@@ -229,6 +245,8 @@ export function JustificativasView() {
       key: 'fora',
       header: 'Fora do prazo',
       align: 'right',
+      width: '110px',
+      minWidth: '96px',
       sortValue: r => r.M.fora,
       render: r => (r.M.fora > 0 ? r.M.fora : '—')
     },
@@ -236,12 +254,16 @@ export function JustificativasView() {
       key: 'tMed',
       header: 'Tempo médio',
       align: 'right',
+      width: '108px',
+      minWidth: '96px',
       sortValue: r => r.M.tMed ?? -1,
       render: r => (r.M.tMed != null ? `${r.M.tMed.toFixed(1)} d` : '—')
     },
     {
       key: 'acoes',
       header: '',
+      width: '135px',
+      minWidth: '120px',
       render: r => (
         <div style={{ display: 'flex', gap: '4px' }}>
           {r.M.pend > 0 && (
@@ -277,17 +299,23 @@ export function JustificativasView() {
     {
       key: 'st',
       header: 'Situação',
+      width: '145px',
+      minWidth: '130px',
       render: r => <StatusPill status={r.M.st} text={r.M.stTxt} />
     },
     {
       key: 'un',
       header: 'Unidade',
+      width: '180px',
+      minWidth: '150px',
       render: r => <b>{r.u}</b>
     },
     {
       key: 'need',
       header: 'A justificar',
       align: 'right',
+      width: '96px',
+      minWidth: '86px',
       sortValue: r => r.M.need,
       render: r => r.M.need
     },
@@ -295,12 +323,16 @@ export function JustificativasView() {
       key: 'ok',
       header: 'Justificados',
       align: 'right',
+      width: '104px',
+      minWidth: '92px',
       sortValue: r => r.M.ok,
       render: r => r.M.ok
     },
     {
       key: 'pj',
       header: '% justificado',
+      width: '180px',
+      minWidth: '170px',
       sortValue: r => r.M.pJ ?? -1,
       render: r => (r.M.need > 0 ? <MeterBar pct={r.M.pJ} status={r.M.st} /> : <span className="sub">—</span>)
     },
@@ -308,6 +340,8 @@ export function JustificativasView() {
       key: 'noPrazo',
       header: 'Pendentes no prazo',
       align: 'right',
+      width: '132px',
+      minWidth: '115px',
       sortValue: r => r.M.noPrazo,
       render: r => (r.M.noPrazo > 0 ? r.M.noPrazo : '—')
     },
@@ -315,12 +349,16 @@ export function JustificativasView() {
       key: 'venc',
       header: 'Vencidas',
       align: 'right',
+      width: '92px',
+      minWidth: '82px',
       sortValue: r => r.M.venc,
       render: r => (r.M.venc > 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700 }}>{r.M.venc}</span> : '—')
     },
     {
       key: 'oldest',
       header: 'Mais antiga pendente',
+      width: '155px',
+      minWidth: '140px',
       render: r => {
         if (!r.M.oldest) return '—';
         return (
@@ -343,6 +381,8 @@ export function JustificativasView() {
       key: 'fora',
       header: 'Fora do prazo',
       align: 'right',
+      width: '110px',
+      minWidth: '96px',
       sortValue: r => r.M.fora,
       render: r => (r.M.fora > 0 ? r.M.fora : '—')
     },
@@ -350,6 +390,8 @@ export function JustificativasView() {
       key: 'tMed',
       header: 'Tempo médio',
       align: 'right',
+      width: '108px',
+      minWidth: '96px',
       sortValue: r => r.M.tMed ?? -1,
       render: r => (r.M.tMed != null ? `${r.M.tMed.toFixed(1)} d` : '—')
     }
@@ -362,12 +404,16 @@ export function JustificativasView() {
     {
       key: 'data',
       header: 'Data',
+      width: '108px',
+      minWidth: '98px',
       sortValue: r => r.D,
       render: r => <div>{formatBr(r.D)}</div>
     },
     {
       key: 'tecnico',
       header: 'Técnico',
+      width: '210px',
+      minWidth: '180px',
       render: r => (
         <div>
           <button
@@ -387,6 +433,8 @@ export function JustificativasView() {
     {
       key: 'plat',
       header: 'Plataforma',
+      width: '165px',
+      minWidth: '145px',
       render: r => (
         <div>
           <b>{r.p}</b>
@@ -400,6 +448,8 @@ export function JustificativasView() {
       key: 'disp',
       header: 'Disp.',
       align: 'right',
+      width: '86px',
+      minWidth: '78px',
       sortValue: r => r.d,
       render: r => formatHours(r.d)
     },
@@ -407,18 +457,25 @@ export function JustificativasView() {
       key: 'exec',
       header: 'Exec.',
       align: 'right',
+      width: '125px',
+      minWidth: '105px',
       sortValue: r => r.e,
       render: r => (r.sem ? <span style={{ color: 'var(--bad)' }}>0 h (não chegou)</span> : formatHours(r.e))
     },
     {
       key: 'pct',
       header: '%',
+      align: 'right',
+      width: '82px',
+      minWidth: '74px',
       sortValue: r => calcPct(r.e, r.d) ?? -1,
       render: r => formatPct(calcPct(r.e, r.d))
     },
     {
       key: 'resp',
       header: 'Responsáveis',
+      width: '190px',
+      minWidth: '160px',
       render: r => {
         const ppl = findResponsiblePeople(dataset.pessoas, [r.p], [r.r]);
         return (
@@ -433,6 +490,8 @@ export function JustificativasView() {
           {
             key: 'prazo',
             header: 'Prazo',
+            width: '145px',
+            minWidth: '132px',
             render: (r: PeriodDayEntry) => {
               const pz = prazoOf(r.D, dataset.config);
               const vencido = TODAY > pz;
@@ -448,6 +507,8 @@ export function JustificativasView() {
     {
       key: 'acao',
       header: subView === 'pend' ? 'Ação' : 'Justificativa',
+      width: '220px',
+      minWidth: '190px',
       render: r => {
         if (r.j) {
           const emDate = r.j.criado_em ? r.j.criado_em.slice(0, 10) : '';

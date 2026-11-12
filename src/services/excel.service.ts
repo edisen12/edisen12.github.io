@@ -911,15 +911,24 @@ export async function exportPeriodoXlsx(
 export async function exportUsoffXlsx(
   dataset: AppDataset,
   period: PeriodWindow,
-  scopeLabel?: string
+  scopeLabel?: string,
+  filters?: FilterState
 ): Promise<void> {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
   const pidx = buildPlatformIndex(dataset.plataformas);
-  const emptyFilters = { fDate: '', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' };
+  const activeFilters: FilterState = filters || {
+    fDate: '',
+    fReg: '',
+    fPlat: '',
+    fResp: '',
+    fPer: '',
+    cIni: '',
+    cFim: ''
+  };
 
-  const ops = computeUsoffOperations(period, dataset, emptyFilters, pidx);
-  const T = summarizeUsoff(ops);
+  const embarques = computeUsoffOperations(period, dataset, activeFilters, pidx, 'embarque');
+  const T = summarizeUsoff(embarques);
   const ate = computeDataAte(period, dataset.watermark.ultima_data_hh);
   const isEnc = dataset.config.med_criterio === 'enc';
 
@@ -937,7 +946,7 @@ export async function exportUsoffXlsx(
         ? 'Critério: embarques com desembarque no período; o embarque entra inteiro'
         : 'Critério: dias trabalhados no período'
     ],
-    ['USoff = Σ [(PE × HP) + (EX × HC)]'],
+    ['USoff = Σ [(PE × HP Carteira) + (EX × HC)]'],
     []
   ].filter(line => line.length > 0);
 
@@ -945,8 +954,10 @@ export async function exportUsoffXlsx(
   const resumoRows: any[][] = [
     ...headerLines,
     ['Indicador', 'Valor'],
-    ['Operações', T.n],
+    ['Embarques', T.n],
     ['HP · horas programadas no período', r1(T.hp)],
+    ['HP Carteira (≥ 12 dias)', r1(T.hpCarteira ?? T.hp)],
+    ['HP Fora da carteira (< 12 dias)', r1(T.hpForaCarteira ?? 0)],
     ['HD · horas disponíveis', r1(T.hd)],
     ['HC · horas confirmadas (executadas)', r1(T.hc)],
     ['HC ÷ HD', rp(T.pD)],
@@ -959,10 +970,11 @@ export async function exportUsoffXlsx(
   ];
   XLSX.utils.book_append_sheet(wb, createSheet(XLSX, resumoRows, [42, 20]), 'Resumo USOFF');
 
-  // Aba 2: Por operação
-  const operRows: any[][] = [
+  // Aba 2: Por embarque (ID)
+  const embRows: any[][] = [
     [
-      'Operação',
+      'ID Embarque',
+      'Embarque',
       'Tipo',
       'Matrículas',
       'Técnicos',
@@ -971,8 +983,11 @@ export async function exportUsoffXlsx(
       isEnc ? 'Embarque' : 'Início no período',
       isEnc ? 'Desembarque' : 'Fim no período',
       'Dias',
+      'Operações',
       'Fonte do HP',
       'HP',
+      'HP Carteira (≥12d)',
+      'HP Fora (<12d)',
       `HP até ${formatBr(ate)}`,
       'HD',
       'HC',
@@ -984,7 +999,8 @@ export async function exportUsoffXlsx(
       'EX × HC',
       'USoff'
     ],
-    ...ops.map(x => [
+    ...embarques.map(x => [
+      x.id_embarque || '',
       x.op || (x.sharedAcrossPortfolios ? '[COMPARTILHADA]' : ''),
       x.tipo,
       Array.from(x.mats).join(', '),
@@ -994,8 +1010,11 @@ export async function exportUsoffXlsx(
       formatBr(x.ini),
       formatBr(x.fim),
       x.dias,
+      x.totalOps ?? '',
       x.fonte,
       r1(x.hp),
+      r1(x.hpCarteira ?? x.hp),
+      r1(x.hpForaCarteira ?? 0),
       r1(x.hpAte),
       r1(x.hd),
       r1(x.hc),
@@ -1008,7 +1027,11 @@ export async function exportUsoffXlsx(
       x.us == null ? '' : r1(x.us)
     ])
   ];
-  XLSX.utils.book_append_sheet(wb, createSheet(XLSX, operRows, [16, 14, 14, 30, 16, 22, 12, 12, 6, 16, 10, 12, 10, 10, 9, 9, 8, 8, 10, 10, 10]), 'Por operação');
+  XLSX.utils.book_append_sheet(
+    wb,
+    createSheet(XLSX, embRows, [14, 18, 14, 14, 30, 16, 22, 12, 12, 6, 10, 16, 10, 16, 14, 12, 10, 10, 9, 9, 8, 8, 10, 10, 10]),
+    'Por embarque'
+  );
 
   applyPercentageFormatting(XLSX, wb);
 
@@ -1181,9 +1204,27 @@ function evaluateOperationUsoff(params: {
   };
 }
 
+function resolveConfrontoStatus(
+  statusProg: string,
+  statusDivergencia: string | undefined,
+  hcPortal: number,
+  hcSap: number
+): string {
+  if (statusProg === 'Cancelada') return 'Cancelada';
+  if (statusProg === 'Não Cadastrado no Portal') return 'Não Cadastrado no Portal';
+  if (statusDivergencia && statusDivergencia !== 'Pendente') return statusDivergencia;
+  if (hcPortal === 0 && hcSap === 0) return 'Não Confirmado';
+  if (hcPortal > 0 && hcSap === 0) return 'Não Apontado no SAP';
+  if (hcPortal === 0 && hcSap > 0) return 'Não Confirmado no Portal';
+  if (Math.abs(hcPortal - hcSap) < 0.01) return 'OK';
+  return hcPortal > hcSap ? 'Divergente (Portal > SAP)' : 'Divergente (SAP > Portal)';
+}
+
 /**
- * Exporta o relatório no mesmo formato tabular do Portal Offshore com o cálculo
- * detalhado de USOFF ao lado, permitindo auditar linha a linha o total apurado.
+ * Exporta o relatório no mesmo formato tabular do Portal Offshore focado por ID de Embarque
+ * (sem agrupar/colapsar ordens e operações), trazendo todas as informações do embarque,
+ * horas programadas/confirmadas do Portal, executado no SAP (incluindo Não Cadastrado no Portal)
+ * e o cálculo detalhado de USOFF ao lado, mais aba consolidada Por Embarque (ID) e Resumo Validação.
  */
 export async function exportUsoffPortalOffshoreXlsx(
   dataset: AppDataset,
@@ -1203,7 +1244,7 @@ export async function exportUsoffPortalOffshoreXlsx(
   embarques.forEach(e => embByKey.set(e.key, e));
 
   const headers = [
-    // Formato Portal Offshore
+    // 17 colunas no mesmo formato do download oficial do Portal Offshore
     'ID',
     'Matrícula',
     'Chave',
@@ -1221,12 +1262,18 @@ export async function exportUsoffPortalOffshoreXlsx(
     'HH Programado',
     'HH Confirmado',
     'Recursos',
-    // Cálculo de USOFF ao lado
+    // Confronto SAP executado por ordem/operação
+    'HH Confirmado (SAP)',
+    'Divergência (Portal − SAP)',
+    'Status Confronto SAP',
+    // Contexto do ID de Embarque e Cálculo de USOFF ao lado
     'UN (Sistema)',
     'Plataforma (Sistema)',
     'Regime',
+    'Início Embarque',
+    'Fim Embarque',
     'Dias Embarque',
-    'HH Confirmado (SAP)',
+    'Qtd Ops Embarque',
     'HC Considerado (USOFF)',
     'HP Carteira (≥12d)',
     'Gangway',
@@ -1235,6 +1282,7 @@ export async function exportUsoffPortalOffshoreXlsx(
     'PE × HP',
     'EX × HC',
     'USoff',
+    'Total USoff do Embarque',
     'Regra / Observação USoff'
   ];
 
@@ -1247,6 +1295,56 @@ export async function exportUsoffPortalOffshoreXlsx(
     peHp: number;
     exHc: number;
     us: number;
+  }
+
+  interface EmbAuditAgg {
+    opsCount: number;
+    naoCadastradasSap: number;
+    hpTotal: number;
+    hpCart: number;
+    hpFora: number;
+    hcPortal: number;
+    hcSap: number;
+    hcUsado: number;
+    sumPeHp: number;
+    sumExHc: number;
+    sumUsoff: number;
+    hasFalta: boolean;
+  }
+
+  interface PreparedExportRow {
+    opKey: string;
+    embId: string;
+    embIni: string;
+    embFim: string;
+    id: string;
+    mat: string;
+    chave: string;
+    nome: string;
+    empresa: string;
+    estrutura: string;
+    unidadeRaw: string;
+    ini: string;
+    fim: string;
+    ordem: string;
+    operacao: string;
+    statusProc: string;
+    prioridade: string;
+    statusProg: string;
+    hp: number;
+    hcPortal: number;
+    recursos: number;
+    hcSap: number;
+    divPortalSap: number;
+    statusConfronto: string;
+    unSistema: string;
+    platSistema: string;
+    isDiaria: boolean;
+    embDias: number;
+    hcUsado: number;
+    hpCart: number;
+    hasGw: boolean;
+    evalRes: EvaluatedUsoffLine;
   }
 
   const bucketOrder = [
@@ -1272,42 +1370,39 @@ export async function exportUsoffPortalOffshoreXlsx(
   };
   bucketOrder.slice(0, 8).forEach(ensureBucket);
 
-  const dataRows: any[][] = [];
+  const preparedRows: PreparedExportRow[] = [];
+  const embAggMap = new Map<string, EmbAuditAgg>();
+  const ensureEmbAgg = (opKey: string): EmbAuditAgg => {
+    let a = embAggMap.get(opKey);
+    if (!a) {
+      a = {
+        opsCount: 0,
+        naoCadastradasSap: 0,
+        hpTotal: 0,
+        hpCart: 0,
+        hpFora: 0,
+        hcPortal: 0,
+        hcSap: 0,
+        hcUsado: 0,
+        sumPeHp: 0,
+        sumExHc: 0,
+        sumUsoff: 0,
+        hasFalta: false
+      };
+      embAggMap.set(opKey, a);
+    }
+    return a;
+  };
+
   const diariaAccountedKeys = new Set<string>();
   let sumPeHp = 0;
   let sumExHc = 0;
   let sumUsoff = 0;
   let faltaRowCount = 0;
 
-  const pushEvaluatedRow = (args: {
-    id: string;
-    mat: string;
-    chave: string;
-    nome: string;
-    empresa: string;
-    estrutura: string;
-    unidadeRaw: string;
-    ini: string;
-    fim: string;
-    ordem: string;
-    operacao: string;
-    statusProc: string;
-    prioridade: string;
-    statusProg: string;
-    hp: number;
-    hcPortal: number;
-    recursos: number;
-    unSistema: string;
-    platSistema: string;
-    isDiaria: boolean;
-    embDias: number;
-    hcSap: number;
-    hcUsado: number;
-    hpCart: number;
-    hasGw: boolean;
-    evalRes: EvaluatedUsoffLine;
-  }) => {
+  const pushEvaluatedRow = (args: Omit<PreparedExportRow, 'divPortalSap'> & { statusProg: string }) => {
     const { evalRes } = args;
+    const isCancelada = args.statusProg === 'Cancelada';
     if (evalRes.opUsoff == null) {
       faltaRowCount++;
     } else {
@@ -1326,39 +1421,31 @@ export async function exportUsoffPortalOffshoreXlsx(
     agg.exHc += evalRes.opExHc || 0;
     agg.us += evalRes.opUsoff || 0;
 
-    dataRows.push([
-      args.id,
-      args.mat,
-      args.chave,
-      args.nome,
-      args.empresa,
-      args.estrutura,
-      args.unidadeRaw,
-      args.ini ? formatBr(args.ini) : '',
-      args.fim ? formatBr(args.fim) : '',
-      args.ordem,
-      args.operacao,
-      args.statusProc,
-      args.prioridade,
-      args.statusProg,
-      round4(args.hp),
-      round4(args.hcPortal),
-      args.recursos,
-      args.unSistema,
-      args.platSistema,
-      args.isDiaria ? 'Diária' : 'HH',
-      args.embDias,
-      round4(args.hcSap),
-      round4(args.hcUsado),
-      round4(args.hpCart),
-      args.hasGw ? 'Sim' : 'Não',
-      evalRes.peVal,
-      evalRes.exVal,
-      evalRes.opPeHp != null ? round4(evalRes.opPeHp) : '',
-      evalRes.opExHc != null ? round4(evalRes.opExHc) : '',
-      evalRes.opUsoff != null ? round4(evalRes.opUsoff) : '',
-      evalRes.regra
-    ]);
+    const embAgg = ensureEmbAgg(args.opKey);
+    embAgg.opsCount += 1;
+    if (args.statusProg === 'Não Cadastrado no Portal') {
+      embAgg.naoCadastradasSap += 1;
+    }
+    if (!isCancelada) {
+      embAgg.hpTotal += args.hp;
+      embAgg.hpCart += args.hpCart;
+      embAgg.hpFora += Math.max(0, args.hp - args.hpCart);
+      embAgg.hcPortal += args.hcPortal;
+      embAgg.hcSap += args.hcSap;
+      embAgg.hcUsado += args.hcUsado;
+    }
+    if (evalRes.opUsoff == null) {
+      embAgg.hasFalta = true;
+    } else {
+      embAgg.sumPeHp += evalRes.opPeHp || 0;
+      embAgg.sumExHc += evalRes.opExHc || 0;
+      embAgg.sumUsoff += evalRes.opUsoff;
+    }
+
+    preparedRows.push({
+      ...args,
+      divPortalSap: round4(args.hcPortal - args.hcSap)
+    });
   };
 
   const hasGranularOps = Boolean(dataset.carteiraOperacoes && dataset.carteiraOperacoes.length > 0);
@@ -1371,7 +1458,7 @@ export async function exportUsoffPortalOffshoreXlsx(
       dataset.tecnicos || {}
     );
 
-    const opsInScope = rawOps
+    const enrichedOps = rawOps
       .filter(op => {
         const a = op.data_inicio;
         const b = op.data_fim;
@@ -1383,21 +1470,40 @@ export async function exportUsoffPortalOffshoreXlsx(
         const l = resolvePlace(pidx, op.plataforma_sigla || undefined, op.unidade_negocio);
         return passesFilter(l, filters, dataset.pessoas);
       })
+      .map(op => {
+        const a = op.data_inicio;
+        const b = op.data_fim;
+        const embRef =
+          dataset.carteira.find(
+            ce =>
+              (op.id_embarque && ce.id_embarque === op.id_embarque) ||
+              (op.portal_id && ce.id_embarque === op.portal_id) ||
+              (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
+          ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
+        const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
+        const opKey = embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`;
+        const embSummary = embByKey.get(opKey);
+        const embIni = embSummary?.ini || embRef?.data_inicio || a || '';
+        const embFim = embSummary?.fim || embRef?.data_fim || b || '';
+        return { op, embRef, embId, opKey, embSummary, embIni, embFim };
+      })
       .sort((x, y) => {
-        const cmpIni = (x.data_inicio || '').localeCompare(y.data_inicio || '');
-        if (cmpIni !== 0) return cmpIni;
-        const idX = x.id_embarque || x.portal_id || '';
-        const idY = y.id_embarque || y.portal_id || '';
-        const cmpId = idX.localeCompare(idY, undefined, { numeric: true });
+        // Mantém TODAS as ordens/operações do mesmo ID de Embarque em bloco contíguo
+        const cmpEmbIni = x.embIni.localeCompare(y.embIni);
+        if (cmpEmbIni !== 0) return cmpEmbIni;
+        const cmpId = x.embId.localeCompare(y.embId, undefined, { numeric: true });
         if (cmpId !== 0) return cmpId;
-        const cmpMat = x.matricula.localeCompare(y.matricula, undefined, { numeric: true });
-        if (cmpMat !== 0) return cmpMat;
-        const cmpOrd = (x.ordem || '').localeCompare(y.ordem || '', undefined, { numeric: true });
+        const cmpKey = x.opKey.localeCompare(y.opKey);
+        if (cmpKey !== 0) return cmpKey;
+        const rank = (s: string) => (s === 'Cancelada' ? 2 : s === 'Não Cadastrado no Portal' ? 1 : 0);
+        const cmpRank = rank(x.op.status_programacao) - rank(y.op.status_programacao);
+        if (cmpRank !== 0) return cmpRank;
+        const cmpOrd = (x.op.ordem || '').localeCompare(y.op.ordem || '', undefined, { numeric: true });
         if (cmpOrd !== 0) return cmpOrd;
-        return (x.operacao || '').localeCompare(y.operacao || '', undefined, { numeric: true });
+        return (x.op.operacao || '').localeCompare(y.op.operacao || '', undefined, { numeric: true });
       });
 
-    opsInScope.forEach(op => {
+    enrichedOps.forEach(({ op, embRef, embId, opKey, embSummary, embIni, embFim }) => {
       const a = op.data_inicio;
       const b = op.data_fim;
       const l = resolvePlace(pidx, op.plataforma_sigla || undefined, op.unidade_negocio);
@@ -1412,19 +1518,8 @@ export async function exportUsoffPortalOffshoreXlsx(
       const isCarteira = op.status_programacao === 'Carteira';
       const hpCart = isCarteira ? hp : 0;
 
-      const embRef =
-        dataset.carteira.find(
-          ce =>
-            (op.id_embarque && ce.id_embarque === op.id_embarque) ||
-            (op.portal_id && ce.id_embarque === op.portal_id) ||
-            (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
-        ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
-
       const weights = resolveUsoffWeights(embRef || null, l, dataset.config, dataset.usoffUnWeights);
-      const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
-      const opKey = embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`;
-      const embSummary = embByKey.get(opKey);
-      const embDias = embSummary?.dias ?? (a && b ? diffDays(a, b) + 1 : 0);
+      const embDias = embSummary?.dias ?? (embIni && embFim ? diffDays(embIni, embFim) + 1 : a && b ? diffDays(a, b) + 1 : 0);
 
       const evalRes = evaluateOperationUsoff({
         statusProg: op.status_programacao,
@@ -1443,6 +1538,10 @@ export async function exportUsoffPortalOffshoreXlsx(
       }
 
       pushEvaluatedRow({
+        opKey,
+        embId,
+        embIni,
+        embFim,
         id: embId,
         mat: op.matricula,
         chave: op.chave_petrobras || '',
@@ -1460,11 +1559,12 @@ export async function exportUsoffPortalOffshoreXlsx(
         hp,
         hcPortal,
         recursos: op.recursos != null ? Number(op.recursos) : 1,
+        hcSap,
+        statusConfronto: resolveConfrontoStatus(op.status_programacao || '', op.status_divergencia, hcPortal, hcSap),
         unSistema: l.r,
         platSistema: l.p,
         isDiaria,
         embDias,
-        hcSap,
         hcUsado: hc,
         hpCart,
         hasGw,
@@ -1472,9 +1572,13 @@ export async function exportUsoffPortalOffshoreXlsx(
       });
     });
   } else {
-    const listEmbarkations = enc
-      ? getClosedEmbarkations(period, dataset, filters, pidx)
-      : dataset.carteira;
+    const listEmbarkations = (enc ? getClosedEmbarkations(period, dataset, filters, pidx) : dataset.carteira)
+      .slice()
+      .sort((x, y) => {
+        const cmpIni = (x.data_inicio || '').localeCompare(y.data_inicio || '');
+        if (cmpIni !== 0) return cmpIni;
+        return (x.id_embarque || x.id || '').localeCompare(y.id_embarque || y.id || '', undefined, { numeric: true });
+      });
 
     listEmbarkations.forEach(c => {
       const a = enc ? c.data_inicio : c.data_inicio > period.ini ? c.data_inicio : period.ini;
@@ -1521,6 +1625,10 @@ export async function exportUsoffPortalOffshoreXlsx(
       }
 
       pushEvaluatedRow({
+        opKey,
+        embId,
+        embIni: embSummary?.ini || a,
+        embFim: embSummary?.fim || b,
         id: embId,
         mat: c.matricula,
         chave: '',
@@ -1538,11 +1646,12 @@ export async function exportUsoffPortalOffshoreXlsx(
         hp,
         hcPortal: 0,
         recursos: 1,
+        hcSap: 0,
+        statusConfronto: 'Legado (HH diário)',
         unSistema: l.r,
         platSistema: l.p,
         isDiaria,
         embDias,
-        hcSap: 0,
         hcUsado: hc,
         hpCart,
         hasGw,
@@ -1564,7 +1673,11 @@ export async function exportUsoffPortalOffshoreXlsx(
         const exVal = isDiaria ? 'Diária' : e.falta ? 'Falta' : Array.from(e.exs)[0] ?? '';
 
         pushEvaluatedRow({
-          id: '',
+          opKey: e.key,
+          embId: e.id_embarque || '',
+          embIni: e.ini,
+          embFim: e.fim,
+          id: e.id_embarque || '',
           mat,
           chave: '',
           nome: resolveTechName(mat, dataset),
@@ -1581,11 +1694,12 @@ export async function exportUsoffPortalOffshoreXlsx(
           hp: 0,
           hcPortal: 0,
           recursos: 1,
+          hcSap: 0,
+          statusConfronto: 'Sem programação (HH diário)',
           unSistema: reg,
           platSistema: plat,
           isDiaria,
           embDias: e.dias,
-          hcSap: 0,
           hcUsado: e.hc,
           hpCart: 0,
           hasGw,
@@ -1607,20 +1721,172 @@ export async function exportUsoffPortalOffshoreXlsx(
       });
   }
 
+  // Monta matriz da Aba 1 preenchendo Qtd Ops Embarque e Total USoff do Embarque na 1ª linha de cada bloco
+  const seenEmbFirstRow = new Set<string>();
+  const dataRows: any[][] = preparedRows.map(row => {
+    const embSummary = embByKey.get(row.opKey);
+    const embAgg = embAggMap.get(row.opKey);
+    const isFirstOfEmb = !seenEmbFirstRow.has(row.opKey);
+    if (isFirstOfEmb) {
+      seenEmbFirstRow.add(row.opKey);
+    }
+    const embTotalValue: number | string = !isFirstOfEmb
+      ? ''
+      : embSummary
+      ? embSummary.falta || embSummary.us == null
+        ? 'Falta PE/EX'
+        : round4(embSummary.us)
+      : embAgg?.hasFalta
+      ? 'Falta PE/EX'
+      : round4(embAgg?.sumUsoff || 0);
+
+    return [
+      row.id,
+      row.mat,
+      row.chave,
+      row.nome,
+      row.empresa,
+      row.estrutura,
+      row.unidadeRaw,
+      row.ini ? formatBr(row.ini) : '',
+      row.fim ? formatBr(row.fim) : '',
+      row.ordem,
+      row.operacao,
+      row.statusProc,
+      row.prioridade,
+      row.statusProg,
+      round4(row.hp),
+      round4(row.hcPortal),
+      row.recursos,
+      round4(row.hcSap),
+      row.divPortalSap,
+      row.statusConfronto,
+      row.unSistema,
+      row.platSistema,
+      row.isDiaria ? 'Diária' : 'HH',
+      row.embIni ? formatBr(row.embIni) : '',
+      row.embFim ? formatBr(row.embFim) : '',
+      row.embDias,
+      embAgg?.opsCount ?? 1,
+      round4(row.hcUsado),
+      round4(row.hpCart),
+      row.hasGw ? 'Sim' : 'Não',
+      row.evalRes.peVal,
+      row.evalRes.exVal,
+      row.evalRes.opPeHp != null ? round4(row.evalRes.opPeHp) : '',
+      row.evalRes.opExHc != null ? round4(row.evalRes.opExHc) : '',
+      row.evalRes.opUsoff != null ? round4(row.evalRes.opUsoff) : '',
+      embTotalValue,
+      row.evalRes.regra
+    ];
+  });
+
   const bannerRows = scopeLabel
     ? [[`[ESCOPO PARCIAL DE CARTEIRA - ${scopeLabel.toUpperCase()}]`], []]
     : [];
 
   const widths = [
-    12, 12, 12, 30, 18, 20, 12, 12, 12, 14, 10, 20, 12, 22, 14, 14, 10,
-    24, 16, 10, 14, 18, 20, 18, 10, 9, 9, 12, 12, 12, 38
+    12, 12, 12, 28, 18, 20, 12, 12, 12, 14, 10, 20, 12, 22, 14, 14, 10,
+    18, 20, 24,
+    24, 16, 10, 14, 14, 14, 14, 20, 18, 10, 9, 9, 12, 12, 12, 20, 38
   ];
   const sheet1StartDataRow = bannerRows.length + 1;
   const wsPortal = createSheet(XLSX, [...bannerRows, headers, ...dataRows], widths);
-  applyDecimalFormatting(XLSX, wsPortal, [25, 26, 27, 28, 29], sheet1StartDataRow);
+  applyDecimalFormatting(XLSX, wsPortal, [14, 15, 17, 18, 27, 28, 30, 31, 32, 33, 34, 35], sheet1StartDataRow);
   XLSX.utils.book_append_sheet(wb, wsPortal, 'Portal Offshore + USOFF');
 
-  // Aba 2: Resumo de Validação (Painel vs Soma das Linhas)
+  // Aba 2: Consolidado por ID de Embarque (1 linha por embarque batendo 100% com a Aba 1 e o painel)
+  const sortedEmbarques = embarques.slice().sort((a, b) => {
+    const cmpIni = (a.ini || '').localeCompare(b.ini || '');
+    if (cmpIni !== 0) return cmpIni;
+    const idA = a.id_embarque || a.op || '';
+    const idB = b.id_embarque || b.op || '';
+    return idA.localeCompare(idB, undefined, { numeric: true });
+  });
+
+  const embSheetHeaders = [
+    'ID Embarque',
+    'Embarque',
+    'Tipo',
+    'Matrículas',
+    'Técnicos',
+    'Plataformas',
+    'Unidades',
+    'Regime',
+    'Início Embarque',
+    'Fim Embarque',
+    'Dias',
+    'Qtd Operações',
+    'Não Cadastradas SAP',
+    'Fonte do HP',
+    'HP Total',
+    'HP Carteira (≥12d)',
+    'HP Fora (<12d)',
+    'HC Portal',
+    'HH Confirmado (SAP)',
+    'HC Considerado (USOFF)',
+    'Divergência (Portal − SAP)',
+    'PE',
+    'EX',
+    'PE × HP',
+    'EX × HC',
+    'USoff (Painel)',
+    'Soma USoff (Aba 1)',
+    'Diferença'
+  ];
+
+  const embSheetRows: any[][] = sortedEmbarques.map(e => {
+    const agg = embAggMap.get(e.key);
+    const isDiaria = e.fonte.includes('Diária');
+    const hcPortal = agg ? agg.hcPortal : 0;
+    const hcSap = agg ? agg.hcSap : 0;
+    const pesArr = Array.from(e.pes);
+    const exsArr = Array.from(e.exs);
+    const painelUs = e.falta || e.us == null ? null : round4(e.us);
+    const opsUs = agg ? (agg.hasFalta ? null : round4(agg.sumUsoff)) : 0;
+    const diffUs = painelUs != null && opsUs != null ? round4(painelUs - opsUs) : '—';
+
+    return [
+      e.id_embarque || '',
+      e.op,
+      e.tipo,
+      Array.from(e.mats).join(', '),
+      Array.from(e.mats).map(m => resolveTechName(m, dataset)).join(', '),
+      Array.from(e.plats).join(', '),
+      Array.from(e.regs).join(', '),
+      isDiaria ? 'Diária' : 'HH',
+      formatBr(e.ini),
+      formatBr(e.fim),
+      e.dias,
+      agg?.opsCount ?? e.totalOps ?? 0,
+      agg?.naoCadastradasSap ?? 0,
+      e.fonte,
+      round4(e.hp),
+      round4(e.hpCarteira ?? e.hp),
+      round4(e.hpForaCarteira ?? 0),
+      round4(hcPortal),
+      round4(hcSap),
+      round4(e.hc),
+      round4(hcPortal - hcSap),
+      isDiaria ? 'Diária' : e.falta ? 'Falta' : pesArr.length === 1 ? pesArr[0] : pesArr.join(' / '),
+      isDiaria ? 'Diária' : e.falta ? 'Falta' : exsArr.length === 1 ? exsArr[0] : exsArr.join(' / '),
+      e.falta ? 'Falta PE/EX' : round4(e.peHp),
+      e.falta ? 'Falta PE/EX' : round4(e.exHc),
+      painelUs != null ? painelUs : 'Falta PE/EX',
+      opsUs != null ? opsUs : 'Falta PE/EX',
+      diffUs
+    ];
+  });
+
+  const wsPorEmb = createSheet(
+    XLSX,
+    [...bannerRows, embSheetHeaders, ...embSheetRows],
+    [14, 16, 14, 14, 28, 16, 22, 10, 14, 14, 8, 14, 18, 18, 12, 16, 14, 12, 18, 20, 20, 9, 9, 12, 12, 14, 18, 12]
+  );
+  applyDecimalFormatting(XLSX, wsPorEmb, [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27], sheet1StartDataRow);
+  XLSX.utils.book_append_sheet(wb, wsPorEmb, 'Por Embarque (ID)');
+
+  // Aba 3: Resumo de Validação (Painel vs Soma das Linhas)
   const filterTags = [
     filters.fReg ? `UN: ${filters.fReg}` : '',
     filters.fPlat ? `Plataforma: ${filters.fPlat}` : '',

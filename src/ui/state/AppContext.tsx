@@ -35,6 +35,8 @@ export interface CarteiraModalState {
   matricula: string;
   idEmbarque?: string;
   dataRef?: string;
+  /** Matrícula da Ficha do Técnico de origem, para oferecer botão "Voltar" sem empilhar Drawer+Modal */
+  returnToFichaMat?: string;
 }
 
 export type UserSettingsSection = 'perfil' | 'aparencia' | 'seguranca';
@@ -280,20 +282,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Modais Globais
   const [justModal, setJustModal] = useState<{ mat: string; date: string } | null>(null);
   const [fichaMat, setFichaMat] = useState<string | null>(null);
+  const fichaMatRef = useRef<string | null>(null);
+  fichaMatRef.current = fichaMat;
   const [emailModal, setEmailModal] = useState<EmailModalState | null>(null);
   const [carteiraModal, setCarteiraModal] = useState<CarteiraModalState | null>(null);
 
   const openJustModal = useCallback((mat: string, date: string) => setJustModal({ mat, date }), []);
   const closeJustModal = useCallback(() => setJustModal(null), []);
 
-  const openFichaDrawer = useCallback((mat: string) => setFichaMat(mat), []);
+  const openFichaDrawer = useCallback((mat: string) => {
+    setCarteiraModal(null);
+    setFichaMat(mat);
+  }, []);
   const closeFichaDrawer = useCallback(() => setFichaMat(null), []);
 
   const openEmailModal = useCallback((opts: EmailModalState) => setEmailModal(opts), []);
   const closeEmailModal = useCallback(() => setEmailModal(null), []);
 
   const openCarteiraModal = useCallback((matricula: string, idEmbarque?: string, dataRef?: string) => {
-    setCarteiraModal({ matricula, idEmbarque, dataRef });
+    const activeDrawerMat = fichaMatRef.current;
+    if (activeDrawerMat) {
+      setFichaMat(null);
+    }
+    setCarteiraModal({
+      matricula,
+      idEmbarque,
+      dataRef,
+      returnToFichaMat: activeDrawerMat ?? undefined
+    });
   }, []);
   const closeCarteiraModal = useCallback(() => setCarteiraModal(null), []);
 

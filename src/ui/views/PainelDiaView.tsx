@@ -662,7 +662,9 @@ export function PainelDiaView() {
                 className="btn btn-secondary btn-sm"
                 onClick={() => {
                   const idEmb = modalOrdens.items[0]?.id_embarque;
-                  openCarteiraModal(modalOrdens.mat, idEmb, D);
+                  const mat = modalOrdens.mat;
+                  setModalOrdens(null);
+                  openCarteiraModal(mat, idEmb, D);
                 }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
@@ -752,7 +754,9 @@ export function PainelDiaView() {
                 className="btn btn-secondary btn-sm"
                 onClick={() => {
                   const idEmb = modalOrdens.items[0]?.id_embarque;
-                  openCarteiraModal(modalOrdens.mat, idEmb, D);
+                  const mat = modalOrdens.mat;
+                  setModalOrdens(null);
+                  openCarteiraModal(mat, idEmb, D);
                 }}
                 style={{ fontSize: '0.78rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >

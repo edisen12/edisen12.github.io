@@ -358,12 +358,22 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       expect(clickSpy).toHaveBeenCalledTimes(2);
     });
 
-    it('exportUsoffXlsx gera relatório oficial de operações USOFF com ponderações PE e EX', async () => {
+    it('exportUsoffXlsx gera relatório oficial USOFF agrupado Por embarque (com ID Embarque) e ponderações PE e EX', async () => {
       const dataset = createTestDataset();
-      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      const capturedBlobs: Blob[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-usoff';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
 
       await exportUsoffXlsx(dataset, period, 'UN-ES');
-      expect(clickSpy).toHaveBeenCalled();
+      expect(capturedBlobs).toHaveLength(1);
+      const wb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      expect(wb.SheetNames).toEqual(['Resumo USOFF', 'Por embarque']);
+      const embAoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Por embarque'], { header: 1 });
+      expect(embAoa[0][0]).toBe('ID Embarque');
     });
 
     it('exportModeloXlsx gera os templates padrão de importação (cad, hh, cart)', async () => {
@@ -821,34 +831,61 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       expect(capturedNames[0]).toContain('Portal Offshore + USOFF');
 
       const wb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
-      expect(wb.SheetNames).toEqual(['Portal Offshore + USOFF', 'Resumo Validação']);
+      expect(wb.SheetNames).toEqual(['Portal Offshore + USOFF', 'Por Embarque (ID)', 'Resumo Validação']);
 
       const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Portal Offshore + USOFF'], { header: 1 });
       const header = aoa[0];
-      // Garante cabeçalhos Portal Offshore na esquerda + cálculo USOFF ao lado
+      // Garante cabeçalhos Portal Offshore na esquerda + Confronto SAP + contexto de Embarque & USOFF ao lado
       expect(header.slice(0, 17)).toEqual([
         'ID', 'Matrícula', 'Chave', 'Nome', 'Empresa', 'Estrutura', 'Unidade',
         'Início', 'Fim', 'Ordem', 'Operação', 'Status Processamento', 'Prioridade',
         'Status Programação', 'HH Programado', 'HH Confirmado', 'Recursos'
       ]);
-      expect(header.slice(27)).toEqual(['PE × HP', 'EX × HC', 'USoff', 'Regra / Observação USoff']);
+      expect(header.slice(17, 20)).toEqual([
+        'HH Confirmado (SAP)', 'Divergência (Portal − SAP)', 'Status Confronto SAP'
+      ]);
+      expect(header.slice(32)).toEqual([
+        'PE × HP', 'EX × HC', 'USoff', 'Total USoff do Embarque', 'Regra / Observação USoff'
+      ]);
 
       const dataRows = aoa.slice(1);
-      // 6 operações do Portal + 1 SAP não cadastrada no Portal = 7 linhas
+      // 6 operações do Portal + 1 SAP não cadastrada no Portal = 7 linhas (não agrupadas)
       expect(dataRows).toHaveLength(7);
 
+      // Blocos contíguos por ID Embarque (todas as 5 linhas do ID 55104 juntas, depois as 2 do ID 55200)
+      const embIdsOrder = dataRows.map(r => r[0]);
+      expect(embIdsOrder).toEqual(['55104', '55104', '55104', '55104', '55104', '55200', '55200']);
+
       const usColIdx = header.indexOf('USoff');
+      const embTotalColIdx = header.indexOf('Total USoff do Embarque');
+      const regraColIdx = header.indexOf('Regra / Observação USoff');
+      const sapColIdx = header.indexOf('HH Confirmado (SAP)');
+      const statusSapColIdx = header.indexOf('Status Confronto SAP');
+
       const sumExcelUsoff = dataRows.reduce((acc, r) => acc + (Number(r[usColIdx]) || 0), 0);
       expect(sumExcelUsoff).toBe(expectedTotal);
+
+      // Soma da coluna Total USoff do Embarque (preenchida 1x por bloco de ID) também bate 100%
+      const sumEmbCol = dataRows.reduce((acc, r) => acc + (Number(r[embTotalColIdx]) || 0), 0);
+      expect(sumEmbCol).toBe(expectedTotal);
+      expect(dataRows[0][embTotalColIdx]).toBe(31);
+      expect(dataRows[5][embTotalColIdx]).toBe(100);
+
+      // SAP não cadastrado no Portal está dentro do bloco 55104 com seu HC SAP
+      const rowSapExtra = dataRows.find(r => r[9] === '400099')!;
+      expect(rowSapExtra[0]).toBe('55104');
+      expect(rowSapExtra[sapColIdx]).toBe(10);
+      expect(rowSapExtra[statusSapColIdx]).toBe('Não Cadastrado no Portal');
+      expect(rowSapExtra[usColIdx]).toBe(7);
 
       // Verifica sanitização CWE-1236
       const rowOp1 = dataRows.find(r => r[9] === '400010')!;
       expect(String(rowOp1[3]).startsWith("'")).toBe(true);
 
-      // Verifica linha Cancelada presente com USoff = 0
+      // Verifica linha Cancelada presente dentro do bloco 55104 com USoff = 0
       const rowCanc = dataRows.find(r => r[13] === 'Cancelada')!;
       expect(rowCanc[usColIdx]).toBe(0);
-      expect(rowCanc[30]).toContain('Cancelada');
+      expect(rowCanc[regraColIdx]).toContain('Cancelada');
 
       // Verifica Diária cobrada 1x no embarque 55200
       const diariaRows = dataRows.filter(r => r[0] === '55200');
@@ -856,7 +893,18 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       expect(diariaRows[0][usColIdx]).toBe(100);
       expect(diariaRows[1][usColIdx]).toBe(0);
 
-      // Verifica Aba 2 Resumo Validação sem diferença
+      // Verifica Aba 2 Por Embarque (ID) conciliada por embarque
+      const embAoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Por Embarque (ID)'], { header: 1 });
+      const embHeader = embAoa[0];
+      expect(embHeader[0]).toBe('ID Embarque');
+      const embDataRows = embAoa.slice(1);
+      expect(embDataRows).toHaveLength(2);
+      expect(embDataRows.map(r => r[0])).toEqual(['55104', '55200']);
+      const embDiffIdx = embHeader.indexOf('Diferença');
+      expect(embDataRows[0][embDiffIdx]).toBe(0);
+      expect(embDataRows[1][embDiffIdx]).toBe(0);
+
+      // Verifica Aba 3 Resumo Validação sem diferença
       const resumoAoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Resumo Validação'], { header: 1 });
       const diffRow = resumoAoa.find(r => r[0] === 'Diferença (Painel − Soma da Aba 1)')!;
       expect(diffRow[1]).toBe(0);

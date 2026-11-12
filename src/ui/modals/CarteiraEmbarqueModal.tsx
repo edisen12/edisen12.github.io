@@ -16,7 +16,7 @@ import { resolveUsoffWeights, hasGangwayJustification } from '../../domain/usoff
 import type { CarteiraOperacao, ConfirmacaoSAP } from '../../domain/types';
 import { addDays, diffDays, formatBr, formatBrShort } from '../../utils/date';
 import { formatHours, formatSignedHours, formatUs } from '../../utils/format';
-import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, Briefcase, Calculator } from 'lucide-react';
+import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, ArrowLeft, Briefcase, Calculator } from 'lucide-react';
 
 export interface OperacaoComUsoffRow extends CarteiraOperacao {
   pe: number | null;
@@ -362,13 +362,38 @@ export function CarteiraEmbarqueModal() {
 
   if (!carteiraModal) return null;
 
+  const returnMat = carteiraModal?.returnToFichaMat;
+  const handleGoToFicha = () => {
+    const targetMat = returnMat || tecMat;
+    closeCarteiraModal();
+    openFichaDrawer(targetMat);
+  };
+
   return (
     <Modal
       open={Boolean(carteiraModal)}
       onClose={closeCarteiraModal}
       maxWidth="1160px"
       title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {returnMat && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleGoToFicha}
+              title="Retornar ao painel lateral com as confirmações diárias do técnico"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                fontSize: '0.78rem'
+              }}
+            >
+              <ArrowLeft size={14} />
+              <span>Voltar à Ficha</span>
+            </button>
+          )}
           <Briefcase size={20} style={{ color: 'var(--brand-primary, #0ea5e9)', flexShrink: 0 }} />
           <span>Carteira do Embarque</span>
           {idEmbFinal && (
@@ -400,7 +425,18 @@ export function CarteiraEmbarqueModal() {
       }
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '12px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {returnMat && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleGoToFicha}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ArrowLeft size={14} />
+                <span>Voltar para a Ficha do Técnico</span>
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -411,18 +447,17 @@ export function CarteiraEmbarqueModal() {
               <FileSpreadsheet size={15} />
               <span>{isExporting ? 'Exportando...' : 'Exportar Carteira (.xlsx)'}</span>
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                closeCarteiraModal();
-                openFichaDrawer(tecMat);
-              }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              <ExternalLink size={14} />
-              <span>Ver Ficha Completa do Técnico</span>
-            </button>
+            {!returnMat && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleGoToFicha}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ExternalLink size={14} />
+                <span>Ver Ficha Completa do Técnico</span>
+              </button>
+            )}
           </div>
           <button type="button" className="btn btn-primary btn-sm" onClick={closeCarteiraModal}>
             Fechar

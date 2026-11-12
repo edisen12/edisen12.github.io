@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-12 10:28 (BRT) · HEAD: 6a120a1 · Suíte Completa: 31 arquivos / 578 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.26s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
+> Última atualização: 2026-11-12 15:37 (BRT) · HEAD: 29c66fb · Suíte Completa: 31 arquivos / 580 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 4.94s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
 
 ## 1. Resumo Executivo
 
@@ -115,15 +115,22 @@
       4. *Modal Carteira do Embarque (`CarteiraEmbarqueModal.tsx`):* Card de apuração e tabela de ordens/operações reconhecem unidades de diária e exibem o badge e a fórmula $\text{dias} \times 10$ correspondente.
       5. *Importação e Exportação Excel (`excel.service.ts`):* Suporte à coluna `Regime de medição` / `medicao` nas planilhas de cadastro de plataformas.
       6. *Persistência Resiliente e Migration:* Colunas `tipo_medicao text NOT NULL DEFAULT 'hh'` em `plataformas` e `config_usoff_un` adicionadas via migration `022_unidades_e_plataformas_diaria.sql`, com salvaguardas de compatibilidade (`(Diária)` em `tipo` e `DIARIA_UN:<un>` em `regionais_extras`).
+  - **Frente 7: Exportação Excel para Auditoria "Portal Offshore + USOFF" (`exportUsoffPortalOffshoreXlsx`):**
+    - Novo botão **`Exportar Portal Offshore + USOFF (Excel)`** no cabeçalho de `MedicaoUsoffView.tsx` ao lado de `Exportar USOFF (Excel)`, respeitando integralmente os filtros ativos e o `scopeLabel` parcial do usuário logado.
+    - Exportador `exportUsoffPortalOffshoreXlsx` em `src/services/excel.service.ts` gerando 2 abas:
+      1. `Portal Offshore + USOFF`: as **17 colunas idênticas** ao download oficial do Portal Offshore (`ID`, `Matrícula`, `Chave`, `Nome`, `Empresa`, `Estrutura`, `Unidade`, `Início`, `Fim`, `Ordem`, `Operação`, `Status Processamento`, `Prioridade`, `Status Programação`, `HH Programado`, `HH Confirmado`, `Recursos`) seguidas de **14 colunas de cálculo USOFF ao lado** (`UN (Sistema)`, `Plataforma (Sistema)`, `Regime`, `Dias Embarque`, `HH Confirmado (SAP)`, `HC Considerado (USOFF)`, `HP Carteira (≥12d)`, `Gangway`, `PE`, `EX`, `PE × HP`, `EX × HC`, `USoff`, `Regra / Observação USoff`).
+      2. `Resumo Validação`: conciliação direta entre `Total USoff apresentado no painel` e `Soma da coluna USoff (Aba 1)` (diferença garantida `0`), além de detalhamento por classificação/regra (`Carteira (com execução HC > 0)`, `Carteira (Execução Zero HC = 0)`, `Carteira (Gangway HC = 0)`, `Fora da carteira (com execução HC > 0)`, `Fora da carteira (Execução Zero HC = 0)`, `Não Cadastrado no Portal (SAP)`, `Diária (Armador / UMS / Afretadas)`, `Cancelada (desconsiderada)`, `Sem programação`, `Falta PE/EX`).
+    - Cobertura de testes adicionada em `src/ui/views/__tests__/MedicaoUsoffView.test.tsx` e `src/services/__tests__/excel.service.test.ts` (validando paridade exata com `summarizeUsoff(computeUsoffOperations(..., 'embarque')).us`, CWE-1236 e escopo parcial).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **31 arquivos / 578 testes aprovados (100% verdes)**.
+    - Suíte de testes: **31 arquivos / 580 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 5.26s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 4.94s**.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Validação operacional em ambiente de produção / staging:** navegar pela medição de USOFF, gerenciar técnicos offshore em Configurações e conferir unidades sinalizadas como diária.
-2. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+1. **Auditoria dos cálculos de USOFF pelo usuário:** exportar a planilha `Portal Offshore + USOFF (Excel)` na tela de Medição USOFF, validar as linhas/totais comparando com o Portal Offshore e apontar eventuais divergências para correção pontual.
+2. **Validação operacional em ambiente de produção / staging:** navegar pela medição de USOFF, gerenciar técnicos offshore em Configurações e conferir unidades sinalizadas como diária.
+3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 
 

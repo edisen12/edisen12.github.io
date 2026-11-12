@@ -21,10 +21,13 @@ import {
   exportPeriodoXlsx,
   exportTecnicoXlsx,
   exportUsoffXlsx,
+  exportUsoffPortalOffshoreXlsx,
   exportModeloXlsx,
   exportConfrontoSAPXlsx,
   exportPainelDiaOrdensXlsx
 } from '../excel.service';
+import { buildPlatformIndex } from '../../domain/calculations';
+import { computeUsoffOperations, summarizeUsoff } from '../../domain/usoff';
 
 /**
  * Cria em memória um arquivo File contendo uma planilha Excel válida gerada pelo SheetJS
@@ -563,6 +566,307 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       const modSapRows = XLSX.utils.sheet_to_json<any[]>(modSapWb.Sheets['Confirmacoes_SAP'], { header: 1 });
       expect(modSapRows[0]).toContain('Contador_confirmacao');
       expect(modSapRows[1]).toContain('00000001');
+    });
+
+    it('exportUsoffPortalOffshoreXlsx gera planilha no formato Portal Offshore com cálculo USOFF ao lado e soma 100% idêntica ao painel', async () => {
+      const capturedBlobs: Blob[] = [];
+      const capturedNames: string[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-portal-usoff';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+      Object.defineProperty(HTMLAnchorElement.prototype, 'download', {
+        configurable: true,
+        set(val: string) {
+          capturedNames.push(val);
+        }
+      });
+
+      const emptyFilters = { fDate: '', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' };
+      const ds = createTestDataset({
+        config: {
+          ...mockContractConfig,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70,
+          med_criterio: 'enc'
+        },
+        usoffUnWeights: {},
+        hhMap: {},
+        justMap: {},
+        plataformas: {
+          ...mockPlatforms,
+          UMAC: {
+            sigla: 'UMAC',
+            chave_norm: 'UMAC',
+            nome: 'UMS Diária Teste',
+            un: 'Armador',
+            armador: 'Armador Teste',
+            gerencia: '',
+            tipo: 'UMS (Diária)',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false,
+            tipo_medicao: 'diaria'
+          }
+        },
+        carteira: [
+          {
+            id: 'emb-55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            plataforma_sigla: 'P50',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 130,
+            operacao: '55104',
+            pe: null,
+            ex: null,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'emb-55200',
+            id_embarque: '55200',
+            matricula: '1002',
+            plataforma_sigla: 'UMAC',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 80,
+            operacao: '55200',
+            pe: null,
+            ex: null,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          // 1. Carteira com execução -> 0.30 * 10 + 0.70 * 10 = 10.00
+          {
+            id: 'op-cart-exec',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CH01',
+            nome: '=CMD|"calc"',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '400010',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Alta',
+            status_programacao: 'Carteira',
+            hh_programado: 10,
+            hh_confirmado: 10,
+            hh_confirmado_sap: 10,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // 2. Carteira com execução zero (HC=0) -> 0.00
+          {
+            id: 'op-cart-zero',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CH01',
+            nome: 'Carlos Silva',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '400020',
+            operacao: '0020',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 100,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // 3. Fora da carteira com execução -> apenas 0.70 * 20 = 14.00
+          {
+            id: 'op-fora-exec',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CH01',
+            nome: 'Carlos Silva',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '400030',
+            operacao: '0030',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 20,
+            hh_confirmado: 20,
+            hh_confirmado_sap: 20,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // 4. Cancelada -> deve aparecer para conferência com USOFF = 0
+          {
+            id: 'op-cancelada',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CH01',
+            nome: 'Carlos Silva',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '400040',
+            operacao: '0040',
+            status_processamento: 'Cancelado',
+            prioridade: 'Regular',
+            status_programacao: 'Cancelada',
+            hh_programado: 40,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // 5 e 6. Embarque em Diária (10 dias -> 100 USOFF cobrado 1x no embarque)
+          {
+            id: 'op-diaria-1',
+            portal_id: '55200',
+            id_embarque: '55200',
+            matricula: '1002',
+            chave_petrobras: 'CH02',
+            nome: 'Mariana Costa',
+            empresa: 'Infotec Brasil',
+            estrutura: 'Armador',
+            unidade_negocio: 'Armador',
+            plataforma_sigla: 'UMAC',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: '500010',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 40,
+            hh_confirmado: 40,
+            hh_confirmado_sap: 40,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'op-diaria-2',
+            portal_id: '55200',
+            id_embarque: '55200',
+            matricula: '1002',
+            chave_petrobras: 'CH02',
+            nome: 'Mariana Costa',
+            empresa: 'Infotec Brasil',
+            estrutura: 'Armador',
+            unidade_negocio: 'Armador',
+            plataforma_sigla: 'UMAC',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: '500020',
+            operacao: '0020',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 40,
+            hh_confirmado: 40,
+            hh_confirmado_sap: 40,
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        confirmacoesSap: [
+          // 7. Ordem do SAP não cadastrada no Portal -> apenas 0.70 * 10 = 7.00
+          {
+            id: 'sap-extra-1',
+            matricula: '1001',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: '400099',
+            operacao: '0090',
+            horas_confirmadas: 10,
+            contador_confirmacao: 1,
+            id_embarque: '55104',
+            status_reconciliacao: 'Fora da Carteira'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(ds.plataformas);
+      const expectedTotal = summarizeUsoff(
+        computeUsoffOperations(period, ds, emptyFilters, pidx, 'embarque')
+      ).us;
+      // 10.00 (Carteira) + 0 (HC=0) + 14.00 (Fora) + 0 (Cancelada) + 100.00 (Diária 10d*10) + 7.00 (SAP extra) = 131.00
+      expect(expectedTotal).toBe(131);
+
+      await exportUsoffPortalOffshoreXlsx(ds, period, emptyFilters);
+      expect(capturedBlobs).toHaveLength(1);
+      expect(capturedNames[0]).toContain('Portal Offshore + USOFF');
+
+      const wb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      expect(wb.SheetNames).toEqual(['Portal Offshore + USOFF', 'Resumo Validação']);
+
+      const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Portal Offshore + USOFF'], { header: 1 });
+      const header = aoa[0];
+      // Garante cabeçalhos Portal Offshore na esquerda + cálculo USOFF ao lado
+      expect(header.slice(0, 17)).toEqual([
+        'ID', 'Matrícula', 'Chave', 'Nome', 'Empresa', 'Estrutura', 'Unidade',
+        'Início', 'Fim', 'Ordem', 'Operação', 'Status Processamento', 'Prioridade',
+        'Status Programação', 'HH Programado', 'HH Confirmado', 'Recursos'
+      ]);
+      expect(header.slice(27)).toEqual(['PE × HP', 'EX × HC', 'USoff', 'Regra / Observação USoff']);
+
+      const dataRows = aoa.slice(1);
+      // 6 operações do Portal + 1 SAP não cadastrada no Portal = 7 linhas
+      expect(dataRows).toHaveLength(7);
+
+      const usColIdx = header.indexOf('USoff');
+      const sumExcelUsoff = dataRows.reduce((acc, r) => acc + (Number(r[usColIdx]) || 0), 0);
+      expect(sumExcelUsoff).toBe(expectedTotal);
+
+      // Verifica sanitização CWE-1236
+      const rowOp1 = dataRows.find(r => r[9] === '400010')!;
+      expect(String(rowOp1[3]).startsWith("'")).toBe(true);
+
+      // Verifica linha Cancelada presente com USoff = 0
+      const rowCanc = dataRows.find(r => r[13] === 'Cancelada')!;
+      expect(rowCanc[usColIdx]).toBe(0);
+      expect(rowCanc[30]).toContain('Cancelada');
+
+      // Verifica Diária cobrada 1x no embarque 55200
+      const diariaRows = dataRows.filter(r => r[0] === '55200');
+      expect(diariaRows).toHaveLength(2);
+      expect(diariaRows[0][usColIdx]).toBe(100);
+      expect(diariaRows[1][usColIdx]).toBe(0);
+
+      // Verifica Aba 2 Resumo Validação sem diferença
+      const resumoAoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Resumo Validação'], { header: 1 });
+      const diffRow = resumoAoa.find(r => r[0] === 'Diferença (Painel − Soma da Aba 1)')!;
+      expect(diffRow[1]).toBe(0);
+
+      // Validação com escopo parcial
+      await exportUsoffPortalOffshoreXlsx(ds, period, emptyFilters, 'UN-ES');
+      expect(capturedNames[1]).toContain('[PARCIAL - UN-ES]');
+      const wbParcial = XLSX.read(await capturedBlobs[1].arrayBuffer(), { type: 'array' });
+      const parcialAoa = XLSX.utils.sheet_to_json<any[]>(wbParcial.Sheets['Portal Offshore + USOFF'], { header: 1 });
+      expect(parcialAoa[0][0]).toBe('[ESCOPO PARCIAL DE CARTEIRA - UN-ES]');
     });
   });
 });

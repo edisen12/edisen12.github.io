@@ -1,9 +1,10 @@
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MedicaoUsoffView } from '../MedicaoUsoffView';
 import { ToastProvider } from '../../components/ToastContext';
 import { useApp } from '../../state/AppContext';
+import { exportUsoffPortalOffshoreXlsx } from '../../../services/excel.service';
 import { DEFAULT_CONFIG } from '../../../config/constants';
 import { buildPlatformIndex } from '../../../domain/calculations';
 import type {
@@ -19,6 +20,7 @@ vi.mock('../../state/AppContext', () => ({
 
 vi.mock('../../../services/excel.service', () => ({
   exportUsoffXlsx: vi.fn().mockResolvedValue(undefined),
+  exportUsoffPortalOffshoreXlsx: vi.fn().mockResolvedValue(undefined),
   exportConfrontoSAPXlsx: vi.fn().mockResolvedValue(undefined)
 }));
 
@@ -262,5 +264,38 @@ describe('MedicaoUsoffView - Medição USOFF & Visualização por Embarque', () 
 
     expect(screen.getByText(/Filtrar por Status:/i)).not.toBeNull();
     expect(screen.getByText(/Batimento 100% OK/i)).not.toBeNull();
+  });
+
+  it('renderiza botão Exportar Portal Offshore + USOFF (Excel) e aciona exportUsoffPortalOffshoreXlsx com filtros e escopo', async () => {
+    const ds = createMockDataset();
+    (useApp as any).mockReturnValue({
+      dataset: ds,
+      pidx: MOCK_PIDX,
+      activePeriod: MOCK_PERIOD,
+      filters: MOCK_FILTERS,
+      openFichaDrawer: mockOpenFichaDrawer,
+      openCarteiraModal: mockOpenCarteiraModal,
+      scopeLabel: 'Carteira Teste',
+      isGlobal: false,
+      refreshData: mockRefreshData
+    });
+
+    render(
+      <ToastProvider>
+        <MedicaoUsoffView />
+      </ToastProvider>
+    );
+
+    const btn = screen.getByRole('button', { name: /Exportar Portal Offshore \+ USOFF \(Excel\)/i });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(exportUsoffPortalOffshoreXlsx).toHaveBeenCalledWith(
+        ds,
+        MOCK_PERIOD,
+        MOCK_FILTERS,
+        'Carteira Teste'
+      );
+    });
   });
 });

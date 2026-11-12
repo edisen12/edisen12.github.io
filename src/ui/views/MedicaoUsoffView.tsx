@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Briefcase, ExternalLink } from 'lucide-react';
+import { Briefcase, ExternalLink, FileSpreadsheet } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { KpiCard } from '../components/KpiCard';
@@ -28,6 +28,7 @@ import { computeUsoffOperations, summarizeUsoff } from '../../domain/usoff';
 import { periodDisplayName } from '../../domain/periods';
 import {
   exportUsoffXlsx,
+  exportUsoffPortalOffshoreXlsx,
   exportConfrontoSAPXlsx
 } from '../../services/excel.service';
 import { reconciliarConfirmacoesSAP } from '../../services/data.service';
@@ -48,6 +49,7 @@ export function MedicaoUsoffView() {
   const { showToast } = useToast();
   const [usoffTab, setUsoffTab] = useState<'embarques' | 'unidades' | 'prepostos' | 'confronto'>('embarques');
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingPortal, setIsExportingPortal] = useState(false);
   const [isExportingConfronto, setIsExportingConfronto] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
   const [confrontoStatusFilter, setConfrontoStatusFilter] = useState<string>('todos');
@@ -77,6 +79,20 @@ export function MedicaoUsoffView() {
       showToast('Erro ao exportar USOFF: ' + (err.message || 'Falha na geração'), 'error');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // Exportação Excel Formato Portal Offshore + Cálculo USOFF ao lado
+  const handleExportPortalUsoff = async () => {
+    setIsExportingPortal(true);
+    try {
+      await exportUsoffPortalOffshoreXlsx(dataset, P, filters, scopeLabel);
+      showToast('Relatório Portal Offshore + USOFF exportado com sucesso!', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('Erro ao exportar relatório Portal Offshore + USOFF: ' + (err.message || 'Falha na geração'), 'error');
+    } finally {
+      setIsExportingPortal(false);
     }
   };
 
@@ -750,14 +766,27 @@ export function MedicaoUsoffView() {
           </div>
         </div>
 
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleExportUsoff}
-          disabled={isExporting}
-        >
-          {isExporting ? 'Exportando...' : 'Exportar USOFF (Excel)'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={handleExportPortalUsoff}
+            disabled={isExportingPortal}
+            title="Exporta os dados no mesmo formato do Portal Offshore com o cálculo de USOFF ao lado para conferência do total"
+          >
+            <FileSpreadsheet size={16} />
+            <span>{isExportingPortal ? 'Exportando...' : 'Exportar Portal Offshore + USOFF (Excel)'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleExportUsoff}
+            disabled={isExporting}
+          >
+            {isExporting ? 'Exportando...' : 'Exportar USOFF (Excel)'}
+          </button>
+        </div>
       </div>
 
       {/* Card da Fórmula Algébrica */}

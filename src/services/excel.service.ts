@@ -8,12 +8,15 @@ import type {
   CarteiraOperacao,
   ConfirmacaoSAP,
   DayTechRow,
+  FilterState,
   ImportKind,
   PeriodWindow,
-  Plataforma
+  Plataforma,
+  UsoffOperationRow
 } from '../domain/types';
 import {
   addDays,
+  diffDays,
   formatBr,
   parseExcelOrStringDate,
   todayIso
@@ -25,25 +28,39 @@ import {
   parseIdEmbarque,
   slugify
 } from '../utils/format';
-import { periodDisplayName, periodFileSlug } from '../domain/periods';
+import { eachDay, periodDisplayName, periodFileSlug } from '../domain/periods';
 import {
   accumulateEmbarkation,
   armadorOf,
   buildPlatformIndex,
+  calcHpCarteiraInInterval,
+  calcHpInInterval,
   computeCobrancaStats,
   computeDataAte,
   computeMeasurementDays,
+  computePeriodDays,
   computePeriodTechs,
+  findCarteira,
   findResponsiblePeople,
   getClosedEmbarkations,
   groupDaysByField,
   inferEmbarkation,
+  isArmadorPlatform,
+  lookupPlatform,
+  mergeConfrontoOperations,
+  passesFilter,
   prazoOf,
   resolveLocation,
+  resolvePlace,
   resolveRecord,
   resolveTechName
 } from '../domain/calculations';
-import { computeUsoffOperations, summarizeUsoff } from '../domain/usoff';
+import {
+  computeUsoffOperations,
+  hasGangwayJustification,
+  resolveUsoffWeights,
+  summarizeUsoff
+} from '../domain/usoff';
 
 // ------------------------------------------------------------------------------
 // Definições de Colunas e Sinônimos para Detecção Automática
@@ -147,6 +164,29 @@ const r1 = (v?: number | null): number | string =>
 
 const rp = (v?: number | null): number | string =>
   v == null || isNaN(v) ? '' : Math.round(v * 10) / 1000;
+
+const round4 = (v: number): number => Math.round(v * 10000) / 10000;
+
+function applyDecimalFormatting(
+  XLSX: any,
+  ws: any,
+  colIndices: number[],
+  startRow: number,
+  numFmt = '#,##0.00',
+  endRow?: number
+) {
+  if (!ws || !ws['!ref']) return;
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  const maxRow = endRow != null ? Math.min(endRow, range.e.r) : range.e.r;
+  colIndices.forEach(c => {
+    for (let r = startRow; r <= maxRow; r++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell && typeof cell.v === 'number') {
+        cell.z = numFmt;
+      }
+    }
+  });
+}
 
 /**
  * Sanitiza células de texto contra Injeção de Fórmulas / DDE (OWASP CWE-1236).
@@ -975,6 +1015,670 @@ export async function exportUsoffXlsx(
   const fileSuffix = periodFileSlug(period);
   const scopeTag = scopeLabel ? ` [PARCIAL - ${scopeLabel}]` : '';
   saveWorkbook(XLSX, wb, `USOFF ${fileSuffix}${scopeTag}.xlsx`);
+}
+
+// ------------------------------------------------------------------------------
+// 2B. Exportação Excel: Formato Portal Offshore + Cálculo USOFF ao Lado
+// ------------------------------------------------------------------------------
+
+interface EvaluatedUsoffLine {
+  peVal: number | string;
+  exVal: number | string;
+  opPeHp: number | null;
+  opExHc: number | null;
+  opUsoff: number | null;
+  regra: string;
+  bucket: string;
+  consumedDiaria: boolean;
+}
+
+function evaluateOperationUsoff(params: {
+  statusProg: string;
+  isDiaria: boolean;
+  hasGw: boolean;
+  hp: number;
+  hpCart: number;
+  hc: number;
+  weights: { pe: number | null; ex: number | null };
+  embDias: number;
+  embId: string;
+  alreadyCountedDiaria: boolean;
+}): EvaluatedUsoffLine {
+  const {
+    statusProg,
+    isDiaria,
+    hasGw,
+    hp,
+    hpCart,
+    hc,
+    weights,
+    embDias,
+    embId,
+    alreadyCountedDiaria
+  } = params;
+
+  if (statusProg === 'Cancelada') {
+    return {
+      peVal: isDiaria ? 'Diária' : weights.pe ?? '',
+      exVal: isDiaria ? 'Diária' : weights.ex ?? '',
+      opPeHp: 0,
+      opExHc: 0,
+      opUsoff: 0,
+      regra: 'Cancelada (desconsiderada no USOFF)',
+      bucket: 'Cancelada (desconsiderada)',
+      consumedDiaria: false
+    };
+  }
+
+  if (isDiaria) {
+    if (!alreadyCountedDiaria) {
+      const diariaUs = embDias * 10;
+      return {
+        peVal: 'Diária',
+        exVal: 'Diária',
+        opPeHp: 0,
+        opExHc: diariaUs,
+        opUsoff: diariaUs,
+        regra: `Diária (${embDias} ${embDias === 1 ? 'dia' : 'dias'} × 10 — cobrado 1× no embarque)`,
+        bucket: 'Diária (Armador / UMS / Afretadas)',
+        consumedDiaria: true
+      };
+    }
+    return {
+      peVal: 'Diária',
+      exVal: 'Diária',
+      opPeHp: 0,
+      opExHc: 0,
+      opUsoff: 0,
+      regra: `Diária (já computada na 1ª linha do ${embId ? `ID ${embId}` : 'embarque'})`,
+      bucket: 'Diária (Armador / UMS / Afretadas)',
+      consumedDiaria: false
+    };
+  }
+
+  if (weights.pe == null || weights.ex == null) {
+    return {
+      peVal: weights.pe ?? 'Falta',
+      exVal: weights.ex ?? 'Falta',
+      opPeHp: null,
+      opExHc: null,
+      opUsoff: null,
+      regra: 'Falta PE/EX',
+      bucket: 'Falta PE/EX',
+      consumedDiaria: false
+    };
+  }
+
+  const isCarteira = statusProg === 'Carteira';
+
+  if (hc === 0) {
+    if (hasGw) {
+      const peHp = weights.pe * hpCart;
+      return {
+        peVal: weights.pe,
+        exVal: weights.ex,
+        opPeHp: peHp,
+        opExHc: 0,
+        opUsoff: peHp,
+        regra: isCarteira
+          ? 'Gangway desconectada (PE × HP Carteira)'
+          : 'Gangway desconectada (Fora da carteira: PE=0)',
+        bucket: isCarteira ? 'Carteira (Gangway HC = 0)' : 'Fora da carteira (Execução Zero HC = 0)',
+        consumedDiaria: false
+      };
+    }
+    return {
+      peVal: weights.pe,
+      exVal: weights.ex,
+      opPeHp: 0,
+      opExHc: 0,
+      opUsoff: 0,
+      regra: hp > 0 ? 'Execução Zero (HC=0 ⇒ USOFF=0)' : 'Sem horas programadas nem executadas',
+      bucket: isCarteira ? 'Carteira (Execução Zero HC = 0)' : 'Fora da carteira (Execução Zero HC = 0)',
+      consumedDiaria: false
+    };
+  }
+
+  const opPeHp = weights.pe * hpCart;
+  const opExHc = weights.ex * hc;
+  const opUsoff = opPeHp + opExHc;
+
+  if (statusProg === 'Não Cadastrado no Portal') {
+    return {
+      peVal: weights.pe,
+      exVal: weights.ex,
+      opPeHp,
+      opExHc,
+      opUsoff,
+      regra: 'SAP não cadastrado no Portal (Apenas EX × HC)',
+      bucket: 'Não Cadastrado no Portal (SAP)',
+      consumedDiaria: false
+    };
+  }
+
+  if (statusProg === 'Sem programação') {
+    return {
+      peVal: weights.pe,
+      exVal: weights.ex,
+      opPeHp,
+      opExHc,
+      opUsoff,
+      regra: 'Sem programação (Apenas EX × HC)',
+      bucket: 'Sem programação',
+      consumedDiaria: false
+    };
+  }
+
+  return {
+    peVal: weights.pe,
+    exVal: weights.ex,
+    opPeHp,
+    opExHc,
+    opUsoff,
+    regra: isCarteira ? 'Carteira (PE × HP + EX × HC)' : 'Fora da carteira (Apenas EX × HC)',
+    bucket: isCarteira ? 'Carteira (com execução HC > 0)' : 'Fora da carteira (com execução HC > 0)',
+    consumedDiaria: false
+  };
+}
+
+/**
+ * Exporta o relatório no mesmo formato tabular do Portal Offshore com o cálculo
+ * detalhado de USOFF ao lado, permitindo auditar linha a linha o total apurado.
+ */
+export async function exportUsoffPortalOffshoreXlsx(
+  dataset: AppDataset,
+  period: PeriodWindow,
+  filters: FilterState,
+  scopeLabel?: string
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  const pidx = buildPlatformIndex(dataset.plataformas);
+  const ate = computeDataAte(period, dataset.watermark.ultima_data_hh);
+  const enc = dataset.config.med_criterio === 'enc';
+
+  const embarques = computeUsoffOperations(period, dataset, filters, pidx, 'embarque');
+  const summary = summarizeUsoff(embarques);
+  const embByKey = new Map<string, UsoffOperationRow>();
+  embarques.forEach(e => embByKey.set(e.key, e));
+
+  const headers = [
+    // Formato Portal Offshore
+    'ID',
+    'Matrícula',
+    'Chave',
+    'Nome',
+    'Empresa',
+    'Estrutura',
+    'Unidade',
+    'Início',
+    'Fim',
+    'Ordem',
+    'Operação',
+    'Status Processamento',
+    'Prioridade',
+    'Status Programação',
+    'HH Programado',
+    'HH Confirmado',
+    'Recursos',
+    // Cálculo de USOFF ao lado
+    'UN (Sistema)',
+    'Plataforma (Sistema)',
+    'Regime',
+    'Dias Embarque',
+    'HH Confirmado (SAP)',
+    'HC Considerado (USOFF)',
+    'HP Carteira (≥12d)',
+    'Gangway',
+    'PE',
+    'EX',
+    'PE × HP',
+    'EX × HC',
+    'USoff',
+    'Regra / Observação USoff'
+  ];
+
+  interface BucketAgg {
+    linhas: number;
+    hp: number;
+    hcPortal: number;
+    hcSap: number;
+    hcUsado: number;
+    peHp: number;
+    exHc: number;
+    us: number;
+  }
+
+  const bucketOrder = [
+    'Carteira (com execução HC > 0)',
+    'Carteira (Execução Zero HC = 0)',
+    'Carteira (Gangway HC = 0)',
+    'Fora da carteira (com execução HC > 0)',
+    'Fora da carteira (Execução Zero HC = 0)',
+    'Não Cadastrado no Portal (SAP)',
+    'Diária (Armador / UMS / Afretadas)',
+    'Cancelada (desconsiderada)',
+    'Sem programação',
+    'Falta PE/EX'
+  ];
+  const buckets = new Map<string, BucketAgg>();
+  const ensureBucket = (name: string): BucketAgg => {
+    let b = buckets.get(name);
+    if (!b) {
+      b = { linhas: 0, hp: 0, hcPortal: 0, hcSap: 0, hcUsado: 0, peHp: 0, exHc: 0, us: 0 };
+      buckets.set(name, b);
+    }
+    return b;
+  };
+  bucketOrder.slice(0, 8).forEach(ensureBucket);
+
+  const dataRows: any[][] = [];
+  const diariaAccountedKeys = new Set<string>();
+  let sumPeHp = 0;
+  let sumExHc = 0;
+  let sumUsoff = 0;
+  let faltaRowCount = 0;
+
+  const pushEvaluatedRow = (args: {
+    id: string;
+    mat: string;
+    chave: string;
+    nome: string;
+    empresa: string;
+    estrutura: string;
+    unidadeRaw: string;
+    ini: string;
+    fim: string;
+    ordem: string;
+    operacao: string;
+    statusProc: string;
+    prioridade: string;
+    statusProg: string;
+    hp: number;
+    hcPortal: number;
+    recursos: number;
+    unSistema: string;
+    platSistema: string;
+    isDiaria: boolean;
+    embDias: number;
+    hcSap: number;
+    hcUsado: number;
+    hpCart: number;
+    hasGw: boolean;
+    evalRes: EvaluatedUsoffLine;
+  }) => {
+    const { evalRes } = args;
+    if (evalRes.opUsoff == null) {
+      faltaRowCount++;
+    } else {
+      sumPeHp += evalRes.opPeHp || 0;
+      sumExHc += evalRes.opExHc || 0;
+      sumUsoff += evalRes.opUsoff;
+    }
+
+    const agg = ensureBucket(evalRes.bucket);
+    agg.linhas += 1;
+    agg.hp += args.hp;
+    agg.hcPortal += args.hcPortal;
+    agg.hcSap += args.hcSap;
+    agg.hcUsado += args.hcUsado;
+    agg.peHp += evalRes.opPeHp || 0;
+    agg.exHc += evalRes.opExHc || 0;
+    agg.us += evalRes.opUsoff || 0;
+
+    dataRows.push([
+      args.id,
+      args.mat,
+      args.chave,
+      args.nome,
+      args.empresa,
+      args.estrutura,
+      args.unidadeRaw,
+      args.ini ? formatBr(args.ini) : '',
+      args.fim ? formatBr(args.fim) : '',
+      args.ordem,
+      args.operacao,
+      args.statusProc,
+      args.prioridade,
+      args.statusProg,
+      round4(args.hp),
+      round4(args.hcPortal),
+      args.recursos,
+      args.unSistema,
+      args.platSistema,
+      args.isDiaria ? 'Diária' : 'HH',
+      args.embDias,
+      round4(args.hcSap),
+      round4(args.hcUsado),
+      round4(args.hpCart),
+      args.hasGw ? 'Sim' : 'Não',
+      evalRes.peVal,
+      evalRes.exVal,
+      evalRes.opPeHp != null ? round4(evalRes.opPeHp) : '',
+      evalRes.opExHc != null ? round4(evalRes.opExHc) : '',
+      evalRes.opUsoff != null ? round4(evalRes.opUsoff) : '',
+      evalRes.regra
+    ]);
+  };
+
+  const hasGranularOps = Boolean(dataset.carteiraOperacoes && dataset.carteiraOperacoes.length > 0);
+
+  if (hasGranularOps) {
+    const rawOps = mergeConfrontoOperations(
+      dataset.carteiraOperacoes || [],
+      dataset.confirmacoesSap || [],
+      dataset.carteira || [],
+      dataset.tecnicos || {}
+    );
+
+    const opsInScope = rawOps
+      .filter(op => {
+        const a = op.data_inicio;
+        const b = op.data_fim;
+        if (enc) {
+          if (b < period.ini || b > period.fim) return false;
+        } else {
+          if (a > period.fim || b < period.ini) return false;
+        }
+        const l = resolvePlace(pidx, op.plataforma_sigla || undefined, op.unidade_negocio);
+        return passesFilter(l, filters, dataset.pessoas);
+      })
+      .sort((x, y) => {
+        const cmpIni = (x.data_inicio || '').localeCompare(y.data_inicio || '');
+        if (cmpIni !== 0) return cmpIni;
+        const idX = x.id_embarque || x.portal_id || '';
+        const idY = y.id_embarque || y.portal_id || '';
+        const cmpId = idX.localeCompare(idY, undefined, { numeric: true });
+        if (cmpId !== 0) return cmpId;
+        const cmpMat = x.matricula.localeCompare(y.matricula, undefined, { numeric: true });
+        if (cmpMat !== 0) return cmpMat;
+        const cmpOrd = (x.ordem || '').localeCompare(y.ordem || '', undefined, { numeric: true });
+        if (cmpOrd !== 0) return cmpOrd;
+        return (x.operacao || '').localeCompare(y.operacao || '', undefined, { numeric: true });
+      });
+
+    opsInScope.forEach(op => {
+      const a = op.data_inicio;
+      const b = op.data_fim;
+      const l = resolvePlace(pidx, op.plataforma_sigla || undefined, op.unidade_negocio);
+      const platObj = lookupPlatform(pidx, op.plataforma_sigla || undefined);
+      const isDiaria = isArmadorPlatform(platObj, op.plataforma_sigla || undefined, op.unidade_negocio, dataset.usoffUnWeights);
+      const hasGw = hasGangwayJustification(op.matricula, a, b, dataset.justMap);
+
+      const hp = Number(op.hh_programado) || 0;
+      const hcPortal = Number(op.hh_confirmado) || 0;
+      const hcSap = Number(op.hh_confirmado_sap) || 0;
+      const hc = Math.max(hcSap, hcPortal);
+      const isCarteira = op.status_programacao === 'Carteira';
+      const hpCart = isCarteira ? hp : 0;
+
+      const embRef =
+        dataset.carteira.find(
+          ce =>
+            (op.id_embarque && ce.id_embarque === op.id_embarque) ||
+            (op.portal_id && ce.id_embarque === op.portal_id) ||
+            (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
+        ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
+
+      const weights = resolveUsoffWeights(embRef || null, l, dataset.config, dataset.usoffUnWeights);
+      const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
+      const opKey = embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`;
+      const embSummary = embByKey.get(opKey);
+      const embDias = embSummary?.dias ?? (a && b ? diffDays(a, b) + 1 : 0);
+
+      const evalRes = evaluateOperationUsoff({
+        statusProg: op.status_programacao,
+        isDiaria,
+        hasGw,
+        hp,
+        hpCart,
+        hc,
+        weights,
+        embDias,
+        embId,
+        alreadyCountedDiaria: diariaAccountedKeys.has(opKey)
+      });
+      if (evalRes.consumedDiaria) {
+        diariaAccountedKeys.add(opKey);
+      }
+
+      pushEvaluatedRow({
+        id: embId,
+        mat: op.matricula,
+        chave: op.chave_petrobras || '',
+        nome: op.nome || resolveTechName(op.matricula, dataset),
+        empresa: op.empresa || '',
+        estrutura: op.estrutura || op.unidade_negocio || '',
+        unidadeRaw: op.plataforma_sigla || '',
+        ini: a,
+        fim: b,
+        ordem: op.ordem || '',
+        operacao: op.operacao || '',
+        statusProc: op.status_processamento || '',
+        prioridade: op.prioridade || '',
+        statusProg: op.status_programacao || '',
+        hp,
+        hcPortal,
+        recursos: op.recursos != null ? Number(op.recursos) : 1,
+        unSistema: l.r,
+        platSistema: l.p,
+        isDiaria,
+        embDias,
+        hcSap,
+        hcUsado: hc,
+        hpCart,
+        hasGw,
+        evalRes
+      });
+    });
+  } else {
+    const listEmbarkations = enc
+      ? getClosedEmbarkations(period, dataset, filters, pidx)
+      : dataset.carteira;
+
+    listEmbarkations.forEach(c => {
+      const a = enc ? c.data_inicio : c.data_inicio > period.ini ? c.data_inicio : period.ini;
+      const b = enc ? c.data_fim : c.data_fim < period.fim ? c.data_fim : period.fim;
+      if (a > b) return;
+
+      const l = resolvePlace(pidx, c.plataforma_sigla, c.unidade_negocio);
+      if (!passesFilter(l, filters, dataset.pessoas)) return;
+
+      let hc = 0;
+      const bb = b < ate ? b : ate;
+      eachDay(a, bb, D => {
+        const r = resolveRecord(c.matricula, D, dataset);
+        if (r) hc += r.e;
+      });
+
+      const platObj = lookupPlatform(pidx, c.plataforma_sigla);
+      const isDiaria = isArmadorPlatform(platObj, c.plataforma_sigla, c.unidade_negocio, dataset.usoffUnWeights);
+      const hasGw = hasGangwayJustification(c.matricula, a, b, dataset.justMap);
+      const weights = resolveUsoffWeights(c, l, dataset.config, dataset.usoffUnWeights);
+      const embId = c.id_embarque || c.id || '';
+      const opKey = embId ? `emb:${embId}` : `emb:${c.matricula}_${a}_${c.plataforma_sigla || ''}`;
+      const embSummary = embByKey.get(opKey);
+      const embDias = embSummary?.dias ?? diffDays(a, b) + 1;
+
+      const hp = calcHpInInterval(c, a, b, dataset.config, dataset.plataformas);
+      const hpCart = calcHpCarteiraInInterval(c, a, b, dataset.config, dataset.plataformas);
+      const statusProg = hpCart === 0 && hp > 0 ? 'Fora da carteira' : 'Carteira';
+
+      const evalRes = evaluateOperationUsoff({
+        statusProg,
+        isDiaria,
+        hasGw,
+        hp,
+        hpCart,
+        hc,
+        weights,
+        embDias,
+        embId,
+        alreadyCountedDiaria: diariaAccountedKeys.has(opKey)
+      });
+      if (evalRes.consumedDiaria) {
+        diariaAccountedKeys.add(opKey);
+      }
+
+      pushEvaluatedRow({
+        id: embId,
+        mat: c.matricula,
+        chave: '',
+        nome: c.nome || resolveTechName(c.matricula, dataset),
+        empresa: '',
+        estrutura: c.unidade_negocio || '',
+        unidadeRaw: c.plataforma_sigla || '',
+        ini: a,
+        fim: b,
+        ordem: '',
+        operacao: c.operacao || '',
+        statusProc: '',
+        prioridade: '',
+        statusProg,
+        hp,
+        hcPortal: 0,
+        recursos: 1,
+        unSistema: l.r,
+        platSistema: l.p,
+        isDiaria,
+        embDias,
+        hcSap: 0,
+        hcUsado: hc,
+        hpCart,
+        hasGw,
+        evalRes
+      });
+    });
+  }
+
+  if (!enc) {
+    embarques
+      .filter(e => e.tipo === 'Sem programação')
+      .forEach(e => {
+        const mat = Array.from(e.mats)[0] || '';
+        const plat = Array.from(e.plats)[0] || '';
+        const reg = Array.from(e.regs)[0] || '';
+        const isDiaria = e.fonte.includes('Diária');
+        const hasGw = hasGangwayJustification(mat, e.ini, e.fim, dataset.justMap);
+        const peVal = isDiaria ? 'Diária' : e.falta ? 'Falta' : Array.from(e.pes)[0] ?? '';
+        const exVal = isDiaria ? 'Diária' : e.falta ? 'Falta' : Array.from(e.exs)[0] ?? '';
+
+        pushEvaluatedRow({
+          id: '',
+          mat,
+          chave: '',
+          nome: resolveTechName(mat, dataset),
+          empresa: '',
+          estrutura: reg,
+          unidadeRaw: plat,
+          ini: e.ini,
+          fim: e.fim,
+          ordem: '',
+          operacao: '',
+          statusProc: '',
+          prioridade: '',
+          statusProg: 'Sem programação',
+          hp: 0,
+          hcPortal: 0,
+          recursos: 1,
+          unSistema: reg,
+          platSistema: plat,
+          isDiaria,
+          embDias: e.dias,
+          hcSap: 0,
+          hcUsado: e.hc,
+          hpCart: 0,
+          hasGw,
+          evalRes: {
+            peVal,
+            exVal,
+            opPeHp: e.falta ? null : e.peHp,
+            opExHc: e.falta ? null : e.exHc,
+            opUsoff: e.us,
+            regra: isDiaria
+              ? `Diária (${e.dias} ${e.dias === 1 ? 'dia' : 'dias'} × 10 — sem programação)`
+              : e.falta
+              ? 'Falta PE/EX'
+              : 'Sem programação (Apontamento HH sem carteira)',
+            bucket: e.falta ? 'Falta PE/EX' : isDiaria ? 'Diária (Armador / UMS / Afretadas)' : 'Sem programação',
+            consumedDiaria: false
+          }
+        });
+      });
+  }
+
+  const bannerRows = scopeLabel
+    ? [[`[ESCOPO PARCIAL DE CARTEIRA - ${scopeLabel.toUpperCase()}]`], []]
+    : [];
+
+  const widths = [
+    12, 12, 12, 30, 18, 20, 12, 12, 12, 14, 10, 20, 12, 22, 14, 14, 10,
+    24, 16, 10, 14, 18, 20, 18, 10, 9, 9, 12, 12, 12, 38
+  ];
+  const sheet1StartDataRow = bannerRows.length + 1;
+  const wsPortal = createSheet(XLSX, [...bannerRows, headers, ...dataRows], widths);
+  applyDecimalFormatting(XLSX, wsPortal, [25, 26, 27, 28, 29], sheet1StartDataRow);
+  XLSX.utils.book_append_sheet(wb, wsPortal, 'Portal Offshore + USOFF');
+
+  // Aba 2: Resumo de Validação (Painel vs Soma das Linhas)
+  const filterTags = [
+    filters.fReg ? `UN: ${filters.fReg}` : '',
+    filters.fPlat ? `Plataforma: ${filters.fPlat}` : '',
+    filters.fResp ? `Responsável: ${dataset.pessoas[filters.fResp]?.nome || filters.fResp}` : ''
+  ].filter(Boolean);
+
+  const hasFalta = summary.falta > 0 || faltaRowCount > 0;
+  const resumoRows: any[][] = [
+    ['Infotec Brasil · Validação Portal Offshore + USOFF'],
+    ...(scopeLabel ? [[`[ESCOPO PARCIAL DE CARTEIRA - ${scopeLabel.toUpperCase()}]`]] : []),
+    [`${periodDisplayName(period)} (${formatBr(period.ini)} a ${formatBr(period.fim)}) · executado até ${formatBr(ate)}`],
+    [enc ? 'Critério: embarques com desembarque no período; o embarque entra inteiro' : 'Critério: dias trabalhados no período'],
+    ...(filterTags.length > 0 ? [[`Filtros ativos: ${filterTags.join(' | ')}`]] : []),
+    [],
+    ['Confronto do Total USOFF', 'Valor'],
+    ['Total USoff apresentado no painel', summary.us == null ? 'falta PE/EX' : round4(summary.us)],
+    ['Soma da coluna USoff (Aba 1)', hasFalta ? `falta PE/EX (${faltaRowCount} linha(s) · parcial: ${round4(sumUsoff)})` : round4(sumUsoff)],
+    ['Diferença (Painel − Soma da Aba 1)', hasFalta || summary.us == null ? '—' : round4(summary.us - sumUsoff)],
+    ['Parcela Programação (Σ PE × HP) — Painel', summary.falta ? 'falta PE/EX' : round4(summary.peHp)],
+    ['Parcela Programação (Σ PE × HP) — Soma Aba 1', hasFalta ? 'falta PE/EX' : round4(sumPeHp)],
+    ['Parcela Execução (Σ EX × HC) — Painel', summary.falta ? 'falta PE/EX' : round4(summary.exHc)],
+    ['Parcela Execução (Σ EX × HC) — Soma Aba 1', hasFalta ? 'falta PE/EX' : round4(sumExHc)],
+    ['Embarques considerados no painel', summary.n],
+    ['Total de linhas exportadas na Aba 1', dataRows.length],
+    [],
+    ['Classificação / Regra', 'Linhas', 'HH Programado', 'HH Conf. Portal', 'HH Conf. SAP', 'HC Considerado', 'PE × HP', 'EX × HC', 'USoff'],
+    ...bucketOrder
+      .filter(name => buckets.has(name))
+      .map(name => {
+        const b = buckets.get(name)!;
+        return [
+          name,
+          b.linhas,
+          round4(b.hp),
+          round4(b.hcPortal),
+          round4(b.hcSap),
+          round4(b.hcUsado),
+          round4(b.peHp),
+          round4(b.exHc),
+          round4(b.us)
+        ];
+      })
+  ];
+
+  const wsResumo = createSheet(XLSX, resumoRows, [46, 12, 16, 16, 16, 18, 14, 14, 14]);
+  const confrontoStartRow = resumoRows.findIndex(r => r[0] === 'Total USoff apresentado no painel');
+  const bucketStartRow = resumoRows.findIndex(r => r[0] === 'Classificação / Regra') + 1;
+  if (confrontoStartRow >= 0) {
+    applyDecimalFormatting(XLSX, wsResumo, [1], confrontoStartRow, '#,##0.00', confrontoStartRow + 6);
+  }
+  if (bucketStartRow > 0) {
+    applyDecimalFormatting(XLSX, wsResumo, [2, 3, 4, 5, 6, 7, 8], bucketStartRow, '#,##0.00');
+  }
+  XLSX.utils.book_append_sheet(wb, wsResumo, sanitizeSheetName('Resumo Validação'));
+
+  const fileSuffix = periodFileSlug(period);
+  const scopeTag = scopeLabel ? ` [PARCIAL - ${scopeLabel}]` : '';
+  saveWorkbook(XLSX, wb, `Portal Offshore + USOFF ${fileSuffix}${scopeTag}.xlsx`);
 }
 
 // ------------------------------------------------------------------------------

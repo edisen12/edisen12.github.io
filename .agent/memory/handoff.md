@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-12 15:37 (BRT) · HEAD: 29c66fb · Suíte Completa: 31 arquivos / 580 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 4.94s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado e publicado com sucesso ✅
+> Última atualização: 2026-11-12 17:43 (BRT) · HEAD: 93aeaeb · Suíte Completa: 33 arquivos / 586 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.40s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado ✅
 
 ## 1. Resumo Executivo
 
@@ -41,7 +41,8 @@
 
 ### Utilitários
 - `src/utils/date.ts`, `src/utils/format.ts` (`parseCounter`, `parseFlexibleHours`, `parseIdEmbarque`, `sanitizePlatformCode`, `PLATFORM_ALIASES`) + `src/utils/__tests__/date-format.test.ts` (67 testes).
-- `src/utils/__tests__/pwa.test.ts` (8 testes cobrindo Service Worker seguro, Web App Manifest e ciclo de instalação).
+- `src/utils/pwa.ts` (ver acima) + `src/utils/__tests__/pwa.test.ts` (8 testes cobrindo Service Worker seguro, Web App Manifest e ciclo de instalação).
+- `src/utils/scrollLock.ts` (`acquireScrollLock` com contagem de referências e `registerEscapeLayer` com pilha por prioridade/LIFO) + `src/utils/__tests__/scrollLock.test.ts` (2 testes).
 
 ### Serviços & Abstração Client-Side (Dual-Topology)
 - `src/ports/{auth,data,realtime,client-provider,baas-connector}.port.ts` — contratos agnósticos de Auth, Data, Realtime e BaaS (`BatchImportConfirmacaoSAPRow` com `contador`).
@@ -67,9 +68,9 @@
 - `src/security/__tests__/*` (157 testes em rbac, rls-policies, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
 - `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (41 testes cobrindo BaaS connector, provider self-hosted, drivers SQL/Doc/Memória, reconciliação SAP +4 dias, granularidade e operador `neq`).
 - `src/services/__tests__/{auth,data,excel}.service.test.ts` (70 testes cobrindo autenticação, importação em lote, parsing e exportadores Excel com anti-formula injection e escopo parcial).
-- `src/ui/components/__tests__/*` (30 testes em DataTable, SegmentedControl, Sidebar e ResponsiveShellAndPwa).
+- `src/ui/components/__tests__/*` (DataTable incluindo `minWidth`, SegmentedControl, Sidebar, ResponsiveShellAndPwa e MeterBarAndOverlay).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
-- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (7 testes).
+- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (8 testes, incluindo retorno `returnToFichaMat`).
 - `src/ui/views/__tests__/*` (59 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView, OperationalViews e MedicaoUsoffView).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
@@ -121,10 +122,14 @@
       1. `Portal Offshore + USOFF`: as **17 colunas idênticas** ao download oficial do Portal Offshore (`ID`, `Matrícula`, `Chave`, `Nome`, `Empresa`, `Estrutura`, `Unidade`, `Início`, `Fim`, `Ordem`, `Operação`, `Status Processamento`, `Prioridade`, `Status Programação`, `HH Programado`, `HH Confirmado`, `Recursos`) seguidas de **14 colunas de cálculo USOFF ao lado** (`UN (Sistema)`, `Plataforma (Sistema)`, `Regime`, `Dias Embarque`, `HH Confirmado (SAP)`, `HC Considerado (USOFF)`, `HP Carteira (≥12d)`, `Gangway`, `PE`, `EX`, `PE × HP`, `EX × HC`, `USoff`, `Regra / Observação USoff`).
       2. `Resumo Validação`: conciliação direta entre `Total USoff apresentado no painel` e `Soma da coluna USoff (Aba 1)` (diferença garantida `0`), além de detalhamento por classificação/regra (`Carteira (com execução HC > 0)`, `Carteira (Execução Zero HC = 0)`, `Carteira (Gangway HC = 0)`, `Fora da carteira (com execução HC > 0)`, `Fora da carteira (Execução Zero HC = 0)`, `Não Cadastrado no Portal (SAP)`, `Diária (Armador / UMS / Afretadas)`, `Cancelada (desconsiderada)`, `Sem programação`, `Falta PE/EX`).
     - Cobertura de testes adicionada em `src/ui/views/__tests__/MedicaoUsoffView.test.tsx` e `src/services/__tests__/excel.service.test.ts` (validando paridade exata com `summarizeUsoff(computeUsoffOperations(..., 'embarque')).us`, CWE-1236 e escopo parcial).
+  - **Frente 8: Refinamento de UI/UX (Transição Ficha ↔ Carteira, Camadas de Overlays e Barras de Progresso/Colunas):**
+    - *Navegação limpa entre Ficha do Técnico e Carteira do Embarque:* `AppContext.tsx` (`returnToFichaMat` e `fichaMatRef`) suspende automaticamente o `FichaTecnicoDrawer` ao abrir `CarteiraEmbarqueModal` (eliminando sobreposição de dois painéis grandes e dois backdrops), e `CarteiraEmbarqueModal.tsx` exibe os botões contextuais **`Voltar à Ficha`** (cabeçalho) e **`Voltar para a Ficha do Técnico`** (rodapé). Da mesma forma, `PainelDiaView.tsx` fecha `modalOrdens` ao abrir a carteira.
+    - *Empilhamento seguro para sub-modais compactos:* `.modal-overlay` elevado para `z-index: 120` (acima do `.drawer-box` em `101` e abaixo dos toasts em `200`), combinando `Modal.tsx` e `Drawer.tsx` com `src/utils/scrollLock.ts` para manter o bloqueio de scroll por contagem de referências e fechar sempre a camada superior na tecla `Escape`.
+    - *Dimensionamento de tabelas e visibilidade de `<MeterBar />`:* `DataTable.tsx` passa a aceitar `minWidth`; `src/styles/components.css` reforça `.meter` (`min-width: 148px`), `.meter-val` (`min-width: 52px`), `.meter-track` (`min-width: 76px`, `height: 10px`, contraste `var(--line)`/`--line-strong`), e `MeterBar.tsx` aplica `minWidth: '4px'` em percentuais positivos baixos (`> 0%`). Larguras e `minWidth` ajustados em `MedicaoUsoffView.tsx`, `MedicaoRelatoriosView.tsx` (incluindo remoção de `'minmax(170px, 240px)'` inválido em `<td>`), `JustificativasView.tsx` e `VisaoGeralView.tsx` (`175px` / `minWidth: 165px`).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **31 arquivos / 580 testes aprovados (100% verdes)**.
+    - Suíte de testes: **33 arquivos / 586 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 4.94s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 5.40s**.
 
 ## 4. Próximos Passos (priorizados)
 

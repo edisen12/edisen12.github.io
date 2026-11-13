@@ -37,6 +37,7 @@ import {
   groupDaysByField,
   hpSourceLabel,
   inferEmbarkation,
+  isSapBeforeEmbarkation,
   isArmadorDiariaSemProg,
   isArmadorPlatform,
   isPersonResponsible,
@@ -1823,6 +1824,158 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(extraValida.hh_confirmado_sap).toBe(6);
       expect(extraValida.data_inicio).toBe('2026-10-01');
       expect(extraValida.data_fim).toBe('2026-10-14');
+    });
+
+    it('rejeita confirmação SAP pré-embarque (data_lancamento ou data_fim_real < data_inicio), inclusive para ORD 002031549540 / op 0020 com id_embarque legado', () => {
+      expect(isSapBeforeEmbarkation({ data_lancamento: '2026-10-08', data_fim_real: '2026-10-11', data_criacao: '2026-10-11' }, '2026-10-10')).toBe(true);
+      expect(isSapBeforeEmbarkation({ data_lancamento: '2026-10-11', data_fim_real: '2026-10-08', data_criacao: '2026-10-11' }, '2026-10-10')).toBe(true);
+      expect(isSapBeforeEmbarkation({ data_lancamento: '2026-10-25', data_fim_real: '2026-10-12', data_criacao: '2026-10-25' }, '2026-10-10')).toBe(false);
+      expect(isSapBeforeEmbarkation({ data_lancamento: '', data_fim_real: '', data_criacao: '2026-10-09' }, '2026-10-10')).toBe(true);
+
+      const embActual: CarteiraEmbarque = {
+        id: 'emb-57010',
+        matricula: '1007',
+        id_embarque: '57010',
+        plataforma_sigla: 'P50',
+        unidade_negocio: 'UN-RIO',
+        data_inicio: '2026-10-10',
+        data_fim: '2026-10-20',
+        horas_programadas: 110,
+        operacao: 'OP-GERAL',
+        pe: null,
+        ex: null,
+        fonte: 'portal_offshore'
+      };
+
+      const op0020: import('../types').CarteiraOperacao = {
+        id: 'op-2031549540-0020',
+        portal_id: '57010',
+        id_embarque: '57010',
+        matricula: '1007',
+        chave_petrobras: '',
+        nome: 'Técnico Sintético',
+        empresa: 'Infotec',
+        estrutura: 'UN-RIO',
+        unidade_negocio: 'UN-RIO',
+        plataforma_sigla: 'P50',
+        data_inicio: '2026-10-10',
+        data_fim: '2026-10-20',
+        ordem: '002031549540',
+        operacao: '0020',
+        status_processamento: 'Concluído',
+        prioridade: 'Regular',
+        status_programacao: 'Carteira',
+        hh_programado: 5,
+        hh_confirmado: 5,
+        hh_confirmado_sap: 6,
+        divergencia_sap: 1,
+        status_divergencia: 'Divergente (+1h)',
+        recursos: 1,
+        fonte: 'portal_offshore'
+      };
+
+      const sapEntries: import('../types').ConfirmacaoSAP[] = [
+        // 5h válidas durante o embarque
+        {
+          id: 'sap-ok-5h',
+          matricula: '1007',
+          data_criacao: '2026-10-12',
+          data_lancamento: '2026-10-12',
+          data_fim_real: '2026-10-12',
+          ordem: '002031549540',
+          operacao: '0020',
+          horas_confirmadas: 5,
+          contador_confirmacao: 2,
+          id_embarque: '57010',
+          status_reconciliacao: 'Em Carteira'
+        },
+        // 1h pré-embarque (data_lancamento 2026-10-08 < data_inicio 2026-10-10), mesmo com data_fim_real dentro e id_embarque legado
+        {
+          id: 'sap-pre-1h-lanc',
+          matricula: '1007',
+          data_criacao: '2026-10-11',
+          data_lancamento: '2026-10-08',
+          data_fim_real: '2026-10-11',
+          ordem: '002031549540',
+          operacao: '0020',
+          horas_confirmadas: 1,
+          contador_confirmacao: 1,
+          id_embarque: '57010',
+          status_reconciliacao: 'Em Carteira'
+        },
+        // Extra Fora da Carteira também pré-embarque com id_embarque legado: não deve vazar em Passo A
+        {
+          id: 'sap-pre-fora-extra',
+          matricula: '1007',
+          data_criacao: '2026-10-07',
+          data_lancamento: '2026-10-07',
+          data_fim_real: '2026-10-12',
+          ordem: '002099998888',
+          operacao: '0030',
+          horas_confirmadas: 4,
+          contador_confirmacao: 1,
+          id_embarque: '57010',
+          status_reconciliacao: 'Fora da Carteira'
+        }
+      ];
+
+      const mergedSingle = mergeConfrontoOperations([op0020], sapEntries, [embActual]);
+      expect(mergedSingle).toHaveLength(1);
+      expect(mergedSingle[0].hh_confirmado_sap).toBe(5);
+      expect(mergedSingle[0].divergencia_sap).toBe(0);
+      expect(mergedSingle[0].status_divergencia).toBe('OK');
+
+      // Sem vínculo no banco (!csEmb) e múltiplas operações futuras: nunca cai em embarque futuro nem via Passo B
+      const embFut: CarteiraEmbarque = {
+        ...embActual,
+        id: 'emb-57999',
+        id_embarque: '57999',
+        data_inicio: '2026-10-25',
+        data_fim: '2026-11-05'
+      };
+      const opFut: import('../types').CarteiraOperacao = {
+        ...op0020,
+        id: 'op-fut',
+        id_embarque: '57999',
+        portal_id: '57999',
+        data_inicio: '2026-10-25',
+        data_fim: '2026-11-05',
+        hh_confirmado: 0,
+        hh_confirmado_sap: 0
+      };
+      const sapPreFut: import('../types').ConfirmacaoSAP[] = [
+        {
+          id: 'sap-pre-unlinked',
+          matricula: '1007',
+          data_criacao: '2026-10-05',
+          data_lancamento: '2026-10-05',
+          data_fim_real: '2026-10-05',
+          ordem: '002031549540',
+          operacao: '0020',
+          horas_confirmadas: 3,
+          contador_confirmacao: 1,
+          id_embarque: '',
+          status_reconciliacao: 'Sem Embarque'
+        },
+        {
+          // Irmã Fora da Carteira com id_embarque vazio e pré-embarque: não deve acoplar em opFut (Passo B)
+          id: 'sap-pre-sibling',
+          matricula: '1007',
+          data_criacao: '2026-10-05',
+          data_lancamento: '2026-10-05',
+          data_fim_real: '2026-10-05',
+          ordem: '002031549540',
+          operacao: '0099',
+          horas_confirmadas: 2,
+          contador_confirmacao: 1,
+          id_embarque: '',
+          status_reconciliacao: 'Sem Embarque'
+        }
+      ];
+
+      const mergedFut = mergeConfrontoOperations([opFut], sapPreFut, [embFut]);
+      expect(mergedFut).toHaveLength(1);
+      expect(mergedFut[0].hh_confirmado_sap).toBe(0);
     });
   });
 });

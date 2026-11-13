@@ -1398,5 +1398,21 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) FROM PUBLIC, anon/i);
       expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) TO authenticated/i);
     });
+
+    it('Migration 027: bloqueia confirmações SAP pré-embarque (data_lancamento ou data_fim_real < data_inicio) preservando SECURITY DEFINER, Hash Joins e ausência de ce.operacao', () => {
+      const sql = readMigration('027_fix_sap_pre_embarkation_reconciliation.sql');
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.reconciliar_confirmacoes_sap\(\)/i);
+      expect(sql).toMatch(/AS MATERIALIZED\s*\(/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+      expect(sql).toMatch(/auth_is_active\(\)/i);
+      expect(sql).toMatch(/auth_is_global\(\)/i);
+      expect(sql).not.toMatch(/\bce(?:_[a-z]+)?\.operacao\b/i);
+      expect(sql).toMatch(/sap\.data_lancamento\s*>=\s*co\.data_inicio/i);
+      expect(sql).toMatch(/sap\.data_fim_real\s*>=\s*co\.data_inicio/i);
+      expect(sql).toMatch(/cs\.data_lancamento\s*<\s*ce_rej\.data_inicio/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) TO authenticated/i);
+    });
   });
 });

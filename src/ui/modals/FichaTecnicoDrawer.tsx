@@ -10,6 +10,7 @@ import {
   buildSapIndex,
   findCarteira,
   inferEmbarkation,
+  isSapBeforeEmbarkation,
   resolveLocation,
   resolveRecord,
   resolveTechName,
@@ -73,7 +74,9 @@ export function FichaTecnicoDrawer() {
       const acc = emb && r ? accumulateEmbarkation(mat, D, emb, dataset) : null;
       const l = resolveLocation(mat, D, dataset, pidx);
       const j = dataset.justMap[`${mat}|${D}`] || null;
-      const sapItems = sapIndex.byTechDate.get(`${mat}|${D}`) || [];
+      const sapItems = (sapIndex.byTechDate.get(`${mat}|${D}`) || []).filter(
+        cs => !isSapBeforeEmbarkation(cs, emb?.ini || c?.data_inicio)
+      );
 
       out.push({ D, r, c, l, emb, acc, j, sapItems });
     });

@@ -1661,6 +1661,20 @@ export class SelfHostedDomainEngine {
       if (eid) embMetaById.set(eid, ce);
     }
 
+    const isSapBeforeStart = (
+      cs: Pick<ConfirmacaoSAP, 'data_lancamento' | 'data_fim_real' | 'data_criacao'>,
+      dataInicio?: string
+    ): boolean => {
+      const start = (dataInicio || '').trim();
+      if (!start) return false;
+      if (cs.data_lancamento && cs.data_lancamento < start) return true;
+      if (cs.data_fim_real && cs.data_fim_real < start) return true;
+      if (!cs.data_lancamento && !cs.data_fim_real && cs.data_criacao && cs.data_criacao < start) {
+        return true;
+      }
+      return false;
+    };
+
     const pickByDatePreference = <T extends { data_inicio: string }>(
       candidates: T[],
       refDate: string,
@@ -1669,16 +1683,14 @@ export class SelfHostedDomainEngine {
     ): T | undefined => {
       if (candidates.length === 0) return undefined;
       const started = refDate ? candidates.filter(c => c.data_inicio <= refDate) : candidates;
-      const basePool = started.length > 0 ? started : candidates;
+      if (started.length === 0) return undefined;
       if (preferredIds && idGetter) {
-        const prefPool = basePool.filter(c => preferredIds.has(idGetter(c)));
+        const prefPool = started.filter(c => preferredIds.has(idGetter(c)));
         if (prefPool.length > 0) {
           return [...prefPool].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
         }
       }
-      return started.length > 0
-        ? [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0]
-        : [...candidates].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0];
+      return [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
     };
 
     interface Pass1Draft {
@@ -1700,12 +1712,17 @@ export class SelfHostedDomainEngine {
           co =>
             normalizeServerSapCode(co.matricula) === normalizeServerSapCode(cs.matricula) &&
             normalizeServerSapCode(co.ordem) === normalizeServerSapCode(cs.ordem) &&
-            normalizeServerSapCode(co.operacao) === normalizeServerSapCode(cs.operacao)
+            normalizeServerSapCode(co.operacao) === normalizeServerSapCode(cs.operacao) &&
+            !isSapBeforeStart(cs, co.data_inicio)
         )
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
 
       const matchingEmbs = allCart
-        .filter(ce => normalizeServerSapCode(ce.matricula) === normalizeServerSapCode(cs.matricula))
+        .filter(
+          ce =>
+            normalizeServerSapCode(ce.matricula) === normalizeServerSapCode(cs.matricula) &&
+            !isSapBeforeStart(cs, ce.data_inicio)
+        )
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
 
       let resolvedId = '';
@@ -1789,13 +1806,15 @@ export class SelfHostedDomainEngine {
         } else {
           // Prioridade 6: Confirmação irmã já vinculada para a mesma ordem/operação fora da carteira
           const siblingIds = Array.from(linkedIdsByKey3.get(k3) || []);
-          if (siblingIds.length === 1) {
-            resolvedId = siblingIds[0];
-          } else if (siblingIds.length > 1) {
-            const sibEmbs = siblingIds.map(id => ({
+          const sibEmbs = siblingIds
+            .map(id => ({
               id,
-              data_inicio: embMetaById.get(id)?.data_inicio || matchingEmbs[0]?.data_inicio || ''
-            }));
+              data_inicio: embMetaById.get(id)?.data_inicio || ''
+            }))
+            .filter(s => !isSapBeforeStart(cs, s.data_inicio));
+          if (sibEmbs.length === 1) {
+            resolvedId = sibEmbs[0].id;
+          } else if (sibEmbs.length > 1) {
             const picked = pickByDatePreference(
               sibEmbs,
               refDate,
@@ -1849,6 +1868,7 @@ export class SelfHostedDomainEngine {
     // Passo 2: Atualizar indicadores de confronto em carteira_operacoes (soma líquida + e estornos -)
     const sapAggMap = new Map<string, number>();
     for (const cs of updatedSap) {
+      if (!cs.id_embarque) continue;
       const k = `${sapKey3(cs.matricula, cs.ordem, cs.operacao)}::${cs.id_embarque}`;
       sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
     }
@@ -1924,6 +1944,18 @@ export class SelfHostedDomainEngine {
 
     for (const cs of updatedSap) {
       if (!cs.data_fim_real || !tecMats.has(cs.matricula)) continue;
+      if (
+        !cs.id_embarque &&
+        allCart.some(
+          ce =>
+            normalizeServerSapCode(ce.matricula) === normalizeServerSapCode(cs.matricula) &&
+            cs.data_fim_real >= ce.data_inicio &&
+            cs.data_fim_real <= ce.data_fim &&
+            isSapBeforeStart(cs, ce.data_inicio)
+        )
+      ) {
+        continue;
+      }
       const key = `${cs.matricula}::${cs.data_fim_real}`;
       let entry = dailySapAgg.get(key);
       if (!entry) {

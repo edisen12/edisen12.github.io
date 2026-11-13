@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-13 13:49 (BRT) · Base HEAD: 128ddf7 (com alterações validadas para commit/push em `main`) · Suíte Completa: 34 arquivos / 611 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.91s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas; Migration 026 (índices de janela SAP) versionada no repositório ⏳
+> Última atualização: 2026-11-13 15:57 (BRT) · Branch `main` (base `a8ca35e`, pendente commit `fix(sap)`) · Suíte Completa: 34 arquivos / 616 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.31s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas; Migrations 026 e 027 versionadas no repositório aguardando execução no SQL Editor ⏳
 
 ## 1. Resumo Executivo
 
@@ -58,6 +58,7 @@
 - `supabase/migrations/024_smart_dedup_sap_e_portal.sql` — limpeza de 168 duplicatas em `confirmacoes_sap`, recriação de `uq_confirmacao_sap_row` sem `horas_confirmadas`, trigger `sync_carteira_embarques_from_operacoes` removendo órfãos `portal_offshore` e RPC `prune_stale_carteira_by_embarques`.
 - `supabase/migrations/025_optimize_reconciliar_sap_hash_joins.sql` — otimização de `reconciliar_confirmacoes_sap()` com CTEs `AS MATERIALIZED` e Hash Joins (reduzindo execução em produção para ~4,8 s sem timeout HTTP 524).
 - `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql` — índices B-Tree idempotentes em `confirmacoes_sap` (`data_fim_real`, `data_lancamento`, `data_criacao`) para acelerar o filtro janelado `OR` no carregamento do dashboard.
+- `supabase/migrations/027_fix_sap_pre_embarkation_reconciliation.sql` — bloqueia vínculo e soma pré-embarque (`data_lancamento` ou `data_fim_real < data_inicio`) em `P1..P6`, `Passo 2` e `Passo 4` preservando Hash Joins `MATERIALIZED` e `SECURITY DEFINER`.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 com rollback compensatório em todas as etapas SQL pós-GoTrue e travas anti-lockout + auditoria WORM.
 - `src/types/database.types.ts` — gerado via schema.
 
@@ -65,16 +66,16 @@
 - `server/package.json`, `server/tsconfig.json` — servidor Node 22/TS puro, zero dependências npm obrigatórias.
 - `server/src/ports/universal-storage.port.ts` — `UniversalStorageDriverPort` (7 primitivas universais + operador `neq`).
 - `server/src/drivers/{registry,in-memory.driver,generic-sql.driver,generic-document.driver}.ts` — registry aberto + drivers universais.
-- `server/src/core/{crypto,realtime-hub,domain-engine.service}.ts`, `server/src/{app,index}.ts` — aplicação server-side de 100% das regras de negócio, granularidade, reconciliação SAP (+4 dias PMB) e reset de carteira.
+- `server/src/core/{crypto,realtime-hub,domain-engine.service}.ts`, `server/src/{app,index}.ts` — aplicação server-side de 100% das regras de negócio, granularidade, reconciliação SAP (+4 dias PMB), bloqueio pré-embarque e reset de carteira.
 - `docker/{frontend,backend}.Dockerfile`, `docker/nginx/nginx.conf`, `docker-compose.yml` · `.env.example` · `.env.vps.example` · `docs/DATABASE_ABSTRACTION.md`.
 
 ### Segurança e Suíte Completa de Testes
-- `src/security/__tests__/*` (159 testes em rbac, rls-policies incluindo Migrations 023/024/025, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
-- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (43 testes cobrindo BaaS connector, provider self-hosted, drivers SQL/Doc/Memória, reconciliação SAP +4 dias, estornos tardios multi-embarque, irmãs Fora da Carteira, poda incremental de embarques sem stacking, granularidade e operador `neq`).
-- `src/services/__tests__/{auth,data,excel}.service.test.ts` (75 testes cobrindo autenticação, importação em lote, deduplicação inteligente SAP/Portal Offshore, estornos `+9 -> -9`, parsing SAP IW47 e exportadores Excel com anti-formula injection e escopo parcial).
+- `src/security/__tests__/*` (rbac, `rls-policies` com 50 testes incluindo Migrations 023/024/025/027, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
+- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (BaaS connector, provider self-hosted, drivers SQL/Doc/Memória, reconciliação SAP +4 dias, estornos tardios, bloqueio pré-embarque, irmãs Fora da Carteira, poda incremental e operador `neq`).
+- `src/services/__tests__/{auth,data,excel}.service.test.ts` (autenticação, importação em lote, deduplicação inteligente SAP/Portal Offshore, estornos `+9 -> -9`, bloqueio pré-embarque em `mockSupabase`, parsing SAP IW47 e exportadores Excel).
 - `src/ui/components/__tests__/*` (DataTable incluindo `minWidth`, SegmentedControl, Sidebar, ResponsiveShellAndPwa e MeterBarAndOverlay).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
-- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (9 testes, incluindo retorno `returnToFichaMat` e estornos `002032288155/0010` = `18,0 h`).
+- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (retorno `returnToFichaMat`, estornos `002032288155/0010` = `18,0 h` e bloqueio pré-embarque `002031549540/0020` = `5,0 h`).
 - `src/ui/views/__tests__/*` (59 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView, OperationalViews e MedicaoUsoffView).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
@@ -152,16 +153,20 @@
       - Removido o seletor manual `"Unidades de negócio inteiras (opcional)"` (`selectedUns`/`toggleUn`) de `PessoaModal` em `PessoasPlataformasView.tsx`; o formulário agora salva `uns: []` e exibe preview em tempo real `"Unidades de negócio (de-para automático)"`.
       - Introduzida `resolvePersonUns(pessoa, plataformasOrPidx?)` e atualizada `isPersonResponsible(pessoa, place, plataformasOrPidx?)`: quando a pessoa possui apenas plataformas (`uns: []`), a UN correspondente (`plat.un`) é derivada automaticamente pelas plataformas atribuídas no nível de UN (`VisaoGeralView`, `UserSettingsView`, exportação Excel) **sem conceder acesso cruzado a outras plataformas da mesma UN**. `passesFilter` resolve `fResp` por ID ou nome e rejeita ID desconhecido quando `pessoas` estiver carregado.
     - *Cobertura de Testes Adicionada:* `calculations.test.ts`, `ResponsiveShellAndPwa.test.tsx`, `OperationalViews.test.tsx`, `PessoasModalDePara.test.tsx`, `UserSettingsView.test.tsx`, `data.service.test.ts`, `self-hosted-universal-drivers.test.ts` e `mockSupabase.ts` (suporte a `.or(...)`).
+  - **Frente 13: Bloqueio de Confirmações SAP Pré-Embarque (`data_lancamento` / `data_fim_real < data_inicio`, caso `ORD 002031549540 / op 0020`):**
+    - *Reconciliação SQL, Backend Self-Hosted e Mock (`supabase/migrations/027_fix_sap_pre_embarkation_reconciliation.sql`, `server/src/core/domain-engine.service.ts`, `src/test/mockSupabase.ts`):* adicionada guarda simétrica `data_lancamento >= data_inicio AND data_fim_real >= data_inicio` em `has_co`, `P1..P5`, `P3` (embarque único), `P3B` e `P6` (removendo fallback para embarque futuro), `has_ce_fora`, `Passo 2` (`id_embarque <> ''`) e exclusão no `Passo 4` (`apontamentos_hh`) quando uma confirmação rejeitada por `data_lancamento < data_inicio` possui `data_fim_real` dentro do período embarcado. Estornos/lançamentos tardios posteriores ao desembarque seguem aceitos por serem `>= data_inicio`.
+    - *Domínio Puro, UI e Exportação (`src/domain/calculations.ts`, `CarteiraEmbarqueModal.tsx`, `PainelDiaView.tsx`, `FichaTecnicoDrawer.tsx`, `excel.service.ts`):* criado helper exportado `isSapBeforeEmbarkation`; `mergeConfrontoOperations` rejeita confirmações pré-embarque mesmo quando trazem `id_embarque` legado gravado no banco (`PRE_EMBARKATION_REJECT = -1`, sem vazar para `extraOps`), protegendo também `Passo A` e `Passo B`; telas e exportação filtram via `emb?.ini`.
+    - *Testes de Regressão Adicionados (+5 testes):* `rls-policies.test.ts` (50 testes), `calculations.test.ts` (46 testes), `self-hosted-universal-drivers.test.ts` (21 testes), `data.service.test.ts` e `CarteiraEmbarqueModal.test.tsx`.
   - **Resultados de Qualidade:**
-    - Suíte de testes: **34 arquivos / 611 testes aprovados (100% verdes)**.
+    - Suíte de testes: **34 arquivos / 616 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros** (`server/tsconfig.json`: **0 erros**).
-    - `npm run build`: **bundle de produção gerado com sucesso em 5.91s**.
-    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas e auditadas; Migration `026` pronta para execução opcional no SQL Editor.
+    - `npm run build`: **bundle de produção gerado com sucesso em 5.31s**.
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas; Migrations `026` e `027` versionadas no repositório aguardando execução no SQL Editor (PAT/MCP atual retornou `Unauthorized`).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** testar upload SAP/Portal Offshore confirmando que o carregamento principal segue instantâneo após gravação, conferir o filtro **`Responsável`** (seleção por pessoa, visão detalhada por plataforma, listagem por UN com Prepostos derivados automaticamente) e validar edição de pessoas em `Pessoas & Plataformas` sem seletor manual de Regional/UN.
-2. **Opcional (Recomendado) — Aplicar Migration `026_perf_indexes_confirmacoes_sap.sql` no Supabase PROD:** executar via SQL Editor (ou após renovar o PAT do MCP Supabase) para criar os 3 índices de data em `confirmacoes_sap`.
+1. **Aplicar Migrations `026` e `027` no Supabase PROD (`fwdvrkfootvublicetim`):** executar `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql` e `supabase/migrations/027_fix_sap_pre_embarkation_reconciliation.sql` no SQL Editor do Supabase (ou fornecer nova PAT com permissão ao MCP) e inspecionar `ORD 002031549540 / op 0020` em `confirmacoes_sap` + `carteira_operacoes` para confirmar `6h -> 5h` após recálculo em banco.
+2. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** confirmar `ORD 002031549540 / op 0020` com `5,0 h`, upload SAP/Portal Offshore com carregamento rápido, filtro **`Responsável`** e edição de pessoas em `Pessoas & Plataformas` sem seletor manual de Regional/UN.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 

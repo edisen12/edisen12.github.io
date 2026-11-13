@@ -1476,4 +1476,109 @@ describe('Parte 2: Integração Real Full-Stack (Server Node.js ↔ Client Provi
     expect(sapSnapshot).toBeDefined();
     expect(sapSnapshot!.filter(cs => cs.matricula === '1095' && cs.ordem === '002099990003')).toHaveLength(4);
   });
+
+  it('2.6 Reconciliação SAP rejeita confirmações pré-embarque (P3 único, P3B futuro, P6 irmã e Passo 4 apontamentos_hh)', async () => {
+    const adminJar = createCookieJar();
+    const adminProvider = createSelfHostedClientProvider({
+      baseUrl,
+      customFetch: adminJar.customFetch
+    });
+    await adminProvider.auth.signInWithPassword('admin.vps@teste.local', 'AdminForte2026!');
+
+    const pidx: Record<string, Plataforma> = {
+      P50: {
+        sigla: 'P50',
+        chave_norm: 'P50',
+        nome: 'P-50',
+        un: 'UN-RIO',
+        armador: '',
+        gerencia: '',
+        tipo: 'FPSO',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    // Caso A (P3 único): ORD 002031549540 / op 0020 só aparece no embarque 57910 (10/10 a 20/10)
+    // Caso B (P3B futuro): ORD 002031549599 / op 0010 aparece em 2 embarques futuros (57921 e 57922)
+    await adminProvider.data.batchImportCarteira(
+      [
+        {
+          mat: '1091',
+          nome: 'Técnico Pré-Embarque A',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-10',
+          fim: '2026-10-20',
+          hp: 5,
+          hc_portal: 5,
+          status_prog: 'Carteira',
+          ordem: '002031549540',
+          op: '0020',
+          id_embarque: '57910'
+        },
+        {
+          mat: '1092',
+          nome: 'Técnico Pré-Embarque B',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-18',
+          fim: '2026-10-24',
+          hp: 10,
+          hc_portal: 0,
+          status_prog: 'Carteira',
+          ordem: '002031549599',
+          op: '0010',
+          id_embarque: '57921'
+        },
+        {
+          mat: '1092',
+          nome: 'Técnico Pré-Embarque B',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-26',
+          fim: '2026-11-05',
+          hp: 10,
+          hc_portal: 0,
+          status_prog: 'Carteira',
+          ordem: '002031549599',
+          op: '0010',
+          id_embarque: '57922'
+        }
+      ],
+      pidx
+    );
+
+    await adminProvider.data.batchImportConfirmacoesSAP!([
+      // Válido no embarque 57910 (5h)
+      { mat: '1091', cria: '2026-10-12', lanc: '2026-10-12', real: '2026-10-12', ordem: '002031549540', op: '0020', hc: 5, contador: 2 },
+      // Pré-embarque via data_lancamento (08/10 < 10/10) com data_fim_real 11/10 dentro da janela: P3 e P1 NÃO podem vincular nem Passo 4 somar em 11/10
+      { mat: '1091', cria: '2026-10-11', lanc: '2026-10-08', real: '2026-10-11', ordem: '002031549540', op: '0020', hc: 1, contador: 1 },
+      // Pré-embarque via data_fim_real (08/10 < 10/10): P2 e P3 NÃO podem vincular
+      { mat: '1091', cria: '2026-10-11', lanc: '2026-10-11', real: '2026-10-08', ordem: '002031549540', op: '0020', hc: 3, contador: 3 },
+      // Multi-embarque futuro (P3B) e irmã Fora da Carteira (P6): pré-embarque 05/10 não pode cair em 57921
+      { mat: '1092', cria: '2026-10-05', lanc: '2026-10-05', real: '2026-10-05', ordem: '002031549599', op: '0010', hc: 4, contador: 1 },
+      { mat: '1092', cria: '2026-10-05', lanc: '2026-10-05', real: '2026-10-05', ordem: '002031549599', op: '0099', hc: 2, contador: 1 }
+    ]);
+
+    const ds = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const op0020 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '57910' && o.ordem === '002031549540' && o.operacao === '0020');
+    expect(op0020?.hh_confirmado_sap).toBe(5);
+    expect(op0020?.status_divergencia).toBe('OK');
+
+    const sap1091 = (ds.confirmacoesSap ?? []).filter(s => s.matricula === '1091' && s.ordem === '002031549540');
+    expect(sap1091.find(s => s.contador_confirmacao === 2)?.id_embarque).toBe('57910');
+    expect(sap1091.find(s => s.contador_confirmacao === 2)?.status_reconciliacao).toBe('Em Carteira');
+    expect(sap1091.find(s => s.contador_confirmacao === 1)?.id_embarque).toBe('');
+    expect(sap1091.find(s => s.contador_confirmacao === 1)?.status_reconciliacao).toBe('Sem Embarque');
+    expect(sap1091.find(s => s.contador_confirmacao === 3)?.id_embarque).toBe('');
+    expect(sap1091.find(s => s.contador_confirmacao === 3)?.status_reconciliacao).toBe('Sem Embarque');
+
+    const sap1092 = (ds.confirmacoesSap ?? []).filter(s => s.matricula === '1092' && s.ordem === '002031549599');
+    expect(sap1092.every(s => s.id_embarque === '' && s.status_reconciliacao === 'Sem Embarque')).toBe(true);
+
+    // Passo 4 (apontamentos_hh -> hhMap): dia 2026-10-12 tem 5h, dia 2026-10-11 NÃO pode absorver a confirmação 1h rejeitada por pré-embarque
+    expect(ds.hhMap?.['1091|2026-10-12']?.horas_executadas ?? 0).toBe(5);
+    expect(ds.hhMap?.['1091|2026-10-11']?.horas_executadas ?? 0).toBe(0);
+  });
 });

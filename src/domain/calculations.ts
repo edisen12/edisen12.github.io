@@ -1324,6 +1324,24 @@ function getSapRefDate(cs: ConfirmacaoSAP): string {
   return cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
 }
 
+/**
+ * Indica se uma confirmação SAP ocorreu/foi lançada antes do início do embarque do técnico.
+ * Nem a data de lançamento nem a data fim real podem anteceder data_inicio.
+ */
+export const isSapBeforeEmbarkation = (
+  cs: Pick<ConfirmacaoSAP, 'data_lancamento' | 'data_fim_real' | 'data_criacao'>,
+  dataInicio?: string | null
+): boolean => {
+  const start = (dataInicio || '').trim();
+  if (!start) return false;
+  if (cs.data_lancamento && cs.data_lancamento < start) return true;
+  if (cs.data_fim_real && cs.data_fim_real < start) return true;
+  if (!cs.data_lancamento && !cs.data_fim_real && cs.data_criacao && cs.data_criacao < start) {
+    return true;
+  }
+  return false;
+};
+
 function pickBestEmbarqueWindowMatch<T extends { data_inicio?: string; data_fim?: string }>(
   items: T[],
   refDate: string
@@ -1404,6 +1422,7 @@ export const mergeConfrontoOperations = (
   const hasSapSource = sapConfirmacoes.length > 0;
   const portalSapSums = new Array<number>(carteiraOps.length).fill(0);
   const unmatchedCs: ConfirmacaoSAP[] = [];
+  const PRE_EMBARKATION_REJECT = -1;
 
   const matchPortalOpIndex = (cs: ConfirmacaoSAP): number | null => {
     const k3 = buildKey3(cs.matricula, cs.ordem, cs.operacao);
@@ -1412,7 +1431,14 @@ export const mergeConfrontoOperations = (
     if (csEmb) {
       const exactMatches = portalExactMap.get(`${k3}|${csEmb}`);
       if (exactMatches && exactMatches.length > 0) {
-        return exactMatches[0];
+        const validExact = exactMatches.find(
+          idx => !isSapBeforeEmbarkation(cs, carteiraOps[idx].data_inicio)
+        );
+        if (validExact !== undefined) {
+          return validExact;
+        }
+        // Confirmação anterior ao início do embarque vinculado: descartar sem vazar para extraOps.
+        return PRE_EMBARKATION_REJECT;
       }
       // Nunca sequestrar confirmação explicitamente vinculada a outro id_embarque.
       return null;
@@ -1425,6 +1451,7 @@ export const mergeConfrontoOperations = (
     const candidateObjs = candidates
       .map(i => ({ idx: i, ...carteiraOps[i] }))
       .filter(c => {
+        if (isSapBeforeEmbarkation(cs, c.data_inicio)) return false;
         if (!csDate) return true;
         if (c.data_inicio && csDate < c.data_inicio) return false;
         if (c.data_fim && csDate > addDaysYmd(c.data_fim, 45)) return false;
@@ -1439,6 +1466,7 @@ export const mergeConfrontoOperations = (
 
   sapConfirmacoes.forEach(cs => {
     const matchedIdx = matchPortalOpIndex(cs);
+    if (matchedIdx === PRE_EMBARKATION_REJECT) return;
     const hcVal = Number(cs.horas_confirmadas) || 0;
     if (matchedIdx !== null) {
       portalSapSums[matchedIdx] += hcVal;
@@ -1501,6 +1529,15 @@ export const mergeConfrontoOperations = (
   unmatchedCs.forEach(cs => {
     const idEmb = normEmb(cs.id_embarque);
     if (idEmb) {
+      const normId = normalizeSapCode(idEmb);
+      const embMeta =
+        embById.get(idEmb) ||
+        (normId
+          ? carteiraEmbarques.find(ce => normalizeSapCode(ce.id_embarque) === normId)
+          : undefined);
+      if (embMeta && isSapBeforeEmbarkation(cs, embMeta.data_inicio)) {
+        return;
+      }
       const entry = getOrCreateExtra(cs, idEmb);
       accumulateExtra(entry, cs);
     } else {
@@ -1517,9 +1554,10 @@ export const mergeConfrontoOperations = (
     if (siblings && siblings.length > 0) {
       const csDate = getSapRefDate(cs);
       const eligible = siblings.filter(sib => {
-        if (!csDate) return true;
         const sibEmb = sib.id_embarque ? embById.get(sib.id_embarque) : undefined;
         const start = sibEmb?.data_inicio || sib.dataMin;
+        if (isSapBeforeEmbarkation(cs, start)) return false;
+        if (!csDate) return true;
         const end = sibEmb?.data_fim || sib.dataMax;
         if (start && csDate < start) return false;
         if (end && csDate > addDaysYmd(end, 45)) return false;

@@ -399,4 +399,99 @@ describe('CarteiraEmbarqueModal', () => {
     expect(screen.queryByText('27,0 h')).toBeNull();
     expect(screen.getByText('OK (Conciliado)')).not.toBeNull();
   });
+
+  it('rejeita confirmação SAP pré-embarque (data_lancamento ou data_fim_real < data_inicio), mesmo com id_embarque legado (ex.: ORD 002031549540 / op 0020)', () => {
+    const ds = createSyntheticDataset();
+    ds.carteira = [
+      {
+        id: 'cart-ord-2031549540',
+        id_embarque: 'EMB-57010',
+        matricula: '10231',
+        nome: 'Carlos Eduardo Sintético',
+        funcao: 'Técnico de Instrumentação',
+        plataforma_sigla: 'P51',
+        unidade_negocio: 'UN-BS',
+        data_inicio: '2026-10-10',
+        data_fim: '2026-10-20',
+        horas_programadas: 154,
+        hh_carteira: 154,
+        hh_fora_carteira: 0,
+        operacao: 'OP-GERAL',
+        pe: null,
+        ex: null,
+        fonte: 'Portal Offshore'
+      }
+    ];
+    ds.carteiraOperacoes = [
+      {
+        id: 'op-2031549540-0020',
+        matricula: '10231',
+        id_embarque: 'EMB-57010',
+        portal_id: 'EMB-57010',
+        chave_petrobras: 'CH-PRE',
+        nome: 'Carlos Eduardo Sintético',
+        empresa: 'Infotec',
+        estrutura: 'Estrutura A',
+        unidade_negocio: 'UN-BS',
+        ordem: '002031549540',
+        operacao: '0020',
+        status_processamento: 'Concluído',
+        prioridade: 'Alta',
+        hh_programado: 5,
+        hh_confirmado: 5,
+        hh_confirmado_sap: 6,
+        divergencia_sap: 1,
+        status_divergencia: 'Divergente (+1h)',
+        status_programacao: 'Carteira',
+        recursos: 1,
+        fonte: 'Portal Offshore',
+        data_inicio: '2026-10-10',
+        data_fim: '2026-10-20',
+        plataforma_sigla: 'P51'
+      }
+    ];
+    ds.confirmacoesSap = [
+      {
+        id: 'sap-valid-5h',
+        matricula: '10231',
+        data_criacao: '2026-10-12',
+        data_lancamento: '2026-10-12',
+        data_fim_real: '2026-10-12',
+        ordem: '002031549540',
+        operacao: '0020',
+        horas_confirmadas: 5,
+        contador_confirmacao: 2,
+        id_embarque: 'EMB-57010',
+        status_reconciliacao: 'Em Carteira'
+      },
+      {
+        id: 'sap-pre-embark-1h',
+        matricula: '10231',
+        data_criacao: '2026-10-11',
+        data_lancamento: '2026-10-08',
+        data_fim_real: '2026-10-11',
+        ordem: '002031549540',
+        operacao: '0020',
+        horas_confirmadas: 1,
+        contador_confirmacao: 1,
+        id_embarque: 'EMB-57010',
+        status_reconciliacao: 'Em Carteira'
+      }
+    ];
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-57010' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: ds,
+      pidx: MOCK_PIDX,
+      activePeriod: { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' },
+      currentUser: MOCK_USER
+    });
+
+    renderWithToast(<CarteiraEmbarqueModal />);
+    expect(screen.getAllByText('5,0 h').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('6,0 h')).toBeNull();
+    expect(screen.getByText('OK (Conciliado)')).not.toBeNull();
+  });
 });

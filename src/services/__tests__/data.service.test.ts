@@ -1113,5 +1113,90 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
         fromSpy.mockRestore();
       }
     });
+
+    it('mockSupabase reconciliar_confirmacoes_sap bloqueia pré-embarque (P3 único, P3B futuro, P6 e Passo 4) preservando ORD 002031549540 / op 0020 em 5h', async () => {
+      await batchImportCarteira(
+        [
+          {
+            mat: '1088',
+            nome: 'Técnico Pré-Embarque Mock A',
+            plat: 'P50',
+            reg: 'UN-RIO',
+            ini: '2026-10-10',
+            fim: '2026-10-20',
+            hp: 5,
+            hc_portal: 5,
+            status_prog: 'Carteira',
+            ordem: '002031549540',
+            op: '0020',
+            id_embarque: '57100'
+          },
+          {
+            mat: '1089',
+            nome: 'Técnico Pré-Embarque Mock B',
+            plat: 'P50',
+            reg: 'UN-RIO',
+            ini: '2026-10-18',
+            fim: '2026-10-24',
+            hp: 10,
+            hc_portal: 0,
+            status_prog: 'Carteira',
+            ordem: '002088887777',
+            op: '0010',
+            id_embarque: '57201'
+          },
+          {
+            mat: '1089',
+            nome: 'Técnico Pré-Embarque Mock B',
+            plat: 'P50',
+            reg: 'UN-RIO',
+            ini: '2026-10-26',
+            fim: '2026-11-05',
+            hp: 10,
+            hc_portal: 0,
+            status_prog: 'Carteira',
+            ordem: '002088887777',
+            op: '0010',
+            id_embarque: '57202'
+          }
+        ],
+        pidxSintetico,
+        undefined,
+        'teste-pre-embarque-sap'
+      );
+
+      await batchImportConfirmacoesSAP([
+        { mat: '1088', cria: '2026-10-12', lanc: '2026-10-12', real: '2026-10-12', ordem: '002031549540', op: '0020', hc: 5, contador: 2 },
+        { mat: '1088', cria: '2026-10-11', lanc: '2026-10-08', real: '2026-10-11', ordem: '002031549540', op: '0020', hc: 1, contador: 1 },
+        { mat: '1088', cria: '2026-10-11', lanc: '2026-10-11', real: '2026-10-08', ordem: '002031549540', op: '0020', hc: 3, contador: 3 },
+        { mat: '1089', cria: '2026-10-05', lanc: '2026-10-05', real: '2026-10-05', ordem: '002088887777', op: '0010', hc: 4, contador: 1 },
+        { mat: '1089', cria: '2026-10-05', lanc: '2026-10-05', real: '2026-10-05', ordem: '002088887777', op: '0099', hc: 2, contador: 1 }
+      ]);
+
+      await reconciliarConfirmacoesSAP();
+
+      const sapRows = mockClient.__mockState.tables.confirmacoes_sap as any[];
+      const sap1088Ok = sapRows.find(s => s.matricula === '1088' && s.contador_confirmacao === 2);
+      const sap1088PreLanc = sapRows.find(s => s.matricula === '1088' && s.contador_confirmacao === 1);
+      const sap1088PreReal = sapRows.find(s => s.matricula === '1088' && s.contador_confirmacao === 3);
+      expect(sap1088Ok?.id_embarque).toBe('57100');
+      expect(sap1088Ok?.status_reconciliacao).toBe('Em Carteira');
+      expect(sap1088PreLanc?.id_embarque).toBe('');
+      expect(sap1088PreLanc?.status_reconciliacao).toBe('Sem Embarque');
+      expect(sap1088PreReal?.id_embarque).toBe('');
+      expect(sap1088PreReal?.status_reconciliacao).toBe('Sem Embarque');
+
+      const sap1089 = sapRows.filter(s => s.matricula === '1089');
+      expect(sap1089).toHaveLength(2);
+      expect(sap1089.every(s => s.id_embarque === '' && s.status_reconciliacao === 'Sem Embarque')).toBe(true);
+
+      const ds = await loadAppDataset('2026-10-01', '2026-10-31', true);
+      const op0020 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '57100' && o.ordem === '002031549540' && o.operacao === '0020');
+      expect(op0020?.hh_confirmado_sap).toBe(5);
+      expect(op0020?.status_divergencia).toBe('OK');
+
+      expect(ds.hhMap['1088|2026-10-12']?.horas_executadas ?? 0).toBe(5);
+      expect(ds.hhMap['1088|2026-10-11']?.horas_executadas ?? 0).toBe(0);
+    });
   });
 });

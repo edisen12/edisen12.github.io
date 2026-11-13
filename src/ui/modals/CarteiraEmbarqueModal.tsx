@@ -6,6 +6,7 @@ import {
   findCarteira,
   inferEmbarkation,
   isArmadorPlatform,
+  isSapBeforeEmbarkation,
   lookupPlatform,
   mergeConfrontoOperations,
   resolveLocation,
@@ -117,10 +118,12 @@ export function CarteiraEmbarqueModal() {
     const opsEmbKeySet = new Set(
       opsDoEmbarque.map(op => `${normalizeSapCode(op.ordem)}|${normalizeSapCode(op.operacao)}`)
     );
+    const embStart = dataInicio || opsDoEmbarque[0]?.data_inicio || '';
 
     // 2. Filtra confirmações SAP deste técnico vinculadas ao embarque ou na janela de datas
     const sapDoEmbarque = (dataset.confirmacoesSap || []).filter(cs => {
       if (normalizeSapCode(cs.matricula) !== normalizeSapCode(tecMat)) return false;
+      if (isSapBeforeEmbarkation(cs, embStart)) return false;
       const csEmb = cs.id_embarque || '';
       if (idEmbFinal && csEmb === idEmbFinal) return true;
       // Nunca sequestrar confirmação explicitamente vinculada a outro embarque.
@@ -128,7 +131,7 @@ export function CarteiraEmbarqueModal() {
       const csDate = cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
       // Estorno ou confirmação sem id_embarque pertencente a ordem/operação deste embarque (inclui tardios > 4d)
       if (!csEmb && opsEmbKeySet.has(`${normalizeSapCode(cs.ordem)}|${normalizeSapCode(cs.operacao)}`)) {
-        if (dataInicio && csDate && csDate < dataInicio) return false;
+        if (embStart && csDate && csDate < embStart) return false;
         const hasBetterLaterOp = (dataset.carteiraOperacoes || []).some(other =>
           normalizeSapCode(other.matricula) === normalizeSapCode(tecMat) &&
           normalizeSapCode(other.ordem) === normalizeSapCode(cs.ordem) &&

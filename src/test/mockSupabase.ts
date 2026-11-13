@@ -138,6 +138,17 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
     if (eid) embMetaById.set(eid, ce);
   }
 
+  const isSapBeforeStartMock = (cs: any, dataInicio?: string): boolean => {
+    const start = String(dataInicio || '').trim();
+    if (!start) return false;
+    if (cs.data_lancamento && String(cs.data_lancamento) < start) return true;
+    if (cs.data_fim_real && String(cs.data_fim_real) < start) return true;
+    if (!cs.data_lancamento && !cs.data_fim_real && cs.data_criacao && String(cs.data_criacao) < start) {
+      return true;
+    }
+    return false;
+  };
+
   const pickByDateMock = <T extends { data_inicio: string }>(
     candidates: T[],
     refDate: string,
@@ -146,14 +157,12 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
   ): T | undefined => {
     if (candidates.length === 0) return undefined;
     const started = refDate ? candidates.filter(c => c.data_inicio <= refDate) : candidates;
-    const pool = started.length > 0 ? started : candidates;
+    if (started.length === 0) return undefined;
     if (preferredIds && idGetter) {
-      const pref = pool.filter(c => preferredIds.has(idGetter(c)));
+      const pref = started.filter(c => preferredIds.has(idGetter(c)));
       if (pref.length > 0) return [...pref].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
     }
-    return started.length > 0
-      ? [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0]
-      : [...candidates].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0];
+    return [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
   };
 
   const posSumByKey3Emb = new Map<string, number>();
@@ -166,11 +175,16 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
         (co: any) =>
           normalizeSapCode(co.matricula) === normalizeSapCode(cs.matricula) &&
           normalizeSapCode(co.ordem) === normalizeSapCode(cs.ordem) &&
-          normalizeSapCode(co.operacao) === normalizeSapCode(cs.operacao)
+          normalizeSapCode(co.operacao) === normalizeSapCode(cs.operacao) &&
+          !isSapBeforeStartMock(cs, co.data_inicio)
       )
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
     const matchingEmbs = allCart
-      .filter((ce: any) => normalizeSapCode(ce.matricula) === normalizeSapCode(cs.matricula))
+      .filter(
+        (ce: any) =>
+          normalizeSapCode(ce.matricula) === normalizeSapCode(cs.matricula) &&
+          !isSapBeforeStartMock(cs, ce.data_inicio)
+      )
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
 
     let resolvedId = '';
@@ -230,13 +244,15 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
         if (picked) resolvedId = opIdOf(picked);
       } else {
         const sibs = Array.from(linkedIdsByKey3.get(k3) || []);
-        if (sibs.length === 1) {
-          resolvedId = sibs[0];
-        } else if (sibs.length > 1) {
-          const sibObjs = sibs.map(id => ({
+        const sibObjs = sibs
+          .map(id => ({
             id,
-            data_inicio: embMetaById.get(id)?.data_inicio || matchingEmbs[0]?.data_inicio || ''
-          }));
+            data_inicio: embMetaById.get(id)?.data_inicio || ''
+          }))
+          .filter(s => !isSapBeforeStartMock(cs, s.data_inicio));
+        if (sibObjs.length === 1) {
+          resolvedId = sibObjs[0].id;
+        } else if (sibObjs.length > 1) {
           const picked = pickByDateMock(
             sibObjs,
             refDate,
@@ -268,6 +284,7 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
 
   const sapAggMap = new Map<string, number>();
   for (const cs of allSap) {
+    if (!cs.id_embarque) continue;
     const k = `${key3(cs.matricula, cs.ordem, cs.operacao)}::${cs.id_embarque}`;
     sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
   }
@@ -290,6 +307,18 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
   const dailyMap = new Map<string, { matricula: string; data: string; total: number; plat: string; un: string }>();
   for (const cs of allSap) {
     if (!cs.data_fim_real || !tecMats.has(String(cs.matricula))) continue;
+    if (
+      !cs.id_embarque &&
+      allCart.some(
+        (ce: any) =>
+          normalizeSapCode(ce.matricula) === normalizeSapCode(cs.matricula) &&
+          cs.data_fim_real >= ce.data_inicio &&
+          cs.data_fim_real <= ce.data_fim &&
+          isSapBeforeStartMock(cs, ce.data_inicio)
+      )
+    ) {
+      continue;
+    }
     const dk = `${cs.matricula}::${cs.data_fim_real}`;
     const ceRef = allCart.find(
       (ce: any) =>

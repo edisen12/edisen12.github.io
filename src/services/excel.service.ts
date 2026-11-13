@@ -49,6 +49,7 @@ import {
   inferEmbarkation,
   isArmadorPlatform,
   isPersonResponsible,
+  isSapBeforeEmbarkation,
   lookupPlatform,
   mergeConfrontoOperations,
   resolveDivergenciaSapStatus,
@@ -2491,7 +2492,9 @@ export async function exportPainelDiaOrdensXlsx(params: {
 
   rows.forEach(r => {
     const key = `${r.mat}|${date}`;
-    const confirmations = sapByTechDate.get(key) || [];
+    const confirmations = (sapByTechDate.get(key) || []).filter(
+      c => !isSapBeforeEmbarkation(c, r.emb?.ini)
+    );
 
     if (confirmations.length > 0) {
       confirmations.forEach(c => {

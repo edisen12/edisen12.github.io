@@ -21,6 +21,7 @@ import {
   computeDayRows,
   gestorOfUn,
   groupDaysByField,
+  isSapBeforeEmbarkation,
   passesFilter,
   prazoOf,
   statusOf
@@ -276,7 +277,9 @@ export function PainelDiaView() {
         }
 
         const sapKey = `${r.mat}|${D}`;
-        const daySap = sapIndex.byTechDate.get(sapKey) || [];
+        const daySap = (sapIndex.byTechDate.get(sapKey) || []).filter(
+          s => !isSapBeforeEmbarkation(s, r.emb?.ini)
+        );
         const hasFora = daySap.some(s => s.status_reconciliacao !== 'Em Carteira');
 
         return (

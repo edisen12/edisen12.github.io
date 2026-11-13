@@ -1471,5 +1471,9 @@ describe('Parte 2: Integração Real Full-Stack (Server Node.js ↔ Client Provi
 
     const op0010 = (dsSap2.carteiraOperacoes ?? []).find(o => o.id_embarque === '56910' && o.operacao === '0010');
     expect(op0010?.hh_confirmado_sap).toBe(18);
+
+    const sapSnapshot = await adminProvider.data.fetchSapDedupSnapshot?.();
+    expect(sapSnapshot).toBeDefined();
+    expect(sapSnapshot!.filter(cs => cs.matricula === '1095' && cs.ordem === '002099990003')).toHaveLength(4);
   });
 });

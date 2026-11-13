@@ -81,7 +81,7 @@
 |---|---|---|---|
 | `admin` | global | todas (`ger dia emb jus med us pes imp cfg adm perfil`) | total + Edge Function (gerencia inclusive admins) |
 | `gestor` | global | todas | operacional total; Edge Function **sem** criar, promover, editar ou excluir `admin` |
-| `controlador` / `preposto` | carteira = `pessoa_plataformas` ∪ plataformas de `pessoa_unidades` | `ger dia emb jus med us perfil` | só `INSERT`/`UPDATE` em `justificativas` da própria carteira (`auth_can_access_justificativa`) |
+| `controlador` / `preposto` | carteira = `pessoa_plataformas` ∪ plataformas de `pessoa_unidades` (no modal da UI o seletor manual de UN foi removido, salvando `uns: []` e derivando UNs via de-para das plataformas) | `ger dia emb jus med us perfil` | só `INSERT`/`UPDATE` em `justificativas` da própria carteira (`auth_can_access_justificativa`) |
 | `anon` | nada | só `LoginView` | zero (só RPC `ping_health`) |
 | `ativo = false` | corte imediato (0 ms) via `auth_is_active()` | logout | zero |
 
@@ -293,3 +293,17 @@
     2. *Sem operações fantasmas `Sem Embarque`:* `Passo B` em `mergeConfrontoOperations` nunca cria operação sintética para `id_embarque === ''` sem irmã elegível.
     3. *Sem fallback cruzado entre embarques (`calculations.ts`, `usoff.ts`, `excel.service.ts`):* quando `id_embarque` explícito não existe em `carteiraEmbarques` carregada (`carteiraEmbarques.length > 0`), o registro extra é descartado em vez de cair no fallback por `matricula` (evitando herdar datas do período atual em confirmações de períodos antigos).
     4. *Guarda defensiva no USOFF e Excel:* operações `'Não Cadastrado no Portal'` sem `id_embarque` válido ou sem `embRef` correspondente na carteira carregada são ignoradas em `computeUsoffOperations` e `exportUsoffPortalOffshoreXlsx`.
+
+- **2026-11-13** — Responsável sem Seleção Manual de Regional/UN e De-Para Automático Plataforma → UN:
+  - *Decisão do Usuário:* Em `Pessoas & Plataformas` (`PessoaModal`), não exibir seleção manual de Regionais/UNs inteiras junto às plataformas; atribuir apenas as plataformas de cada responsável e derivar a(s) Unidade(s) de Negócio por **de-para automático** a partir das plataformas atribuídas. Também corrigir a aplicação do filtro `Responsável` (`#filter-resp`) em toda a aplicação.
+  - *Regras Canônicas Definidas:*
+    1. *Cadastro de Pessoa (`PessoasPlataformasView.tsx`):* `PessoaModal` remove o seletor manual de UNs, salva `uns: []` e exibe pills somente leitura derivadas ao vivo via `resolvePersonUns(pessoa, pidx)`.
+    2. *Atribuição de UN sem Concessão Cruzada (`calculations.ts` → `resolvePersonUns` & `isPersonResponsible`):* a função `resolvePersonUns` soma qualquer `pessoa.uns` legado às `plat.un` das plataformas atribuídas (`pessoa.plats`). Já `isPersonResponsible(pessoa, place, pidx)` só usa o de-para de UN no contexto exclusivamente agregador de UN (`!platformKey(place.p) && place.r`), **nunca** estendendo responsabilidade de uma plataforma (ex.: `P58`) para outra plataforma da mesma UN (ex.: `P57`).
+    3. *Filtro Global `#filter-resp` (`StickyFilterBar.tsx`, `ScopeBanner.tsx`, `VisaoGeralView.tsx`):* opções do select usam `p.id` como `value` (com fallback case-insensitive por `p.nome` em `resolvePersonFilter` e `passesFilter`), limpando `fPlat` incompatível ao trocar `fReg` e traduzindo `filters.fResp` para nome amigável no `ScopeBanner`.
+
+- **2026-11-13** — Janelamento da Carga SAP no Dashboard & Snapshot Sob Demanda para Deduplicação:
+  - *Problema Identificado:* Após remoção de `.neq('id_embarque', '')` em `confirmacoes_sap` (commit `31e7e9b`), carregar todas as linhas com `ORDER BY data_fim_real DESC, id ASC` sem índice dentro de `Promise.all` sujeitava o boot ao timeout do PostgREST logo após gravação/reconciliação em massa; além disso, erros em queries críticas de bootstrap eram engolidos em silêncio deixando o dataset vazio (`INITIAL_DATASET`) sem aviso ao usuário.
+  - *Decisão Arquitetural:*
+    1. *Janela na carga do dashboard (`supabase.connector.ts → fetchRawDataset`):* filtrar `confirmacoes_sap` por `sapWindowIni = addDays(queryIni, -45)` via `.or('data_fim_real.gte.<sapWindowIni>,data_lancamento.gte.<sapWindowIni>,data_criacao.gte.<sapWindowIni>').order('id', { ascending: true })`, acompanhado dos índices B-Tree na `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql`.
+    2. *Deduplicação completa desacoplada do boot (`fetchSapDedupSnapshot`):* adicionado método no port/conector Supabase (`fetchAllSapForDedup`) e rota `/api/v1/sap/dedup-snapshot` no servidor self-hosted para que `ImportarDadosView` carregue o histórico SAP completo sob demanda apenas quando a tela de importação é utilizada.
+    3. *Visibilidade explícita de falhas de carga (`AppContext.tsx`, `AppShell.tsx`, `ImportarDadosView.tsx`):* erros em queries críticas de bootstrap agora são propagados via `loadError` com banner de alerta + botão **`Recarregar dados`**, e a importação valida o retorno de `refreshData()` para não exibir toast enganoso de sucesso se a recarga falhar.

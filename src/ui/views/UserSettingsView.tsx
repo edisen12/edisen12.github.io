@@ -30,6 +30,7 @@ import { useToast } from '../components/ToastContext';
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl';
 import { ROLES_LABEL, NAV_TABS } from '../../config/constants';
 import { saveOwnProfileAndPreferences, updateOwnPassword } from '../../services/auth.service';
+import { resolvePersonUns } from '../../domain/calculations';
 import type { ThemeMode, TableDensity, TabId } from '../../domain/types';
 import { usePwaInstall } from '../../utils/pwa';
 import { PwaInstallModal } from '../modals/PwaInstallModal';
@@ -63,6 +64,7 @@ export function UserSettingsView() {
     userProfile,
     userOnboarding,
     pessoaScope,
+    pidx,
     isGlobal,
     userPreferences,
     updateUserPreferences,
@@ -551,18 +553,21 @@ export function UserSettingsView() {
                     }}
                   >
                     <Building2 size={15} />
-                    Unidades de Negócio (UNs) Atribuídas
+                    Unidades de Negócio (UNs · de-para pelas plataformas)
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {pessoaScope?.uns && pessoaScope.uns.length > 0 ? (
-                      pessoaScope.uns.map(un => (
-                        <span key={un} className="pill pill-info">
-                          {un}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="pill pill-sem">Nenhuma UN vinculada à carteira</span>
-                    )}
+                    {(() => {
+                      const effectiveUns = pessoaScope ? resolvePersonUns(pessoaScope, pidx) : [];
+                      return effectiveUns.length > 0 ? (
+                        effectiveUns.map(un => (
+                          <span key={un} className="pill pill-info">
+                            {un}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="pill pill-sem">Nenhuma UN derivada da carteira</span>
+                      );
+                    })()}
                   </div>
                 </div>
 

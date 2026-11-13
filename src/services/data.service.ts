@@ -6,6 +6,7 @@
 
 import type {
   AppDataset,
+  ConfirmacaoSAP,
   ContractConfig,
   Justificativa,
   Pessoa,
@@ -143,6 +144,17 @@ export async function fetchCarteiraDedupSnapshot(): Promise<CarteiraDedupSnapsho
   const provider = getClientDatabaseProvider();
   if (typeof provider.data.fetchCarteiraDedupSnapshot === 'function') {
     return provider.data.fetchCarteiraDedupSnapshot();
+  }
+  return null;
+}
+
+/**
+ * Busca retrato das confirmações SAP existentes no banco para deduplicação inteligente em uploads.
+ */
+export async function fetchSapDedupSnapshot(): Promise<ConfirmacaoSAP[] | null> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.fetchSapDedupSnapshot === 'function') {
+    return provider.data.fetchSapDedupSnapshot();
   }
   return null;
 }

@@ -52,6 +52,7 @@ import {
   reconciliarConfirmacoesSAP,
   resetCarteiraEmbarques,
   fetchCarteiraDedupSnapshot,
+  fetchSapDedupSnapshot,
   exportJsonSnapshot
 } from '../data.service';
 
@@ -1050,6 +1051,67 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       expect(embs1096).toHaveLength(1);
       expect(embs1096[0].data_inicio).toBe('2026-10-06');
       expect(embs1096[0].horas_programadas).toBe(20);
+    });
+
+    it('janela confirmacoes_sap em loadAppDataset sem descartar estornos recentes, preserva histórico completo em fetchSapDedupSnapshot e propaga erro de consulta', async () => {
+      mockClient.__mockState.tables.confirmacoes_sap.push(
+        {
+          id: 'sap-old-2025',
+          matricula: '1001',
+          data_criacao: '2025-01-10',
+          data_lancamento: '2025-01-10',
+          data_fim_real: '2025-01-10',
+          ordem: '002011111111',
+          operacao: '0010',
+          horas_confirmadas: 11,
+          contador_confirmacao: 1,
+          id_embarque: '11000',
+          status_reconciliacao: 'Em Carteira'
+        },
+        {
+          id: 'sap-win-2026',
+          matricula: '1001',
+          data_criacao: '2026-09-10',
+          data_lancamento: '2026-09-10',
+          data_fim_real: '2026-09-10',
+          ordem: '002022222222',
+          operacao: '0010',
+          horas_confirmadas: -9,
+          contador_confirmacao: 2,
+          id_embarque: '56500',
+          status_reconciliacao: 'Em Carteira'
+        }
+      );
+
+      // Janela de query [2026-10-01 .. 2026-10-31] => sapWindowIni = 2026-08-17 (-45d)
+      const dsWindowed = await loadAppDataset('2026-10-01', '2026-10-31', true);
+      const loadedIds = new Set((dsWindowed.confirmacoesSap || []).map(s => s.id));
+      expect(loadedIds.has('sap-win-2026')).toBe(true);
+      expect(loadedIds.has('sap-old-2025')).toBe(false);
+
+      // Snapshot de deduplicação SAP enxerga também registros históricos antigos para evitar duplicata em reuploads
+      const fullSapSnap = await fetchSapDedupSnapshot();
+      expect(fullSapSnap).not.toBeNull();
+      const snapIds = new Set((fullSapSnap || []).map(s => s.id));
+      expect(snapIds.has('sap-old-2025')).toBe(true);
+      expect(snapIds.has('sap-win-2026')).toBe(true);
+
+      // Erro de banco/timeout em consulta crítica não deve ser engolido silenciosamente
+      const originalFrom = mockClient.from.bind(mockClient);
+      const fromSpy = vi.spyOn(mockClient, 'from').mockImplementation(((table: string) => {
+        if (table === 'pessoas') {
+          return {
+            select: async () => ({ data: null, error: new Error('statement timeout simulado') })
+          };
+        }
+        return originalFrom(table);
+      }) as any);
+
+      try {
+        await expect(loadAppDataset('2026-10-01', '2026-10-31', true)).rejects.toThrow('statement timeout simulado');
+      } finally {
+        fromSpy.mockRestore();
+      }
     });
   });
 });

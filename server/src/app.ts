@@ -334,6 +334,12 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
         return sendJson(res, 200, { ok: true, data });
       }
 
+      if (method === 'GET' && pathname === '/api/v1/sap/dedup-snapshot') {
+        const actor = await authenticate(false);
+        const data = await engine.fetchSapDedupSnapshot(actor);
+        return sendJson(res, 200, { ok: true, data });
+      }
+
       if (method === 'POST' && pathname === '/api/v1/carteira/reset') {
         const actor = await authenticate(true);
         const result = await engine.resetCarteiraEmbarques(actor, clientIp);

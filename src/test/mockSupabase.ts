@@ -398,6 +398,50 @@ export class MockQueryBuilder {
     return this;
   }
 
+  or(expr: string) {
+    const clauses = String(expr || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (clauses.length === 0) return this;
+    this.filters.push(row =>
+      clauses.some(clause => {
+        const match = /^([^.]+)\.(eq|neq|gte|gt|lte|lt|is|ilike)\.(.*)$/.exec(clause);
+        if (!match) return false;
+        const [, col, op, rawVal] = match;
+        const val = row[col];
+        if (op === 'is') {
+          if (rawVal === 'null') return val === null || val === undefined;
+          if (rawVal === 'true') return val === true;
+          if (rawVal === 'false') return val === false;
+          return val === rawVal;
+        }
+        const cmp =
+          typeof val === 'number' && rawVal !== '' && !Number.isNaN(Number(rawVal))
+            ? Number(rawVal)
+            : rawVal === 'null'
+              ? null
+              : rawVal;
+        if (op === 'eq') return val === cmp;
+        if (op === 'neq') return val !== cmp;
+        if (val == null || cmp == null) return false;
+        if (op === 'gte') return val >= cmp;
+        if (op === 'gt') return val > cmp;
+        if (op === 'lte') return val <= cmp;
+        if (op === 'lt') return val < cmp;
+        if (op === 'ilike') {
+          const escaped = String(rawVal)
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            .replace(/%/g, '.*')
+            .replace(/_/g, '.');
+          return new RegExp(`^${escaped}$`, 'i').test(String(val));
+        }
+        return false;
+      })
+    );
+    return this;
+  }
+
   order(column: string, options: { ascending?: boolean } = { ascending: true }) {
     this.orderConfigs.push({ column, ascending: options.ascending !== false });
     return this;

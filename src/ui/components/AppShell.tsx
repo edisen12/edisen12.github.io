@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Smartphone, Download, X } from 'lucide-react';
+import { Smartphone, Download, X, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { StickyFilterBar } from './StickyFilterBar';
@@ -15,7 +15,7 @@ export interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pwaModalOpen, setPwaModalOpen] = useState(false);
-  const { isLoading, activeTab } = useApp();
+  const { isLoading, loadError, reloadDataset, activeTab } = useApp();
   const { isMobile, canShowInstallOption, bannerDismissed, triggerInstall, dismissBanner } = usePwaInstall();
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,6 +117,35 @@ export function AppShell({ children }: AppShellProps) {
         {/* Área rolável de dados (mantém Header e FilterBar congelados no topo) */}
         <div className="main-scroll-area" ref={scrollAreaRef}>
           <main className="main-content" id="main-content">
+            {loadError && (
+              <div
+                className="note note-bad"
+                role="alert"
+                style={{
+                  marginBottom: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '10px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.86rem' }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <span>{loadError}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={isLoading}
+                  onClick={() => void reloadDataset()}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <RefreshCw size={14} />
+                  <span>{isLoading ? 'Recarregando…' : 'Recarregar dados'}</span>
+                </button>
+              </div>
+            )}
             <ScopeBanner />
             {children}
           </main>

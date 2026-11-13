@@ -48,12 +48,14 @@ import {
   groupDaysByField,
   inferEmbarkation,
   isArmadorPlatform,
+  isPersonResponsible,
   lookupPlatform,
   mergeConfrontoOperations,
   resolveDivergenciaSapStatus,
   passesFilter,
   prazoOf,
   resolveLocation,
+  resolvePersonUns,
   resolvePlace,
   resolveRecord,
   resolveTechName
@@ -816,11 +818,7 @@ export async function exportPeriodoXlsx(
     ],
     ...pessoasList
       .map(p => {
-        const respDays = belowTargetDays.filter(x => {
-          const plats = p.plats || [];
-          const uns = p.uns || [];
-          return plats.includes(x.p) || uns.includes(x.r);
-        });
+        const respDays = belowTargetDays.filter(x => isPersonResponsible(p, { p: x.p, r: x.r }));
         const stats = computeCobrancaStats(respDays, dataset.config);
         return { p, stats };
       })
@@ -2210,6 +2208,7 @@ export async function exportModeloXlsx(
       ? Object.values(dataset.pessoas).sort((a, b) => a.nome.localeCompare(b.nome))
       : [];
 
+    const modelPidx = dataset ? buildPlatformIndex(dataset.plataformas) : {};
     const pessoasRows: any[][] = [
       ['Nome', 'Papel', 'E-mail', 'Plataformas', 'Unidades de negócio'],
       ...(pessoasList.length > 0
@@ -2218,7 +2217,7 @@ export async function exportModeloXlsx(
             p.papel === 'controlador' ? 'Controlador' : p.papel === 'gestor' ? 'Gestor' : 'Preposto',
             p.email || '',
             (p.plats || []).join(', '),
-            (p.uns || []).join(', ')
+            resolvePersonUns(p, modelPidx).join(', ')
           ])
         : [
             ['Nome do Responsável', 'Preposto', 'preposto@infotecbrasil.com.br', 'P58, P74', ''],
@@ -2233,7 +2232,7 @@ export async function exportModeloXlsx(
       ['Plataformas: a sigla identifica a plataforma. Unidade de negócio padronizada para todas da mesma bacia/regional.'],
       ['Pessoas: Papel = Preposto, Controlador ou Gestor.'],
       ['Plataformas: siglas separadas por vírgula (ex.: P58, P74).'],
-      ['Unidades de negócio: preencha apenas se a pessoa responder pela regional inteira.'],
+      ['Unidades de negócio: derivadas automaticamente por de-para a partir das plataformas atribuídas.'],
       ['Importe cada aba individualmente pela tela Pessoas, Plataformas e Acessos.'],
       [],
       ['Criado por Luanna de Abreu Teixeira']

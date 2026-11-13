@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, ShieldAlert, Filter, X } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { ROLES_LABEL } from '../../config/constants';
+import { resolvePersonFilter } from '../../domain/calculations';
 
 export function ScopeBanner() {
   const { dataset, isGlobal, userProfile, filters, updateFilter } = useApp();
@@ -61,6 +62,7 @@ export function ScopeBanner() {
 
   // Banner 3: Filtro Global Ativo por Responsável
   if (isGlobal && filters.fResp) {
+    const respNome = resolvePersonFilter(filters.fResp, dataset.pessoas)?.nome || filters.fResp;
     return (
       <div
         className="scope-banner note"
@@ -80,7 +82,7 @@ export function ScopeBanner() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem' }}>
           <Filter size={16} style={{ color: 'var(--blue)', flexShrink: 0 }} />
           <span>
-            Visualizando dados filtrados pelo responsável <strong>{filters.fResp}</strong>.
+            Visualizando dados filtrados pelo responsável <strong>{respNome}</strong>.
           </span>
         </div>
         <button

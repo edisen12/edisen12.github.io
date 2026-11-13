@@ -97,6 +97,7 @@ export interface BaaSConnectorPort {
     }>
   ): Promise<{ deleted_operacoes: number }>;
   fetchAllCarteiraForDedup?(): Promise<{ carteiraRows: any[]; carteiraOperacaoRows: any[] }>;
+  fetchAllSapForDedup?(): Promise<any[]>;
   reconciliarConfirmacoesSAPRPC?(): Promise<any>;
   resetCarteiraEmbarquesRPC?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
   insertFluxoImportacao(row: {

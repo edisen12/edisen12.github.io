@@ -8,6 +8,7 @@ import type {
   AppDataset,
   CarteiraEmbarque,
   CarteiraOperacao,
+  ConfirmacaoSAP,
   ContractConfig,
   Justificativa,
   PapelOperacional,
@@ -137,6 +138,7 @@ export interface ClientDataPort {
     options?: BatchImportCarteiraOptions
   ): Promise<void>;
   fetchCarteiraDedupSnapshot?(): Promise<CarteiraDedupSnapshot>;
+  fetchSapDedupSnapshot?(): Promise<ConfirmacaoSAP[]>;
   batchImportPlataformas(
     rows: BatchImportPlataformaRow[],
     onProgress?: ProgressCallback

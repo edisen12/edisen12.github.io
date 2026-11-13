@@ -22,6 +22,8 @@ import {
   lookupPlatform,
   passesFilter,
   prazoOf,
+  resolvePersonFilter,
+  resolvePersonUns,
   resolveTechSituation,
   resolveTechName,
   statusOf
@@ -83,7 +85,7 @@ export function VisaoGeralView() {
   // Breadcrumbs (exibidos somente quando há filtro de drill-down ativo)
   const renderCrumbs = () => {
     if (!fReg && !fPlat && !fResp) return null;
-    const ps = fResp ? dataset.pessoas[fResp] : null;
+    const ps = fResp ? resolvePersonFilter(fResp, dataset.pessoas) : null;
 
     return (
       <div className="crumbs" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
@@ -467,8 +469,9 @@ export function VisaoGeralView() {
   // MODO 2: DETALHE POR RESPONSÁVEL (vRespDet)
   // -------------------------------------------------------------
   if (fResp) {
-    const ps = dataset.pessoas[fResp];
+    const ps = resolvePersonFilter(fResp, dataset.pessoas);
     if (ps) {
+      const psUns = resolvePersonUns(ps, pidx);
       const respDays = days.filter(x => isPersonResponsible(ps, { p: x.p, r: x.r }));
       const A = aggregateDays(respDays, dataset.config);
       const dRowsResp = dRows.filter(r => isPersonResponsible(ps, { p: r.p, r: r.r }));
@@ -634,7 +637,7 @@ export function VisaoGeralView() {
               </h2>
               <div className="sub" style={{ color: 'var(--ink-muted)', marginTop: '4px' }}>
                 Responsável por {plural(nPl, 'plataforma', 'plataformas')}
-                {ps.uns?.length ? ` e pelas unidades ${ps.uns.join(', ')}` : ''}. {A.plats.size} delas com técnicos no período.
+                {psUns.length ? ` (UN: ${psUns.join(', ')})` : ''}. {A.plats.size} delas com técnicos no período.
               </div>
             </div>
 
@@ -1046,7 +1049,7 @@ export function VisaoGeralView() {
                         )}
                         {!r.A.n && (
                           <div className="sub" style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
-                            {r.nPl || r.p.uns?.length ? 'sem técnicos no período' : 'nenhuma plataforma associada'}
+                            {r.nPl || resolvePersonUns(r.p, pidx).length ? 'sem técnicos no período' : 'nenhuma plataforma associada'}
                           </div>
                         )}
                       </div>
@@ -1278,7 +1281,7 @@ export function VisaoGeralView() {
                     width: '160px',
                     render: r => {
                       const pr = Object.values(dataset.pessoas).filter(
-                        p => p.papel !== 'controlador' && isPersonResponsible(p, { p: '', r: r.u })
+                        p => p.papel !== 'controlador' && isPersonResponsible(p, { p: '', r: r.u }, pidx)
                       );
                       return (
                         <div className="sub" style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>

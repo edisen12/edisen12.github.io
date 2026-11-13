@@ -334,6 +334,38 @@ describe('Views Operacionais (VisaoGeralView, PainelDiaView, EmbarqueAtualView, 
       fireEvent.click(screen.getByRole('button', { name: 'Carlos Eduardo Sintético' }));
       expect(openFichaDrawer).toHaveBeenCalledWith('10231');
     });
+
+    it('aplica filtro por responsável (fResp) no detalhe e exibe Prepostos na tabela de UNs via de-para sem UN manual', () => {
+      const dsSemUnManual = createSyntheticDataset();
+      dsSemUnManual.pessoas['pes-1'].uns = [];
+      dsSemUnManual.pessoas['pes-2'].uns = [];
+
+      // 1) Sem fResp: tabela de UNs lista responsáveis derivados por plataforma -> UN (de-para)
+      setupAppMock({ dataset: dsSemUnManual });
+      const { unmount } = renderWithToast(<VisaoGeralView />);
+      expect(screen.getAllByText(/Camila Rocha Mendes/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Bruno Alves Sintético/).length).toBeGreaterThanOrEqual(1);
+      unmount();
+
+      // 2) Com fResp = 'pes-1': exibe visão detalhada restrita apenas às plataformas atribuídas a pes-1
+      setupAppMock({
+        dataset: dsSemUnManual,
+        filters: {
+          fDate: '2026-06-02',
+          fReg: '',
+          fPlat: '',
+          fResp: 'pes-1',
+          fPer: '',
+          cIni: '',
+          cFim: ''
+        }
+      });
+      renderWithToast(<VisaoGeralView />);
+      expect(screen.getByText(/Camila Rocha Mendes · Preposto/)).not.toBeNull();
+      expect(screen.getByText(/\(UN: UN-BS\)/)).not.toBeNull();
+      expect(screen.getAllByText('P51').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText('P58')).toBeNull();
+    });
   });
 
   describe('PainelDiaView', () => {
@@ -477,6 +509,29 @@ describe('Views Operacionais (VisaoGeralView, PainelDiaView, EmbarqueAtualView, 
 
       fireEvent.click(screen.getByRole('button', { name: 'Carlos Eduardo Sintético' }));
       expect(openFichaDrawer).toHaveBeenCalledWith('10231');
+    });
+
+    it('filtra embarques exibidos quando fResp está selecionado', () => {
+      const dsSemUnManual = createSyntheticDataset();
+      dsSemUnManual.pessoas['pes-1'].uns = [];
+      dsSemUnManual.pessoas['pes-2'].uns = [];
+
+      setupAppMock({
+        dataset: dsSemUnManual,
+        filters: {
+          fDate: '2026-06-02',
+          fReg: '',
+          fPlat: '',
+          fResp: 'pes-1',
+          fPer: '',
+          cIni: '',
+          cFim: ''
+        }
+      });
+      renderWithToast(<EmbarqueAtualView />);
+
+      expect(screen.getAllByText(/55104/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText(/55208/)).toBeNull();
     });
   });
 

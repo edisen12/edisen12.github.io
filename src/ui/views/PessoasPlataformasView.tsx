@@ -46,7 +46,7 @@ import {
   exportModeloXlsx,
   type ParsedPreviewState
 } from '../../services/excel.service';
-import { findResponsiblePeople, isArmadorPlatform } from '../../domain/calculations';
+import { findResponsiblePeople, isArmadorPlatform, resolvePersonUns } from '../../domain/calculations';
 import { PAPEIS_LABEL, ROLES_LABEL, SITUACOES_PLATAFORMA } from '../../config/constants';
 import type { ImportKind, PapelOperacional, Pessoa, Plataforma, SystemRole, UserOnboarding, UserProfile } from '../../domain/types';
 import { normalizeText, platformKey } from '../../utils/format';
@@ -144,10 +144,11 @@ export const PessoasPlataformasView: React.FC = () => {
     const q = normalizeText(pesBusca);
     if (!q) return list;
     return list.filter(p => {
-      const text = `${p.nome} ${p.email || ''} ${(p.plats || []).join(' ')} ${(p.uns || []).join(' ')}`;
+      const effectiveUns = resolvePersonUns(p, pidx);
+      const text = `${p.nome} ${p.email || ''} ${(p.plats || []).join(' ')} ${effectiveUns.join(' ')}`;
       return normalizeText(text).includes(q);
     });
-  }, [dataset.pessoas, papelFilter, pesBusca]);
+  }, [dataset.pessoas, papelFilter, pesBusca, pidx]);
 
   const adminProfiles = useMemo(() => {
     return Object.values(dataset.profiles || {}).filter(p => p.role === 'admin');
@@ -564,7 +565,7 @@ export const PessoasPlataformasView: React.FC = () => {
                   const prof = p.user_id ? dataset.profiles?.[p.user_id] : null;
                   const onb = p.user_id ? dataset.onboardingMap?.[p.user_id] : null;
                   const pl = p.plats || [];
-                  const uns = p.uns || [];
+                  const uns = resolvePersonUns(p, pidx);
 
                   return (
                     <tr key={p.id}>
@@ -630,7 +631,7 @@ export const PessoasPlataformasView: React.FC = () => {
                         )}
                         {uns.length > 0 && (
                           <div className="sub" style={{ fontSize: '0.78rem', color: 'var(--blue)' }}>
-                            Unidades: {uns.join(', ')}
+                            UNs (de-para): {uns.join(', ')}
                           </div>
                         )}
                         {pl.length === 0 && uns.length === 0 && (
@@ -1232,11 +1233,24 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
   const [nome, setNome] = useState(initialPessoa?.nome || '');
   const [papel, setPapel] = useState<PapelOperacional>(initialPessoa?.papel || 'preposto');
   const [email, setEmail] = useState(initialPessoa?.email || '');
-  const [selectedUns, setSelectedUns] = useState<string[]>(initialPessoa?.uns || []);
   const [selectedPlats, setSelectedPlats] = useState<string[]>(initialPessoa?.plats || []);
   const [filterPlat, setFilterPlat] = useState('');
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const derivedUns = useMemo(() => {
+    const platMap = allPlataformas.reduce<Record<string, Plataforma>>((acc, p) => {
+      acc[p.sigla] = p;
+      return acc;
+    }, {});
+    return resolvePersonUns(
+      {
+        plats: selectedPlats,
+        uns: []
+      },
+      platMap
+    );
+  }, [allPlataformas, selectedPlats]);
 
   const platsSorted = useMemo(() => {
     return [...allPlataformas].sort((a, b) =>
@@ -1269,14 +1283,6 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
     setSelectedPlats(prev => prev.filter(s => !keysInUn.has(platformKey(s))));
   };
 
-  const toggleUn = (un: string) => {
-    if (selectedUns.includes(un)) {
-      setSelectedUns(prev => prev.filter(u => u !== un));
-    } else {
-      setSelectedUns(prev => [...prev, un]);
-    }
-  };
-
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg('');
@@ -1294,7 +1300,7 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
         papel,
         email: email.trim().toLowerCase(),
         plats: selectedPlats,
-        uns: selectedUns
+        uns: []
       });
       showToast('Pessoa e carteira salvas com sucesso!', 'success');
       await onSaved();
@@ -1387,40 +1393,26 @@ const PessoaModal: React.FC<PessoaModalProps> = ({
           </div>
         </label>
 
-        {/* Chips de UNs Inteiras */}
+        {/* De-para automático das Unidades de Negócio a partir das plataformas */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-            Unidades de negócio inteiras (opcional)
+            Unidades de negócio (de-para automático)
           </span>
           <p className="sub" style={{ margin: 0, fontSize: '0.8rem' }}>
-            Marque uma unidade quando a pessoa responder por todas as plataformas dela, inclusive as que forem cadastradas futuramente.
+            Calculado automaticamente a partir das plataformas selecionadas abaixo.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-            {allUns.map(u => (
-              <label
-                key={u}
-                className="chip"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--line)',
-                  background: selectedUns.includes(u) ? 'var(--blue-soft)' : undefined
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedUns.includes(u)}
-                  onChange={() => toggleUn(u)}
-                  style={{ minHeight: 0 }}
-                  disabled={saving}
-                />
-                <span style={{ fontSize: '0.82rem' }}>{u}</span>
-              </label>
-            ))}
+            {derivedUns.length > 0 ? (
+              derivedUns.map(u => (
+                <span key={u} className="pill pill-info">
+                  {u}
+                </span>
+              ))
+            ) : (
+              <span className="pill pill-sem">
+                Nenhuma unidade derivada (selecione plataformas abaixo)
+              </span>
+            )}
           </div>
         </div>
 

@@ -54,10 +54,10 @@ export const buildPlatformIndex = (
 };
 
 export const lookupPlatform = (
-  pidx: Record<string, Plataforma>,
+  pidx?: Record<string, Plataforma> | null,
   rawName?: string | null
 ): Plataforma | null => {
-  if (!rawName) return null;
+  if (!pidx || !rawName) return null;
   const sanitized = sanitizePlatformCode(rawName);
   const kSanitized = platformKey(sanitized);
   if (pidx[kSanitized]) return pidx[kSanitized];
@@ -474,14 +474,54 @@ export const accumulateEmbarkation = (
   };
 };
 
+export const resolvePersonFilter = (
+  fResp: string,
+  pessoas: Record<string, Pessoa>
+): Pessoa | null => {
+  const raw = (fResp || '').trim();
+  if (!raw) return null;
+  if (pessoas[raw]) return pessoas[raw];
+  const lower = raw.toLowerCase();
+  return (
+    Object.values(pessoas).find(p => (p.nome || '').trim().toLowerCase() === lower) ||
+    null
+  );
+};
+
+export const resolvePersonUns = (
+  pessoa: Pick<Pessoa, 'plats'> & { uns?: string[] },
+  plataformasOrPidx?: Record<string, Plataforma>
+): string[] => {
+  const uns = new Set<string>(
+    (pessoa.uns || []).map(u => String(u || '').trim()).filter(Boolean)
+  );
+  if (plataformasOrPidx) {
+    const idx = buildPlatformIndex(plataformasOrPidx);
+    (pessoa.plats || []).forEach(sigla => {
+      const plat = lookupPlatform(idx, sigla);
+      if (plat?.un && plat.un.trim()) {
+        uns.add(plat.un.trim());
+      }
+    });
+  }
+  return Array.from(uns).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+};
+
 export const isPersonResponsible = (
   pessoa: Pessoa,
-  place: ResolvedPlace
+  place: ResolvedPlace,
+  plataformasOrPidx?: Record<string, Plataforma>
 ): boolean => {
   const pkPlace = platformKey(place.p);
-  const plOk = (pessoa.plats || []).some(x => platformKey(x) === pkPlace);
-  const unOk = (pessoa.uns || []).includes(place.r);
-  return plOk || unOk;
+  const plOk = pkPlace
+    ? (pessoa.plats || []).some(x => platformKey(x) === pkPlace)
+    : false;
+  if (plOk) return true;
+  if ((pessoa.uns || []).includes(place.r)) return true;
+  if (!pkPlace && place.r && plataformasOrPidx) {
+    return resolvePersonUns(pessoa, plataformasOrPidx).includes(place.r);
+  }
+  return false;
 };
 
 export const findResponsiblePeople = (
@@ -525,8 +565,11 @@ export const passesFilter = (
   if (filters.fReg && place.r !== filters.fReg) return false;
   if (filters.fPlat && place.p !== filters.fPlat) return false;
   if (filters.fResp) {
-    const ps = pessoas[filters.fResp];
-    if (ps && !isPersonResponsible(ps, place)) return false;
+    const ps = resolvePersonFilter(filters.fResp, pessoas);
+    if (!ps) {
+      return Object.keys(pessoas).length === 0;
+    }
+    if (!isPersonResponsible(ps, place)) return false;
   }
   return true;
 };

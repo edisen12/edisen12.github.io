@@ -5,7 +5,7 @@ import { UserSettingsView } from '../UserSettingsView';
 import { useApp, type UserSettingsSection } from '../../state/AppContext';
 import { ToastProvider } from '../../components/ToastContext';
 import { saveOwnProfileAndPreferences, updateOwnPassword } from '../../../services/auth.service';
-import type { UserProfile, UserOnboarding, UserPreferences, Pessoa } from '../../../domain/types';
+import type { UserProfile, UserOnboarding, UserPreferences, Pessoa, Plataforma } from '../../../domain/types';
 
 vi.mock('../../state/AppContext', () => ({
   useApp: vi.fn()
@@ -166,7 +166,7 @@ describe('UserSettingsView (Central de Preferências do Usuário)', () => {
 
       renderUserSettingsView();
 
-      expect(screen.getByText('Unidades de Negócio (UNs) Atribuídas')).not.toBeNull();
+      expect(screen.getByText('Unidades de Negócio (UNs · de-para pelas plataformas)')).not.toBeNull();
       expect(screen.getByText('UN-BSUS')).not.toBeNull();
       expect(screen.getByText('UN-RIO')).not.toBeNull();
 
@@ -174,6 +174,54 @@ describe('UserSettingsView (Central de Preferências do Usuário)', () => {
       expect(screen.getByText('P-51')).not.toBeNull();
       expect(screen.getByText('P-53')).not.toBeNull();
       expect(screen.getByText('FPSO Carioca')).not.toBeNull();
+    });
+
+    it('deriva UNs automaticamente via de-para de plataformas quando pessoa.uns está vazio', () => {
+      const pidxMock: Record<string, Plataforma> = {
+        'p-51': {
+          sigla: 'P-51',
+          chave_norm: 'p-51',
+          nome: 'P-51',
+          un: 'UN-BSUS',
+          armador: '',
+          gerencia: '',
+          tipo: 'Plataforma Fixa',
+          situacao: 'Ativa',
+          cadastro_pendente: false,
+          tipo_medicao: 'hh'
+        },
+        'fpso carioca': {
+          sigla: 'FPSO Carioca',
+          chave_norm: 'fpso carioca',
+          nome: 'FPSO Carioca',
+          un: 'UN-RIO',
+          armador: '',
+          gerencia: '',
+          tipo: 'FPSO',
+          situacao: 'Ativa',
+          cadastro_pendente: false,
+          tipo_medicao: 'hh'
+        }
+      };
+      vi.mocked(useApp).mockReturnValue({
+        userProfile: { ...MOCK_PROFILE, role: 'preposto' },
+        userOnboarding: MOCK_ONBOARDING,
+        pessoaScope: { ...MOCK_PESSOA_LOCAL, uns: [] },
+        pidx: pidxMock,
+        isGlobal: false,
+        userPreferences: MOCK_PREFERENCES,
+        updateUserPreferences: mockUpdateUserPreferences,
+        userSettingsSection: 'perfil',
+        openUserSettings: mockOpenUserSettings,
+        refreshAuth: mockRefreshAuth,
+        logout: mockLogout
+      } as unknown as ReturnType<typeof useApp>);
+
+      renderUserSettingsView();
+
+      expect(screen.getByText('Unidades de Negócio (UNs · de-para pelas plataformas)')).not.toBeNull();
+      expect(screen.getByText('UN-BSUS')).not.toBeNull();
+      expect(screen.getByText('UN-RIO')).not.toBeNull();
     });
   });
 

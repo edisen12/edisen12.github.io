@@ -1262,6 +1262,13 @@ export class SelfHostedDomainEngine {
     return { carteiraRows, carteiraOperacaoRows };
   }
 
+  async fetchSapDedupSnapshot(actor: AuthenticatedActor): Promise<ConfirmacaoSAP[]> {
+    this.assertGlobalRole(actor);
+    return this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap', {
+      orderBy: { field: 'data_fim_real', direction: 'desc' }
+    });
+  }
+
   private async pruneStaleCarteiraByEmbarques(
     embarqueIds: string[],
     keepOps: Array<{

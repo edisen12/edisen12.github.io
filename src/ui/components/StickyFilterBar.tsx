@@ -3,10 +3,10 @@ import { ChevronLeft, ChevronRight, Clock, RotateCcw, SlidersHorizontal, Chevron
 import { useApp } from '../state/AppContext';
 import { addDays, formatBr, todayIso } from '../../utils/date';
 import { listMeasurementOptions } from '../../domain/periods';
-import { listAvailablePlatforms, listAvailableUnits } from '../../domain/calculations';
+import { listAvailablePlatforms, listAvailableUnits, lookupPlatform, resolvePersonFilter } from '../../domain/calculations';
 
 export function StickyFilterBar() {
-  const { filters, updateFilter, resetFilters, dataset, pidx, isGlobal } = useApp();
+  const { filters, updateFilter, setFilters, resetFilters, dataset, pidx, isGlobal } = useApp();
   const [mobileExpanded, setMobileExpanded] = useState(false);
 
   const today = todayIso();
@@ -35,6 +35,11 @@ export function StickyFilterBar() {
       gestores: list.filter(p => p.papel === 'gestor').sort((a, b) => a.nome.localeCompare(b.nome))
     };
   }, [dataset.pessoas]);
+
+  const selectedRespValue = useMemo(() => {
+    if (!filters.fResp) return '';
+    return resolvePersonFilter(filters.fResp, dataset.pessoas)?.id ?? filters.fResp;
+  }, [filters.fResp, dataset.pessoas]);
 
   const handlePrevDay = () => {
     updateFilter('fDate', addDays(currentDate, -1));
@@ -188,7 +193,17 @@ export function StickyFilterBar() {
             id="filter-reg"
             className="filter-select"
             value={filters.fReg}
-            onChange={e => updateFilter('fReg', e.target.value)}
+            onChange={e => {
+              const nextUn = e.target.value;
+              if (nextUn && filters.fPlat && typeof setFilters === 'function') {
+                const platObj = lookupPlatform(pidx, filters.fPlat);
+                if (platObj && platObj.un !== nextUn) {
+                  setFilters(prev => ({ ...prev, fReg: nextUn, fPlat: '' }));
+                  return;
+                }
+              }
+              updateFilter('fReg', nextUn);
+            }}
           >
             <option value="">Todas as UNs</option>
             {availableUnits.map(un => (
@@ -228,14 +243,14 @@ export function StickyFilterBar() {
             <select
               id="filter-resp"
               className="filter-select"
-              value={filters.fResp}
+              value={selectedRespValue}
               onChange={e => updateFilter('fResp', e.target.value)}
             >
               <option value="">Todos os responsáveis</option>
               {groupedPessoas.prepostos.length > 0 && (
                 <optgroup label="Prepostos">
                   {groupedPessoas.prepostos.map(p => (
-                    <option key={p.id} value={p.nome}>
+                    <option key={p.id} value={p.id}>
                       {p.nome}
                     </option>
                   ))}
@@ -244,7 +259,7 @@ export function StickyFilterBar() {
               {groupedPessoas.controladores.length > 0 && (
                 <optgroup label="Controladores">
                   {groupedPessoas.controladores.map(p => (
-                    <option key={p.id} value={p.nome}>
+                    <option key={p.id} value={p.id}>
                       {p.nome}
                     </option>
                   ))}
@@ -253,7 +268,7 @@ export function StickyFilterBar() {
               {groupedPessoas.gestores.length > 0 && (
                 <optgroup label="Gestores">
                   {groupedPessoas.gestores.map(p => (
-                    <option key={p.id} value={p.nome}>
+                    <option key={p.id} value={p.id}>
                       {p.nome}
                     </option>
                   ))}

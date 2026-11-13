@@ -21,6 +21,7 @@ import type {
 } from '../../ports/data.port';
 import type { ClientRealtimePort } from '../../ports/realtime.port';
 import type {
+  ConfirmacaoSAP,
   ContractConfig,
   Pessoa,
   Plataforma,
@@ -37,6 +38,7 @@ import {
   filterAuditLogsClientSide,
   mapRawCarteiraOperacaoRow,
   mapRawCarteiraRow,
+  mapRawConfirmacaoSapRow,
   normalizeEmail,
   prepareBatchCarteira,
   prepareBatchConfirmacoesSAP,
@@ -376,6 +378,11 @@ export function createSelfHostedClientProvider(
         carteira: (res.data?.carteiraRows || []).map(row => mapRawCarteiraRow(row)),
         carteiraOperacoes: (res.data?.carteiraOperacaoRows || []).map(row => mapRawCarteiraOperacaoRow(row))
       };
+    },
+
+    async fetchSapDedupSnapshot(): Promise<ConfirmacaoSAP[]> {
+      const res = await http.get<{ ok: boolean; data: any[] }>('/sap/dedup-snapshot');
+      return (res.data || []).map(row => mapRawConfirmacaoSapRow(row));
     },
 
     async batchImportPlataformas(

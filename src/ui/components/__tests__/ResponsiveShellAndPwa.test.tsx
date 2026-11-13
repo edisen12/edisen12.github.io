@@ -5,6 +5,7 @@ import { StickyFilterBar } from '../StickyFilterBar';
 import { Sidebar } from '../Sidebar';
 import { TopHeader } from '../TopHeader';
 import { AppShell } from '../AppShell';
+import { ScopeBanner } from '../ScopeBanner';
 import { PwaInstallModal } from '../../modals/PwaInstallModal';
 import { useApp } from '../../state/AppContext';
 import { DEFAULT_CONFIG, NAV_TABS } from '../../../config/constants';
@@ -212,6 +213,76 @@ describe('Shell Responsivo & UI de Instalação PWA', () => {
 
       fireEvent.click(clearButtons[0]);
       expect(resetFilters).toHaveBeenCalledTimes(1);
+    });
+
+    it('envia p.id no select de responsável, resolve ScopeBanner por ID e limpa fPlat incompatível ao trocar UN', () => {
+      const updateFilter = vi.fn();
+      const setFilters = vi.fn();
+      setupMockApp({
+        filters: {
+          fDate: todayIso(),
+          fReg: 'UN-BS',
+          fPlat: 'P51',
+          fResp: 'pes-1',
+          fPer: '',
+          cIni: '',
+          cFim: ''
+        },
+        updateFilter,
+        setFilters
+      });
+
+      render(
+        <>
+          <StickyFilterBar />
+          <ScopeBanner />
+        </>
+      );
+
+      const respSelect = screen.getByLabelText('Responsável') as HTMLSelectElement;
+      const anaOption = screen.getByRole('option', { name: 'Ana Beatriz Costa' }) as HTMLOptionElement;
+      expect(anaOption.value).toBe('pes-1');
+      expect(respSelect.value).toBe('pes-1');
+      expect(screen.getByRole('status').textContent).toContain('Ana Beatriz Costa');
+
+      fireEvent.change(respSelect, { target: { value: 'pes-1' } });
+      expect(updateFilter).toHaveBeenCalledWith('fResp', 'pes-1');
+
+      const regSelect = screen.getByLabelText('UN') as HTMLSelectElement;
+      fireEvent.change(regSelect, { target: { value: 'UN-ES' } });
+      expect(setFilters).toHaveBeenCalledTimes(1);
+      const updater = setFilters.mock.calls[0][0] as (prev: FilterState) => FilterState;
+      expect(
+        updater({
+          fDate: todayIso(),
+          fReg: 'UN-BS',
+          fPlat: 'P51',
+          fResp: 'pes-1',
+          fPer: '',
+          cIni: '',
+          cFim: ''
+        })
+      ).toMatchObject({ fReg: 'UN-ES', fPlat: '' });
+    });
+
+    it('exibe alerta com botão "Recarregar dados" no AppShell quando loadError está definido', () => {
+      const reloadDataset = vi.fn().mockResolvedValue(true);
+      setupMockApp({
+        loadError: 'Falha simulada de conexão ao banco.',
+        reloadDataset
+      });
+
+      render(
+        <AppShell>
+          <div>Conteúdo Operacional</div>
+        </AppShell>
+      );
+
+      const alert = screen.getByRole('alert');
+      expect(alert.textContent).toContain('Falha simulada de conexão ao banco.');
+      const retryBtn = screen.getByRole('button', { name: /Recarregar dados/i });
+      fireEvent.click(retryBtn);
+      expect(reloadDataset).toHaveBeenCalledTimes(1);
     });
   });
 

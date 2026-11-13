@@ -67,8 +67,9 @@ export interface AppContextValue {
   pidx: Record<string, Plataforma>;
   activePeriod: PeriodWindow;
   isLoading: boolean;
-  reloadDataset: () => Promise<void>;
-  refreshData: () => Promise<void>;
+  loadError?: string | null;
+  reloadDataset: () => Promise<boolean | void>;
+  refreshData: () => Promise<boolean | void>;
 
   // Filtros Reativos
   filters: FilterState;
@@ -277,6 +278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Dataset e Dados
   const [dataset, setDataset] = useState<AppDataset>(INITIAL_DATASET);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
 
   // Modais Globais
@@ -396,6 +398,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Ignora
       }
       setDataset(INITIAL_DATASET);
+      setLoadError(null);
       setUserProfile(null);
       setPessoaScope(null);
       setUserOnboarding(null);
@@ -450,9 +453,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Carregamento de Dados com Janelamento Automático (somente autenticado E com senha definitiva trocada)
   const lastQueryRef = useRef<string>('');
 
-  const reloadDataset = useCallback(async () => {
-    if (!userProfile || requiresPasswordChange) return;
+  const reloadDataset = useCallback(async (): Promise<boolean> => {
+    if (!userProfile || requiresPasswordChange) return false;
     setIsLoading(true);
+    setLoadError(null);
     try {
       const ds = await loadAppDataset(queryWindow.queryIni, queryWindow.queryFim, isGlobal);
       setDataset(ds);
@@ -468,9 +472,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return prev;
         });
       }
-    } catch (err) {
+      return true;
+    } catch (err: any) {
       console.error('Erro ao carregar dataset do contrato:', err);
-      showToast?.('Erro ao carregar dados do contrato. Verifique sua conexão.', 'error');
+      const msg =
+        err?.message && String(err.message).trim()
+          ? `Falha ao carregar dados do banco (${String(err.message).slice(0, 140)}).`
+          : 'Erro ao carregar dados do contrato. Verifique sua conexão ou sessão.';
+      setLoadError(msg);
+      showToast?.(msg, 'error');
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -524,6 +535,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pidx,
     activePeriod,
     isLoading,
+    loadError,
     reloadDataset,
     refreshData: reloadDataset,
     filters,
@@ -568,6 +580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pidx,
     activePeriod,
     isLoading,
+    loadError,
     reloadDataset,
     filters,
     setFilters,

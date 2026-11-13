@@ -50,6 +50,8 @@ import {
   prazoOf,
   resolveLocation,
   resolvePlace,
+  resolvePersonFilter,
+  resolvePersonUns,
   resolveDivergenciaSapStatus,
   resolveRecord,
   resolveTechName,
@@ -792,6 +794,57 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
 
       const filterFail: FilterState = { ...emptyFilters, fReg: 'Búzios (UN-BUZ)' };
       expect(passesFilter(place, filterFail, dataset.pessoas)).toBe(false);
+
+      // Filtro por responsável: aceita ID e fallback legado por nome, e bloqueia plataformas não atribuídas
+      const respFilterById: FilterState = { ...emptyFilters, fResp: 'prep1' };
+      expect(passesFilter(place, respFilterById, dataset.pessoas)).toBe(true);
+      expect(passesFilter({ p: 'P74', r: 'Búzios (UN-BUZ)' }, respFilterById, dataset.pessoas)).toBe(false);
+
+      const respFilterByLegacyName: FilterState = { ...emptyFilters, fResp: dataset.pessoas.prep1.nome };
+      expect(passesFilter(place, respFilterByLegacyName, dataset.pessoas)).toBe(true);
+
+      const respFilterUnknown: FilterState = { ...emptyFilters, fResp: 'id-inexistente' };
+      expect(passesFilter(place, respFilterUnknown, dataset.pessoas)).toBe(false);
+    });
+
+    it('isPersonResponsible, resolvePersonFilter e resolvePersonUns aplicam de-para automático sem vazar outras plataformas da UN', () => {
+      const dataset = createBaseDataset();
+      const multiPlats: Record<string, Plataforma> = {
+        ...dataset.plataformas,
+        P57: {
+          sigla: 'P57',
+          chave_norm: 'P57',
+          nome: 'Plataforma P-57',
+          un: 'Espírito Santo (UN-ES)',
+          armador: '',
+          gerencia: 'UO-ES',
+          tipo: 'FPSO',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        }
+      };
+      const localPidx = buildPlatformIndex(multiPlats);
+      const pessoaSemUnManual: Pessoa = {
+        id: 'prep-depara',
+        slug: 'prep-depara',
+        nome: 'Preposto DePara',
+        papel: 'preposto',
+        email: 'depara@infotecbrasil.com.br',
+        user_id: null,
+        plats: ['P58', 'P74'],
+        uns: []
+      };
+
+      expect(resolvePersonUns(pessoaSemUnManual, localPidx)).toEqual([
+        'Búzios (UN-BUZ)',
+        'Espírito Santo (UN-ES)'
+      ]);
+      // Tem acesso às plataformas atribuídas e ao agrupamento por UN via de-para
+      expect(isPersonResponsible(pessoaSemUnManual, { p: 'P58', r: 'Espírito Santo (UN-ES)' }, localPidx)).toBe(true);
+      expect(isPersonResponsible(pessoaSemUnManual, { p: '', r: 'Espírito Santo (UN-ES)' }, localPidx)).toBe(true);
+      // Não herda outra plataforma da mesma UN só porque possui P58 na UN-ES
+      expect(isPersonResponsible(pessoaSemUnManual, { p: 'P57', r: 'Espírito Santo (UN-ES)' }, localPidx)).toBe(false);
+      expect(resolvePersonFilter('prep-depara', { 'prep-depara': pessoaSemUnManual })?.id).toBe('prep-depara');
     });
 
     it('isPersonResponsible e findResponsiblePeople', () => {

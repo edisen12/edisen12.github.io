@@ -1105,6 +1105,24 @@ export function mapRawCarteiraOperacaoRow(
   };
 }
 
+export function mapRawConfirmacaoSapRow(row: any): ConfirmacaoSAP {
+  return {
+    id: String(row.id || ''),
+    matricula: String(row.matricula || ''),
+    data_criacao: String(row.data_criacao || ''),
+    data_lancamento: String(row.data_lancamento || ''),
+    data_fim_real: String(row.data_fim_real || ''),
+    ordem: String(row.ordem || ''),
+    operacao: String(row.operacao || ''),
+    horas_confirmadas: Number(row.horas_confirmadas) || 0,
+    contador_confirmacao: row.contador_confirmacao != null ? Number(row.contador_confirmacao) : 0,
+    id_embarque: parseIdEmbarque((row as any).id_embarque || ''),
+    status_reconciliacao: (row.status_reconciliacao as any) || 'Pendente',
+    created_at: String(row.created_at || ''),
+    updated_at: String(row.updated_at || '')
+  };
+}
+
 /**
  * Monta o dataset completo da aplicação a partir de dados brutos retornados pelo BaaS.
  * Garante compatibilidade 100% com o formato consumido pelo AppContext e motor de domínio.
@@ -1244,21 +1262,9 @@ export async function assembleAppDataset(
   );
 
   // 6.2. Confirmações do SAP vinculadas a embarques
-  const confirmacoesSap: ConfirmacaoSAP[] = (raw.confirmacaoSapRows || []).map(row => ({
-    id: String(row.id || ''),
-    matricula: String(row.matricula || ''),
-    data_criacao: String(row.data_criacao || ''),
-    data_lancamento: String(row.data_lancamento || ''),
-    data_fim_real: String(row.data_fim_real || ''),
-    ordem: String(row.ordem || ''),
-    operacao: String(row.operacao || ''),
-    horas_confirmadas: Number(row.horas_confirmadas) || 0,
-    contador_confirmacao: row.contador_confirmacao != null ? Number(row.contador_confirmacao) : 0,
-    id_embarque: parseIdEmbarque((row as any).id_embarque || ''),
-    status_reconciliacao: (row.status_reconciliacao as any) || 'Pendente',
-    created_at: String(row.created_at || ''),
-    updated_at: String(row.updated_at || '')
-  }));
+  const confirmacoesSap: ConfirmacaoSAP[] = (raw.confirmacaoSapRows || []).map(row =>
+    mapRawConfirmacaoSapRow(row)
+  );
 
   // 7. Apontamentos HH
   const hhMap: Record<string, ApontamentoHH> = {};
@@ -1683,6 +1689,13 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         };
       }
       return { carteira: [], carteiraOperacoes: [] };
+    },
+    async fetchSapDedupSnapshot(): Promise<ConfirmacaoSAP[]> {
+      if (typeof connector.fetchAllSapForDedup === 'function') {
+        const rows = await connector.fetchAllSapForDedup();
+        return (rows || []).map(row => mapRawConfirmacaoSapRow(row));
+      }
+      return [];
     },
     async batchImportPlataformas(rows, onProgress) {
       if (!rows.length) return;

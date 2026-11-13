@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-12 23:35 (BRT) · Base HEAD: 31e7e9b (com alterações validadas para commit/push em `main`) · Suíte Completa: 33 arquivos / 603 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.21s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas e validadas ✅
+> Última atualização: 2026-11-13 13:49 (BRT) · Base HEAD: 128ddf7 (com alterações validadas para commit/push em `main`) · Suíte Completa: 34 arquivos / 611 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.91s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas; Migration 026 (índices de janela SAP) versionada no repositório ⏳
 
 ## 1. Resumo Executivo
 
@@ -57,6 +57,7 @@
 - `supabase/migrations/023_fix_reconciliar_sap_estornos.sql` — normalização `normalize_sap_code`, reconciliação SAP em 2 passadas (estornos tardios multi-embarque e irmãs Fora da Carteira), soma líquida com arredondamento e guarda `safeupdate` + RBAC global.
 - `supabase/migrations/024_smart_dedup_sap_e_portal.sql` — limpeza de 168 duplicatas em `confirmacoes_sap`, recriação de `uq_confirmacao_sap_row` sem `horas_confirmadas`, trigger `sync_carteira_embarques_from_operacoes` removendo órfãos `portal_offshore` e RPC `prune_stale_carteira_by_embarques`.
 - `supabase/migrations/025_optimize_reconciliar_sap_hash_joins.sql` — otimização de `reconciliar_confirmacoes_sap()` com CTEs `AS MATERIALIZED` e Hash Joins (reduzindo execução em produção para ~4,8 s sem timeout HTTP 524).
+- `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql` — índices B-Tree idempotentes em `confirmacoes_sap` (`data_fim_real`, `data_lancamento`, `data_criacao`) para acelerar o filtro janelado `OR` no carregamento do dashboard.
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 com rollback compensatório em todas as etapas SQL pós-GoTrue e travas anti-lockout + auditoria WORM.
 - `src/types/database.types.ts` — gerado via schema.
 
@@ -140,16 +141,28 @@
     - *Confronto Determinístico (`src/domain/calculations.ts` → `mergeConfrontoOperations`):* removida geração de operações `'Não Cadastrado no Portal'` para confirmações `Sem Embarque` (`id_embarque = ''`) sem irmã vinculada no Passo B; acoplamento de não vinculados no `matchPortalOpIndex` e Passo B restrito à janela `[data_inicio, data_fim + 45d]`; quando `carteiraEmbarques` estiver carregada, `extraOps` cujo `id_embarque` não pertença à carteira do contexto são descartadas e não caem mais no fallback por `matricula` (evitando herança indevida de datas do período ativo).
     - *Isolamento Estrito de Embarque no USOFF e Excel (`src/domain/usoff.ts`, `src/services/excel.service.ts`):* lookup de `embRef` normaliza `id_embarque` (`parseIdEmbarque` + `normalizeSapCode`) sem fallback cruzado por `matricula` e ignora `'Não Cadastrado no Portal'` sem `embRef` correspondente na carteira carregada.
     - *Testes de Regressão (`calculations.test.ts`, `usoff.test.ts`):* novos testes com centenas de SAP `Sem Embarque` e períodos históricos comprovando contagem exata de embarques, `HD`, `HC`, `USOFF` e manutenção do saldo líquido `[+9, -9, +9, +9] = 18`.
+  - **Frente 12: Janelamento da Carga SAP, Visibilidade de Erros de Carga, Filtro `Responsável` e De-Para Plataforma → UN:**
+    - *Eliminação do "apagão" após upload SAP (`supabase.connector.ts`, `client-pipeline.ts`, `data.service.ts`, `self-hosted.provider.ts`, `server/src/app.ts`, `domain-engine.service.ts`, `ImportarDadosView.tsx`, `AppContext.tsx`, `AppShell.tsx`):*
+      - Em `fetchRawDataset`, `confirmacoes_sap` deixou de varrer e ordenar a tabela inteira sem índice e passou a consultar a janela `sapWindowIni = addDays(queryIni, -45)` via `.or('data_fim_real.gte.<sapWindowIni>,data_lancamento.gte.<sapWindowIni>,data_criacao.gte.<sapWindowIni>').order('id', { ascending: true })`.
+      - Adicionado `fetchSapDedupSnapshot()` (BaaS + endpoint `GET /api/v1/sap/dedup-snapshot`) carregado sob demanda na tela de importação para manter a deduplicação SAP completa contra todo o histórico sem travar o boot do app.
+      - Queries críticas de bootstrap (`configuracoes`, `config_usoff_un`, `pessoas`, `get_watermark_status`, `profiles`) agora lançam erro explícito quando falham; `AppContext.reloadDataset()`/`refreshData()` propagam `loadError` (boolean de retorno `false` na falha) exibindo banner `role="alert"` com ação **`Recarregar dados`** em `AppShell.tsx`, e `ImportarDadosView` evita confirmar recarga verde quando `refreshData() === false`.
+      - Criada migration idempotente `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql` (3 índices de data em `confirmacoes_sap`).
+    - *Correção do Filtro `Responsável` & De-Para Automático Plataforma → UN (`calculations.ts`, `StickyFilterBar.tsx`, `ScopeBanner.tsx`, `VisaoGeralView.tsx`, `PessoasPlataformasView.tsx`, `UserSettingsView.tsx`, `excel.service.ts`):*
+      - `StickyFilterBar` passou a emitir `value={p.id}` (normalizado por `resolvePersonFilter` para retrocompatibilidade com nome) e limpa `fPlat` incompatível ao alternar `fReg`; `ScopeBanner` traduz `filters.fResp` de ID para `p.nome`.
+      - Removido o seletor manual `"Unidades de negócio inteiras (opcional)"` (`selectedUns`/`toggleUn`) de `PessoaModal` em `PessoasPlataformasView.tsx`; o formulário agora salva `uns: []` e exibe preview em tempo real `"Unidades de negócio (de-para automático)"`.
+      - Introduzida `resolvePersonUns(pessoa, plataformasOrPidx?)` e atualizada `isPersonResponsible(pessoa, place, plataformasOrPidx?)`: quando a pessoa possui apenas plataformas (`uns: []`), a UN correspondente (`plat.un`) é derivada automaticamente pelas plataformas atribuídas no nível de UN (`VisaoGeralView`, `UserSettingsView`, exportação Excel) **sem conceder acesso cruzado a outras plataformas da mesma UN**. `passesFilter` resolve `fResp` por ID ou nome e rejeita ID desconhecido quando `pessoas` estiver carregado.
+    - *Cobertura de Testes Adicionada:* `calculations.test.ts`, `ResponsiveShellAndPwa.test.tsx`, `OperationalViews.test.tsx`, `PessoasModalDePara.test.tsx`, `UserSettingsView.test.tsx`, `data.service.test.ts`, `self-hosted-universal-drivers.test.ts` e `mockSupabase.ts` (suporte a `.or(...)`).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **33 arquivos / 603 testes aprovados (100% verdes)**.
+    - Suíte de testes: **34 arquivos / 611 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros** (`server/tsconfig.json`: **0 erros**).
-    - `npm run build`: **bundle de produção gerado com sucesso em 5.21s**.
-    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas e auditadas (0 erros nos security advisors).
+    - `npm run build`: **bundle de produção gerado com sucesso em 5.91s**.
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas e auditadas; Migration `026` pronta para execução opcional no SQL Editor.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** recarregar a aplicação com cache limpo, conferir contagem de embarques (~148), `HD`, `HC` e `USOFF` na tela Medição USOFF, exportar `Portal Offshore + USOFF (Excel)` para checagem final e validar casos com estorno SAP (`002032288155 / 0010`).
-2. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+1. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** testar upload SAP/Portal Offshore confirmando que o carregamento principal segue instantâneo após gravação, conferir o filtro **`Responsável`** (seleção por pessoa, visão detalhada por plataforma, listagem por UN com Prepostos derivados automaticamente) e validar edição de pessoas em `Pessoas & Plataformas` sem seletor manual de Regional/UN.
+2. **Opcional (Recomendado) — Aplicar Migration `026_perf_indexes_confirmacoes_sap.sql` no Supabase PROD:** executar via SQL Editor (ou após renovar o PAT do MCP Supabase) para criar os 3 índices de data em `confirmacoes_sap`.
+3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 
 

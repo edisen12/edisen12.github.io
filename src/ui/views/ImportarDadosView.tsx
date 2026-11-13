@@ -8,6 +8,7 @@ import {
   batchImportPessoas,
   batchImportConfirmacoesSAP,
   fetchCarteiraDedupSnapshot,
+  fetchSapDedupSnapshot,
   resetCarteiraEmbarques,
   exportJsonSnapshot
 } from '../../services/data.service';
@@ -25,7 +26,7 @@ import {
 } from '../../services/excel.service';
 import { formatBr, diffDays } from '../../utils/date';
 import { formatHours } from '../../utils/format';
-import type { ImportKind } from '../../domain/types';
+import type { ConfirmacaoSAP, ImportKind, TabId } from '../../domain/types';
 import { ManualHHModal, ManualCartModal } from '../modals/ManualEntryModals';
 
 export const ImportarDadosView: React.FC = () => {
@@ -38,6 +39,7 @@ export const ImportarDadosView: React.FC = () => {
   const [saveProgress, setSaveProgress] = useState<string>('');
   const [substituirCarteira, setSubstituirCarteira] = useState<boolean>(false);
   const [cartDedupSnapshot, setCartDedupSnapshot] = useState<CarteiraDedupSnapshot | null>(null);
+  const [sapDedupSnapshot, setSapDedupSnapshot] = useState<ConfirmacaoSAP[] | null>(null);
   const [loadingSnapshot, setLoadingSnapshot] = useState<boolean>(false);
 
   const [openManualHH, setOpenManualHH] = useState<boolean>(false);
@@ -93,15 +95,31 @@ export const ImportarDadosView: React.FC = () => {
     }
   };
 
+  const loadSapDedupSnapshot = async () => {
+    setLoadingSnapshot(true);
+    try {
+      const snap = await fetchSapDedupSnapshot();
+      setSapDedupSnapshot(snap && snap.length > 0 ? snap : null);
+    } catch {
+      setSapDedupSnapshot(null);
+    } finally {
+      setLoadingSnapshot(false);
+    }
+  };
+
   const handleFileSelected = async (file: File, forcedKind?: ImportKind) => {
     setParsing(true);
     setPreview(null);
+    setCartDedupSnapshot(null);
+    setSapDedupSnapshot(null);
     try {
       const parsed = await parseSpreadsheetFile(file, forcedKind || currentUploadKindRef.current);
       const built = rebuildPreviewRows(parsed, pidx);
       setPreview(built);
       if (built.kind === 'cart') {
         void loadCartDedupSnapshot();
+      } else if (built.kind === 'sap') {
+        void loadSapDedupSnapshot();
       }
       if (built.rows.length > 0) {
         showToast(`Planilha "${file.name}" carregada: ${built.rows.length} registros identificados. Confira a prévia e clique em "Gravar no Banco" abaixo.`, 'info');
@@ -150,6 +168,8 @@ export const ImportarDadosView: React.FC = () => {
     setPreview(rebuilt);
     if (newKind === 'cart') {
       void loadCartDedupSnapshot();
+    } else if (newKind === 'sap') {
+      void loadSapDedupSnapshot();
     }
   };
 
@@ -162,8 +182,9 @@ export const ImportarDadosView: React.FC = () => {
 
   const sapPlan = useMemo(() => {
     if (!preview || preview.kind !== 'sap') return null;
-    return planSmartSapImport(preview.rows, dataset.confirmacoesSap || []);
-  }, [preview, dataset.confirmacoesSap]);
+    const existingSap = sapDedupSnapshot ?? dataset.confirmacoesSap ?? [];
+    return planSmartSapImport(preview.rows, existingSap);
+  }, [preview, sapDedupSnapshot, dataset.confirmacoesSap]);
 
   const effectiveSaveCount = useMemo(() => {
     if (!preview) return 0;
@@ -211,16 +232,27 @@ export const ImportarDadosView: React.FC = () => {
         setSaveProgress(`Gravando ${current} de ${total}…`);
       };
 
+      const finalizeAfterSave = async (successMsg: string, nextTab: TabId) => {
+        const refreshed = await refreshData();
+        setPreview(null);
+        if (refreshed === false) {
+          showToast(
+            `${successMsg} Porém não foi possível recarregar os dados na tela agora — clique em "Recarregar dados" no aviso acima.`,
+            'warn'
+          );
+          return;
+        }
+        showToast(successMsg, 'success');
+        setActiveTab(nextTab);
+      };
+
       if (preview.kind === 'hh') {
         await batchImportHH(preview.rows, pidx, onProgress, `planilha (${preview.fileName})`);
         const maxDate = preview.rows.reduce((acc: string, r: any) => (r.D > acc ? r.D : acc), '');
         if (maxDate) {
           setFilter('fDate', maxDate);
         }
-        await refreshData();
-        showToast('Apontamentos de HH importados com sucesso!', 'success');
-        setPreview(null);
-        setActiveTab('dia');
+        await finalizeAfterSave('Apontamentos de HH importados com sucesso!', 'dia');
       } else if (preview.kind === 'cart') {
         const plan = cartPlan;
         const rowsToWrite = plan ? plan.rowsToImport : preview.rows;
@@ -236,43 +268,31 @@ export const ImportarDadosView: React.FC = () => {
             skipPrune: !plan || plan.affectedPruneEmbarqueIds.length === 0
           });
         }
-        await refreshData();
         const ignoredTotal = plan ? plan.dbDuplicatesIgnored + plan.intraFileDuplicates : 0;
         const pruneInfo = !substituirCarteira && plan && plan.staleOpsToPruneCount > 0
           ? `, ${plan.staleOpsToPruneCount} operação(ões) obsoleta(s) removida(s)`
           : '';
-        showToast(
+        await finalizeAfterSave(
           substituirCarteira
             ? `Carteira anterior substituída e ${rowsToWrite.length} linha(s) importada(s) com sucesso!`
             : `Carteira sincronizada: ${plan?.newCount ?? rowsToWrite.length} nova(s), ${plan?.updatedCount ?? 0} atualizada(s), ${ignoredTotal} duplicata(s) ignorada(s)${pruneInfo}.`,
-          'success'
+          'emb'
         );
-        setPreview(null);
-        setActiveTab('emb');
       } else if (preview.kind === 'plat') {
         await batchImportPlataformas(preview.rows, onProgress);
-        await refreshData();
-        showToast('Catálogo de plataformas atualizado com sucesso!', 'success');
-        setPreview(null);
-        setActiveTab('pes');
+        await finalizeAfterSave('Catálogo de plataformas atualizado com sucesso!', 'pes');
       } else if (preview.kind === 'pes') {
         await batchImportPessoas(preview.rows, onProgress);
-        await refreshData();
-        showToast('Cadastro de pessoas atualizado com sucesso!', 'success');
-        setPreview(null);
-        setActiveTab('pes');
+        await finalizeAfterSave('Cadastro de pessoas atualizado com sucesso!', 'pes');
       } else if (preview.kind === 'sap') {
         const plan = sapPlan;
         const rowsToWrite = plan ? plan.rowsToImport : preview.rows;
         await batchImportConfirmacoesSAP(rowsToWrite, onProgress);
-        await refreshData();
         const ignoredTotal = plan ? plan.dbDuplicatesIgnored + plan.intraFileDuplicates : 0;
-        showToast(
+        await finalizeAfterSave(
           `SAP sincronizado e reconciliado: ${plan?.newCount ?? rowsToWrite.length} nova(s), ${plan?.updatedCount ?? 0} atualizada(s), ${ignoredTotal} duplicata(s) ignorada(s).`,
-          'success'
+          'us'
         );
-        setPreview(null);
-        setActiveTab('us');
       }
     } catch (err: any) {
       showToast(err?.message || 'Erro ao gravar registros no banco de dados.', 'error');
@@ -778,6 +798,7 @@ export const ImportarDadosView: React.FC = () => {
                         <b>{sapPlan.intraFileDuplicates}</b> repetida(s) na planilha (ignoradas)
                       </>
                     )}
+                    {loadingSnapshot && ' · Verificando histórico completo da base…'}
                   </>
                 ) : null}
               </div>

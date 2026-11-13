@@ -22,6 +22,7 @@ import type {
   UsoffUnWeight
 } from '../../../domain/types';
 import { DEFAULT_USER_PREFERENCES } from '../../../config/constants';
+import { addDays } from '../../../utils/date';
 
 const PAGE_SIZE = 1000;
 
@@ -314,6 +315,9 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
     queryFim: string,
     isGlobal: boolean
   ): Promise<RawBaaSDatasetPayload> {
+    // Janela ampliada (-45 dias além de queryIni) evita varredura full-table e sort sem índice
+    // em confirmacoes_sap a cada boot/refresh, mantendo estornos e apontamentos tardios ativos.
+    const sapWindowIni = /^\d{4}-\d{2}-\d{2}$/.test(queryIni) ? addDays(queryIni, -45) : queryIni;
     const [
       cfgRes,
       usoffWeightsRes,
@@ -366,7 +370,9 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       fetchAllPages<any>((from, to) =>
         (supabase.from('confirmacoes_sap') as any)
           .select('*')
-          .order('data_fim_real', { ascending: false })
+          .or(
+            `data_fim_real.gte.${sapWindowIni},data_lancamento.gte.${sapWindowIni},data_criacao.gte.${sapWindowIni}`
+          )
           .order('id', { ascending: true })
           .range(from, to)
       ),
@@ -407,6 +413,11 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
           ])
     ]);
 
+    if (cfgRes.error) throw cfgRes.error;
+    if (usoffWeightsRes.error) throw usoffWeightsRes.error;
+    if (pessoasRes.error) throw pessoasRes.error;
+    if (wmRes.error) throw wmRes.error;
+
     let profileRows: any[] | null = null;
     let emailsResumo: string[] | null = null;
     let latestFluxoRow: any = null;
@@ -415,12 +426,17 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
 
     if (isGlobal && Array.isArray(globalExtraRes)) {
       const [profilesQuery, notifQuery, fluxoQuery, onboardingQuery] = globalExtraRes as any[];
+      if (profilesQuery?.error) throw profilesQuery.error;
+      if (notifQuery?.error) console.warn('Aviso ao carregar configuracoes_notificacao:', notifQuery.error);
+      if (fluxoQuery?.error) console.warn('Aviso ao carregar fluxo_importacoes:', fluxoQuery.error);
+      if (onboardingQuery?.error) console.warn('Aviso ao carregar user_onboarding:', onboardingQuery.error);
       profileRows = profilesQuery?.data || [];
       emailsResumo = notifQuery?.data?.emails_resumo || null;
       latestFluxoRow = fluxoQuery?.data || null;
       onboardingRows = onboardingQuery?.data || [];
     } else if (!isGlobal && Array.isArray(globalExtraRes)) {
       const [extDaysQuery] = globalExtraRes as any[];
+      if (extDaysQuery?.error) console.warn('Aviso ao carregar get_external_covered_days:', extDaysQuery.error);
       externalCoveredRows = extDaysQuery?.data || [];
     }
 
@@ -743,6 +759,17 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       )
     ]);
     return { carteiraRows, carteiraOperacaoRows };
+  },
+
+  async fetchAllSapForDedup(): Promise<any[]> {
+    return fetchAllPages<any>((from, to) =>
+      (supabase.from('confirmacoes_sap') as any)
+        .select(
+          'id, matricula, data_criacao, data_lancamento, data_fim_real, ordem, operacao, horas_confirmadas, contador_confirmacao, id_embarque, status_reconciliacao, created_at, updated_at'
+        )
+        .order('id', { ascending: true })
+        .range(from, to)
+    );
   },
 
   async reconciliarConfirmacoesSAPRPC(): Promise<any> {

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-12 22:47 (BRT) · Base HEAD: d14335d (pronto para commit/push em `main`) · Suíte Completa: 33 arquivos / 601 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.64s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas e validadas ✅
+> Última atualização: 2026-11-12 23:35 (BRT) · Base HEAD: 31e7e9b (com alterações validadas para commit/push em `main`) · Suíte Completa: 33 arquivos / 603 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.21s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas e validadas ✅
 
 ## 1. Resumo Executivo
 
@@ -136,17 +136,20 @@
   - **Frente 10: Deduplicação Inteligente Sem Empilhamento (SAP + Portal Offshore) e Validação em Produção:**
     - *Chave Única SAP e Limpeza em Produção (`supabase/migrations/024_smart_dedup_sap_e_portal.sql`, `025_optimize_reconciliar_sap_hash_joins.sql`):* removida `horas_confirmadas` de `uq_confirmacao_sap_row`, no `onConflict` do conector Supabase e no `domain-engine.service.ts` (`conflictKeys`), eliminando 168 grupos duplicados em `confirmacoes_sap` (`12.295` → `12.127` linhas; 0 grupos duplicados restantes). `reconciliar_confirmacoes_sap()` otimizada com Hash Joins (`MATERIALIZED` CTEs) rodando em ~4,8 s em produção (`total_confirmacoes_sap = 12.127`, `vinculados_ao_embarque = 4.428`, `operacoes_com_batimento_ok = 1.736`). Caso real `002032288155 / 0010` validado com `[+9, -9, +9, +9] = 18,00 h` (`status_divergencia = 'OK'`, embarque `56586` atualizado para `hh_confirmado_sap = 36,50 h`).
     - *Poda Segura do Portal Offshore & Pré-visualização Inteligente (`client-pipeline.ts`, `ImportarDadosView.tsx`, `data.service.ts`, `supabase.connector.ts`, `self-hosted.provider.ts`, `server/src/app.ts`, `mockSupabase.ts`):* planners puros `planSmartSapImport` e `planSmartCarteiraImport` colapsam duplicatas intra-arquivo, ignoram linhas idênticas já existentes no banco, alinham zeros à esquerda do SAP e comparam o Portal Offshore contra todo o banco sem recorte mensal (`fetchCarteiraDedupSnapshot`); embarques com `data_inicio` alterada ou operações removidas executam `prune_stale_carteira_by_embarques` mantendo todas as operações válidas (`pruneKeepOps`), e o trigger `sync_carteira_embarques_from_operacoes` limpa linhas órfãs `portal_offshore` em `carteira_embarques` (0 órfãos em produção).
+  - **Frente 11: Blindagem Anti-Inflação do Confronto & USOFF contra Confirmações SAP `Sem Embarque` e Embarques Históricos (`907` → `148`):**
+    - *Confronto Determinístico (`src/domain/calculations.ts` → `mergeConfrontoOperations`):* removida geração de operações `'Não Cadastrado no Portal'` para confirmações `Sem Embarque` (`id_embarque = ''`) sem irmã vinculada no Passo B; acoplamento de não vinculados no `matchPortalOpIndex` e Passo B restrito à janela `[data_inicio, data_fim + 45d]`; quando `carteiraEmbarques` estiver carregada, `extraOps` cujo `id_embarque` não pertença à carteira do contexto são descartadas e não caem mais no fallback por `matricula` (evitando herança indevida de datas do período ativo).
+    - *Isolamento Estrito de Embarque no USOFF e Excel (`src/domain/usoff.ts`, `src/services/excel.service.ts`):* lookup de `embRef` normaliza `id_embarque` (`parseIdEmbarque` + `normalizeSapCode`) sem fallback cruzado por `matricula` e ignora `'Não Cadastrado no Portal'` sem `embRef` correspondente na carteira carregada.
+    - *Testes de Regressão (`calculations.test.ts`, `usoff.test.ts`):* novos testes com centenas de SAP `Sem Embarque` e períodos históricos comprovando contagem exata de embarques, `HD`, `HC`, `USOFF` e manutenção do saldo líquido `[+9, -9, +9, +9] = 18`.
   - **Resultados de Qualidade:**
-    - Suíte de testes: **33 arquivos / 601 testes aprovados (100% verdes)**.
+    - Suíte de testes: **33 arquivos / 603 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros** (`server/tsconfig.json`: **0 erros**).
-    - `npm run build`: **bundle de produção gerado com sucesso em 7.64s**.
+    - `npm run build`: **bundle de produção gerado com sucesso em 5.21s**.
     - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas e auditadas (0 erros nos security advisors).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Segurança da conta Supabase (ação do usuário):** revogar/rotacionar o Personal Access Token (PAT) colado no chat nas configurações da conta Supabase e recarregar os servidores MCP na UI do IDE após a rotação.
-2. **Auditoria dos cálculos de USOFF pelo usuário:** exportar a planilha `Portal Offshore + USOFF (Excel)` na tela de Medição USOFF, validar os casos com estorno SAP (ex.: `002032288155 / 0010`) e testar reimportações incrementais de Portal Offshore e SAP sem marcar substituição total.
-3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+1. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** recarregar a aplicação com cache limpo, conferir contagem de embarques (~148), `HD`, `HC` e `USOFF` na tela Medição USOFF, exportar `Portal Offshore + USOFF (Excel)` para checagem final e validar casos com estorno SAP (`002032288155 / 0010`).
+2. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 
 

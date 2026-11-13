@@ -23,6 +23,7 @@ import {
 } from '../utils/date';
 import {
   isSapEstornoFlag,
+  normalizeSapCode,
   normalizeText,
   parseCounter,
   parseFlexibleHours,
@@ -1480,8 +1481,38 @@ export async function exportUsoffPortalOffshoreXlsx(
       dataset.tecnicos || {}
     );
 
+    const findOpEmbRef = (op: CarteiraOperacao) => {
+      const explicitEmb =
+        parseIdEmbarque(op.id_embarque || op.portal_id || '') ||
+        (op.id_embarque || op.portal_id || '').trim();
+      if (explicitEmb) {
+        const normExplicitEmb = normalizeSapCode(explicitEmb);
+        return dataset.carteira.find(ce => {
+          const ceEmb = parseIdEmbarque(ce.id_embarque) || ce.id_embarque;
+          return ceEmb === explicitEmb || (normExplicitEmb !== '' && normalizeSapCode(ceEmb) === normExplicitEmb);
+        });
+      }
+      const normOpMat = normalizeSapCode(op.matricula);
+      return (
+        dataset.carteira.find(
+          ce =>
+            normalizeSapCode(ce.matricula) === normOpMat &&
+            (ce.data_inicio === op.data_inicio || (ce.data_inicio <= op.data_fim && ce.data_fim >= op.data_inicio))
+        ) || dataset.carteira.find(ce => normalizeSapCode(ce.matricula) === normOpMat)
+      );
+    };
+
     const enrichedOps = rawOps
       .filter(op => {
+        if (op.status_programacao === 'Não Cadastrado no Portal') {
+          const explicitEmb =
+            parseIdEmbarque(op.id_embarque || op.portal_id || '') ||
+            (op.id_embarque || op.portal_id || '').trim();
+          const embRef = findOpEmbRef(op);
+          if (!explicitEmb || (dataset.carteira.length > 0 && !embRef)) {
+            return false;
+          }
+        }
         const a = op.data_inicio;
         const b = op.data_fim;
         if (enc) {
@@ -1495,14 +1526,11 @@ export async function exportUsoffPortalOffshoreXlsx(
       .map(op => {
         const a = op.data_inicio;
         const b = op.data_fim;
-        const embRef =
-          dataset.carteira.find(
-            ce =>
-              (op.id_embarque && ce.id_embarque === op.id_embarque) ||
-              (op.portal_id && ce.id_embarque === op.portal_id) ||
-              (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
-          ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
-        const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
+        const embRef = findOpEmbRef(op);
+        const explicitEmb =
+          parseIdEmbarque(op.id_embarque || op.portal_id || '') ||
+          (op.id_embarque || op.portal_id || '').trim();
+        const embId = embRef?.id_embarque || explicitEmb || '';
         const opKey = embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`;
         const embSummary = embByKey.get(opKey);
         const embIni = embSummary?.ini || embRef?.data_inicio || a || '';

@@ -1377,12 +1377,21 @@ export const mergeConfrontoOperations = (
 
     const candidates = portalByKey3.get(k3);
     if (!candidates || candidates.length === 0) return null;
-    if (candidates.length === 1) return candidates[0];
 
     const csDate = getSapRefDate(cs);
-    const candidateObjs = candidates.map(i => ({ idx: i, ...carteiraOps[i] }));
+    const candidateObjs = candidates
+      .map(i => ({ idx: i, ...carteiraOps[i] }))
+      .filter(c => {
+        if (!csDate) return true;
+        if (c.data_inicio && csDate < c.data_inicio) return false;
+        if (c.data_fim && csDate > addDaysYmd(c.data_fim, 45)) return false;
+        return true;
+      });
+    if (candidateObjs.length === 0) return null;
+    if (candidateObjs.length === 1) return candidateObjs[0].idx;
+
     const picked = pickBestEmbarqueWindowMatch(candidateObjs, csDate);
-    return picked ? picked.idx : candidates[0];
+    return picked ? picked.idx : candidateObjs[0].idx;
   };
 
   sapConfirmacoes.forEach(cs => {
@@ -1458,15 +1467,24 @@ export const mergeConfrontoOperations = (
 
   // Passo B: confirmações extra sem id_embarque (ex.: estornos tardios de ordens fora da carteira)
   // acoplam-se à irmã com id_embarque para que +9 e -9 somem 0 na mesma linha.
+  // Confirmações avulsas sem id_embarque e sem irmã vinculada na janela não geram embarques sintéticos.
   unlinkedExtras.forEach(cs => {
     const k3 = buildKey3(cs.matricula, cs.ordem, cs.operacao);
     const siblings = extraByKey3.get(k3);
     if (siblings && siblings.length > 0) {
-      const target = pickBestEmbarqueWindowMatch(siblings, getSapRefDate(cs)) || siblings[0];
+      const csDate = getSapRefDate(cs);
+      const eligible = siblings.filter(sib => {
+        if (!csDate) return true;
+        const sibEmb = sib.id_embarque ? embById.get(sib.id_embarque) : undefined;
+        const start = sibEmb?.data_inicio || sib.dataMin;
+        const end = sibEmb?.data_fim || sib.dataMax;
+        if (start && csDate < start) return false;
+        if (end && csDate > addDaysYmd(end, 45)) return false;
+        return true;
+      });
+      if (eligible.length === 0) return;
+      const target = pickBestEmbarqueWindowMatch(eligible, csDate) || eligible[0];
       accumulateExtra(target, cs);
-    } else {
-      const entry = getOrCreateExtra(cs, '');
-      accumulateExtra(entry, cs);
     }
   });
 
@@ -1488,12 +1506,20 @@ export const mergeConfrontoOperations = (
       })
     : carteiraOps;
 
-  const extraOps: CarteiraOperacao[] = Array.from(extraSapMap.values()).map(item => {
-    const matEmbs = embByMat.get(normalizeSapCode(item.matricula)) || [];
-    const emb =
-      (item.id_embarque ? embById.get(item.id_embarque) : undefined) ||
-      pickBestEmbarqueWindowMatch(matEmbs, item.dataMin || item.dataMax) ||
-      carteiraEmbarques.find(ce => normalizeSapCode(ce.matricula) === normalizeSapCode(item.matricula));
+  const extraOps: CarteiraOperacao[] = Array.from(extraSapMap.values())
+    .filter(item => {
+      if (carteiraEmbarques.length === 0) return true;
+      const normItemEmb = normalizeSapCode(item.id_embarque);
+      return Boolean(
+        (item.id_embarque && embById.get(item.id_embarque)) ||
+        (normItemEmb && carteiraEmbarques.some(ce => normalizeSapCode(ce.id_embarque) === normItemEmb))
+      );
+    })
+    .map(item => {
+      const normItemEmb = normalizeSapCode(item.id_embarque);
+      const emb =
+        (item.id_embarque ? embById.get(item.id_embarque) : undefined) ||
+        (normItemEmb ? carteiraEmbarques.find(ce => normalizeSapCode(ce.id_embarque) === normItemEmb) : undefined);
     const tec = tecnicos[item.matricula];
     const totalSapRaw = Math.round(item.totalHcSap * 100) / 100;
     const totalSap = Object.is(totalSapRaw, -0) ? 0 : totalSapRaw;

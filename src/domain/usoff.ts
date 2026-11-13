@@ -12,7 +12,7 @@ import type {
   UsoffUnWeight
 } from './types';
 import { diffDays } from '../utils/date';
-import { calcPct } from '../utils/format';
+import { calcPct, normalizeSapCode, parseIdEmbarque } from '../utils/format';
 import { eachDay } from './periods';
 import {
   calcHpCarteiraInInterval,
@@ -238,11 +238,31 @@ export const computeUsoffOperations = (
       const hpCart = isCarteira ? hp : 0;
       const hpFora = !isCarteira ? hp : 0;
 
-      const embRef = dataset.carteira.find(ce =>
-        (op.id_embarque && ce.id_embarque === op.id_embarque) ||
-        (op.portal_id && ce.id_embarque === op.portal_id) ||
-        (ce.matricula === op.matricula && (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a)))
-      ) || dataset.carteira.find(ce => ce.matricula === op.matricula);
+      const normOpMat = normalizeSapCode(op.matricula);
+      const explicitEmb =
+        parseIdEmbarque(op.id_embarque || op.portal_id || '') ||
+        (op.id_embarque || op.portal_id || '').trim();
+      const normExplicitEmb = normalizeSapCode(explicitEmb);
+      const embRef = explicitEmb
+        ? dataset.carteira.find(ce => {
+            const ceEmb = parseIdEmbarque(ce.id_embarque) || ce.id_embarque;
+            return ceEmb === explicitEmb || (normExplicitEmb !== '' && normalizeSapCode(ceEmb) === normExplicitEmb);
+          })
+        : (
+            dataset.carteira.find(ce =>
+              normalizeSapCode(ce.matricula) === normOpMat &&
+              (ce.data_inicio === a || (ce.data_inicio <= b && ce.data_fim >= a))
+            ) || dataset.carteira.find(ce => normalizeSapCode(ce.matricula) === normOpMat)
+          );
+
+      // Defesa em profundidade: operação "Não Cadastrado no Portal" só pontua no USOFF
+      // quando vinculada a um embarque existente na carteira do contexto.
+      if (
+        op.status_programacao === 'Não Cadastrado no Portal' &&
+        (!explicitEmb || (dataset.carteira.length > 0 && !embRef))
+      ) {
+        return;
+      }
 
       const w = resolveUsoffWeights(embRef || null, l, dataset.config, dataset.usoffUnWeights);
 
@@ -252,7 +272,7 @@ export const computeUsoffOperations = (
         dataset.sharedOpsSet.has(op.operacao)
       );
 
-      const embId = op.id_embarque || op.portal_id || embRef?.id_embarque || '';
+      const embId = embRef?.id_embarque || explicitEmb || '';
       const opKey = groupBy === 'embarque'
         ? (embId ? `emb:${embId}` : `emb:${op.matricula}_${a}_${op.plataforma_sigla || ''}`)
         : (op.operacao

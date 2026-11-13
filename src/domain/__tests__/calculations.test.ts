@@ -1688,5 +1688,88 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(resolveDivergenciaSapStatus(0, -9)).toBe('Divergente (Portal > SAP)');
       expect(resolveDivergenciaSapStatus(9, 0)).toBe('Não Apontado no SAP');
     });
+
+    it('não gera operações fantasmas para SAP Sem Embarque avulso, janela anterior ou id_embarque fora da carteira do período', () => {
+      const embAtual = {
+        id: 'ce-56586',
+        id_embarque: '56586',
+        matricula: '1005',
+        plataforma_sigla: 'MXL',
+        unidade_negocio: 'UN-BS',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14',
+        horas_programadas: 30,
+        operacao: '',
+        pe: 0.30,
+        ex: 0.70,
+        fonte: 'portal_offshore' as const
+      };
+      const opAtual = {
+        id: 'op-56586',
+        portal_id: '56586',
+        id_embarque: '56586',
+        matricula: '1005',
+        chave_petrobras: '',
+        nome: 'Técnico Sintético 05',
+        empresa: 'Infotec Brasil',
+        estrutura: '',
+        unidade_negocio: 'UN-BS',
+        plataforma_sigla: 'MXL',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14',
+        ordem: '2032288155',
+        operacao: '10',
+        status_processamento: 'Concluído',
+        prioridade: 'Regular',
+        status_programacao: 'Carteira',
+        hh_programado: 20,
+        hh_confirmado: 18,
+        hh_confirmado_sap: 0,
+        divergencia_sap: 0,
+        status_divergencia: 'Pendente',
+        recursos: 1,
+        fonte: 'portal_offshore' as const
+      };
+
+      const sapNoise: import('../types').ConfirmacaoSAP[] = [
+        // 4 confirmações legítimas [+9, -9 tardio, +9, +9] = 18
+        { id: 'v1', matricula: '1005', data_criacao: '2026-10-05', data_lancamento: '2026-10-05', data_fim_real: '2026-10-05', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 1, id_embarque: '56586', status_reconciliacao: 'Em Carteira' },
+        { id: 'v2', matricula: '1005', data_criacao: '2026-10-25', data_lancamento: '2026-10-25', data_fim_real: '2026-10-25', ordem: '002032288155', operacao: '0010', horas_confirmadas: -9, contador_confirmacao: 2, id_embarque: '', status_reconciliacao: 'Sem Embarque' },
+        { id: 'v3', matricula: '1005', data_criacao: '2026-10-07', data_lancamento: '2026-10-07', data_fim_real: '2026-10-07', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 3, id_embarque: '56586', status_reconciliacao: 'Em Carteira' },
+        { id: 'v4', matricula: '1005', data_criacao: '2026-10-08', data_lancamento: '2026-10-08', data_fim_real: '2026-10-08', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 4, id_embarque: '56586', status_reconciliacao: 'Em Carteira' },
+        // Confirmação antiga sem vínculo na mesma ordem repetitiva (< data_inicio 2026-10-01): não pode somar!
+        { id: 'old-same-ord', matricula: '1005', data_criacao: '2026-06-05', data_lancamento: '2026-06-05', data_fim_real: '2026-06-05', ordem: '002032288155', operacao: '0010', horas_confirmadas: 11, contador_confirmacao: 9, id_embarque: '', status_reconciliacao: 'Sem Embarque' },
+        // Fora da carteira legítima dentro do embarque 56586
+        { id: 'fora-ok', matricula: '1005', data_criacao: '2026-10-09', data_lancamento: '2026-10-09', data_fim_real: '2026-10-09', ordem: '00409999', operacao: '0010', horas_confirmadas: 6, contador_confirmacao: 1, id_embarque: '56586', status_reconciliacao: 'Fora da Carteira' },
+        // Embarque antigo (agosto 49000) ausente da carteira do período: nunca sequestra datas de 56586
+        { id: 'hist-emb', matricula: '1005', data_criacao: '2026-08-05', data_lancamento: '2026-08-05', data_fim_real: '2026-08-05', ordem: '00501111', operacao: '0010', horas_confirmadas: 22, contador_confirmacao: 1, id_embarque: '49000', status_reconciliacao: 'Fora da Carteira' },
+        // 250 confirmações Sem Embarque avulsas na base/terra dentro do mês
+        ...Array.from({ length: 250 }, (_, i) => ({
+          id: `sem-${i}`,
+          matricula: String(1100 + i),
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: `0099${String(i).padStart(4, '0')}`,
+          operacao: '0010',
+          horas_confirmadas: 11,
+          contador_confirmacao: 1,
+          id_embarque: '',
+          status_reconciliacao: 'Sem Embarque' as const
+        }))
+      ];
+
+      const merged = mergeConfrontoOperations([opAtual], sapNoise, [embAtual]);
+      expect(merged).toHaveLength(2);
+      const principal = merged.find(o => o.ordem === '2032288155')!;
+      expect(principal.hh_confirmado_sap).toBe(18);
+      expect(principal.status_divergencia).toBe('OK');
+
+      const extraValida = merged.find(o => o.ordem === '00409999')!;
+      expect(extraValida.id_embarque).toBe('56586');
+      expect(extraValida.hh_confirmado_sap).toBe(6);
+      expect(extraValida.data_inicio).toBe('2026-10-01');
+      expect(extraValida.data_fim).toBe('2026-10-14');
+    });
   });
 });

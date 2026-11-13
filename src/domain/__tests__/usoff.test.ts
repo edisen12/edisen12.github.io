@@ -1362,5 +1362,156 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(emb.peHp).toBe(0);
       expect(emb.us).toBe(70);
     });
+
+    it('regressão anti-inflação (907 embarques / 19k USOFF): ignora SAP Sem Embarque e períodos antigos preservando contagem e USOFF exatos', () => {
+      const sapRuido: import('../types').ConfirmacaoSAP[] = [
+        // 300 confirmações SAP avulsas sem vínculo dentro das datas do período
+        ...Array.from({ length: 300 }, (_, i) => ({
+          id: `sem-emb-${i}`,
+          matricula: i % 2 === 0 ? '1001' : String(2000 + i),
+          data_criacao: '2026-10-08',
+          data_lancamento: '2026-10-08',
+          data_fim_real: '2026-10-08',
+          ordem: `0080${String(i).padStart(4, '0')}`,
+          operacao: '0010',
+          horas_confirmadas: 11,
+          contador_confirmacao: 1,
+          id_embarque: '',
+          status_reconciliacao: 'Sem Embarque' as const
+        })),
+        // 50 confirmações vinculadas a embarques históricos ausentes da carteira do período
+        ...Array.from({ length: 50 }, (_, i) => ({
+          id: `old-emb-${i}`,
+          matricula: '1001',
+          data_criacao: '2026-08-05',
+          data_lancamento: '2026-08-05',
+          data_fim_real: '2026-08-05',
+          ordem: `0070${String(i).padStart(4, '0')}`,
+          operacao: '0010',
+          horas_confirmadas: 15,
+          contador_confirmacao: 1,
+          id_embarque: String(48000 + i),
+          status_reconciliacao: 'Fora da Carteira' as const
+        }))
+      ];
+
+      const dataset = createBaseDataset({
+        config: {
+          ...DEFAULT_CONFIG,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70
+        },
+        carteira: [
+          {
+            id: 'c-1',
+            id_embarque: '55001',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 20,
+            hh_carteira: 20,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'c-2',
+            id_embarque: '55002',
+            matricula: '1002',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-05',
+            data_fim: '2026-10-18',
+            horas_programadas: 30,
+            hh_carteira: 30,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'co-1',
+            portal_id: '55001',
+            id_embarque: '55001',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Sintético 01',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '2032288155',
+            operacao: '10',
+            status_processamento: 'Concluído',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 20,
+            hh_confirmado: 18,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Pendente',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'co-2',
+            portal_id: '55002',
+            id_embarque: '55002',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Técnico Sintético 02',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-05',
+            data_fim: '2026-10-18',
+            ordem: '400020',
+            operacao: '0020',
+            status_processamento: 'Concluído',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 30,
+            hh_confirmado: 30,
+            hh_confirmado_sap: 30,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        confirmacoesSap: [
+          { id: 'est-1', matricula: '1001', data_criacao: '2026-10-05', data_lancamento: '2026-10-05', data_fim_real: '2026-10-05', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 1, id_embarque: '55001', status_reconciliacao: 'Em Carteira' },
+          { id: 'est-2', matricula: '1001', data_criacao: '2026-10-25', data_lancamento: '2026-10-25', data_fim_real: '2026-10-25', ordem: '002032288155', operacao: '0010', horas_confirmadas: -9, contador_confirmacao: 2, id_embarque: '55001', status_reconciliacao: 'Em Carteira' },
+          { id: 'est-3', matricula: '1001', data_criacao: '2026-10-07', data_lancamento: '2026-10-07', data_fim_real: '2026-10-07', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 3, id_embarque: '55001', status_reconciliacao: 'Em Carteira' },
+          { id: 'est-4', matricula: '1001', data_criacao: '2026-10-08', data_lancamento: '2026-10-08', data_fim_real: '2026-10-08', ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 4, id_embarque: '55001', status_reconciliacao: 'Em Carteira' },
+          { id: 'c2-sap', matricula: '1002', data_criacao: '2026-10-10', data_lancamento: '2026-10-10', data_fim_real: '2026-10-10', ordem: '00400020', operacao: '0020', horas_confirmadas: 30, contador_confirmacao: 1, id_embarque: '55002', status_reconciliacao: 'Em Carteira' },
+          ...sapRuido
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      const total = summarizeUsoff(embarques);
+
+      // Apenas os 2 embarques reais (nunca 352 nem 302)
+      expect(embarques).toHaveLength(2);
+      expect(total.n).toBe(2);
+      // 2 embarques * 14 dias * 11 h = 308 h disponíveis
+      expect(total.hd).toBe(308);
+      // 18 h (estorno líquido) + 30 h = 48 h confirmadas
+      expect(total.hc).toBe(48);
+      // USOFF exato: 55001 (0.30*20 + 0.70*18 = 18.6) + 55002 (0.30*30 + 0.70*30 = 30.0) = 48.6
+      expect(total.us).toBe(48.6);
+    });
   });
 });

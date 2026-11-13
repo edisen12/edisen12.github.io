@@ -823,6 +823,10 @@ export type Database = {
         Returns: string
       }
       ping_health: { Args: never; Returns: string }
+      prune_stale_carteira_by_embarques: {
+        Args: { p_embarque_ids: string[]; p_keep_ops: Json }
+        Returns: Json
+      }
       reconciliar_confirmacoes_sap: { Args: never; Returns: Json }
       reset_carteira_embarques: { Args: never; Returns: Json }
       update_own_profile: {

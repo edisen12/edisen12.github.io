@@ -783,8 +783,20 @@ export function PainelDiaView() {
                       <tr key={it.id || `${it.ordem}_${it.operacao}_${idx}`} style={{ borderBottom: '1px solid var(--line)' }}>
                         <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 600 }}>{it.ordem}</td>
                         <td style={{ padding: '8px', fontFamily: 'monospace' }}>{it.operacao}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>
+                        <td
+                          style={{
+                            padding: '8px',
+                            textAlign: 'right',
+                            fontWeight: 600,
+                            color: (it.horas_confirmadas || 0) < 0 ? 'var(--bad, #dc2626)' : 'inherit'
+                          }}
+                        >
                           {formatHours(it.horas_confirmadas)}
+                          {(it.horas_confirmadas || 0) < 0 && (
+                            <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--bad, #dc2626)', fontWeight: 500 }}>
+                              estorno SAP
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '8px' }}>
                           <span

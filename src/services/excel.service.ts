@@ -22,6 +22,7 @@ import {
   todayIso
 } from '../utils/date';
 import {
+  isSapEstornoFlag,
   normalizeText,
   parseCounter,
   parseFlexibleHours,
@@ -48,6 +49,7 @@ import {
   isArmadorPlatform,
   lookupPlatform,
   mergeConfrontoOperations,
+  resolveDivergenciaSapStatus,
   passesFilter,
   prazoOf,
   resolveLocation,
@@ -118,14 +120,16 @@ export const IMPORT_COLUMNS_DEF: Record<ImportKind, ImportColumnDef[]> = {
     { key: 'uns', label: 'Unidades de negócio', synonyms: ['unidade', 'regional', 'un'] }
   ],
   sap: [
-    { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro'] },
-    { key: 'cria', label: 'Data Criação', synonyms: ['data_criacao', 'criacao', 'data criacao'] },
-    { key: 'lanc', label: 'Data Lançamento', synonyms: ['data_lancamento', 'lancamento', 'data lancamento'] },
-    { key: 'real', label: 'Data Fim Real', synonyms: ['data_fim_real', 'fim_real', 'data real', 'real'] },
-    { key: 'ordem', label: 'Ordem', synonyms: ['ordem', 'num ordem'] },
-    { key: 'op', label: 'Operação', synonyms: ['operacao', 'op'] },
-    { key: 'contador', label: 'Contador Confirmação', synonyms: ['contador confirmacao', 'contador de confirmacao', 'contador_confirmacao', 'contador', 'num confirmacao', 'confirmacao', 'confirmação', 'rmzhl', 'rueck'] },
-    { key: 'hc', label: 'Horas Confirmadas', synonyms: ['hc', 'horas confirmadas', 'horas'] }
+    { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro', 'pernr', 'num pessoal', 'n pessoal'] },
+    { key: 'cria', label: 'Data Criação', synonyms: ['data_criacao', 'criacao', 'data criacao', 'ersda'] },
+    { key: 'lanc', label: 'Data Lançamento', synonyms: ['data_lancamento', 'lancamento', 'data lancamento', 'budat'] },
+    // 'hc' vem antes de 'real' para que 'Trabalho real' (IW47/SAP) não seja capturado pelo sinônimo 'real' de Data Fim Real.
+    { key: 'hc', label: 'Horas Confirmadas', synonyms: ['hc', 'trabalho real', 'trab real', 'trab. real', 'hh confirmado', 'hh_confirmado', 'horas confirmadas', 'horas', 'ismnw'] },
+    { key: 'estorno', label: 'Estorno (SAP)', synonyms: ['estorno', 'estorn', 'stokz', 'indicador estorno', 'estornado'] },
+    { key: 'real', label: 'Data Fim Real', synonyms: ['data_fim_real', 'fim_real', 'fim real', 'data real', 'iedd', 'real'] },
+    { key: 'ordem', label: 'Ordem', synonyms: ['ordem', 'num ordem', 'aufnr'] },
+    { key: 'op', label: 'Operação', synonyms: ['operacao', 'oper.', 'oper', 'vornr', 'op'] },
+    { key: 'contador', label: 'Contador Confirmação', synonyms: ['contador confirmacao', 'contador de confirmacao', 'contador_confirmacao', 'contador', 'num confirmacao', 'confirmacao', 'confirmação', 'rmzhl', 'rueck'] }
   ],
   tec: [
     { key: 'mat', label: 'Matrícula', synonyms: ['matric', 'chapa', 'registro', 'id'] },
@@ -298,7 +302,10 @@ function saveWorkbook(XLSX: any, wb: any, filename: string): void {
 
 export function guessImportKind(headers: string[]): ImportKind {
   const joined = headers.map(h => normalizeText(h)).join('|');
-  if (/data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b|contador|rmzhl|rueck/.test(joined)) {
+  if (
+    /data_criacao|criacao|data_lancamento|lancamento|data_fim_real|fim_real|\bhc\b|contador|rmzhl|rueck|stokz|iedd|budat|ersda|trabalho real/.test(joined) ||
+    (/ordem|aufnr/.test(joined) && /\boper\.?\b|\boperacao\b|\bvornr\b/.test(joined) && /estorno|horas confirmadas|confir/.test(joined) && !/programad|embarque|portal/.test(joined))
+  ) {
     return 'sap';
   }
   if (
@@ -470,18 +477,36 @@ function extractRowsFromSheet(
         recursos: getVal('recursos')
       });
     } else if (kind === 'sap') {
-      const cria = parseExcelOrStringDate(getVal('cria'));
-      const lanc = parseExcelOrStringDate(getVal('lanc')) || cria;
-      const real = parseExcelOrStringDate(getVal('real')) || lanc;
+      const criaRaw = parseExcelOrStringDate(getVal('cria'));
+      const lancRaw = parseExcelOrStringDate(getVal('lanc'));
+      const realRaw = parseExcelOrStringDate(getVal('real'));
+      const cria = criaRaw || lancRaw || realRaw;
+      const lanc = lancRaw || criaRaw || realRaw;
+      const real = realRaw || lanc || cria;
       const ordem = String(getVal('ordem') || '').trim();
       const op = String(getVal('op') || '').trim();
-      const hc = parseFlexibleHours(getVal('hc'));
+      const rawHc = getVal('hc');
+      const rawHcStr = rawHc == null ? '' : String(rawHc).trim();
+      const isBlankHc = rawHcStr === '' || /^[-—–]+$/.test(rawHcStr);
+      const parsedHc = parseFlexibleHours(rawHc);
+      const estornoFlag = isSapEstornoFlag(getVal('estorno'));
       const contador = parseCounter(getVal('contador'));
 
       if (!mat || !ordem || !cria) {
         errors.push(`Linha ${i + 1}: campos obrigatórios ausentes no extrato SAP (matrícula, ordem ou data)`);
         continue;
       }
+      if (!isBlankHc && parsedHc == null) {
+        errors.push(`Linha ${i + 1}: horas confirmadas inválidas no extrato SAP ("${rawHcStr}")`);
+        continue;
+      }
+
+      let hcVal = parsedHc != null ? parsedHc : 0;
+      if (estornoFlag && hcVal > 0) {
+        hcVal = -Math.abs(hcVal);
+      }
+      hcVal = Math.round(hcVal * 10000) / 10000;
+      if (Object.is(hcVal, -0)) hcVal = 0;
 
       rows.push({
         mat,
@@ -490,7 +515,7 @@ function extractRowsFromSheet(
         real,
         ordem,
         op,
-        hc: hc != null ? hc : 0,
+        hc: hcVal,
         contador
       });
     } else if (kind === 'tec') {
@@ -1210,14 +1235,11 @@ function resolveConfrontoStatus(
   hcPortal: number,
   hcSap: number
 ): string {
-  if (statusProg === 'Cancelada') return 'Cancelada';
-  if (statusProg === 'Não Cadastrado no Portal') return 'Não Cadastrado no Portal';
-  if (statusDivergencia && statusDivergencia !== 'Pendente') return statusDivergencia;
-  if (hcPortal === 0 && hcSap === 0) return 'Não Confirmado';
-  if (hcPortal > 0 && hcSap === 0) return 'Não Apontado no SAP';
-  if (hcPortal === 0 && hcSap > 0) return 'Não Confirmado no Portal';
-  if (Math.abs(hcPortal - hcSap) < 0.01) return 'OK';
-  return hcPortal > hcSap ? 'Divergente (Portal > SAP)' : 'Divergente (SAP > Portal)';
+  return resolveDivergenciaSapStatus(hcPortal, hcSap, {
+    statusProgramacao: statusProg,
+    statusDivergencia,
+    detailed: true
+  });
 }
 
 /**

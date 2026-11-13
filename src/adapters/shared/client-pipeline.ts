@@ -26,17 +26,20 @@ import type {
 } from '../../domain/types';
 import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES } from '../../config/constants';
 import { todayIso } from '../../utils/date';
-import { parseIdEmbarque, platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
+import { normalizeSapCode, parseIdEmbarque, platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
 import { lookupPlatform, isArmadorPlatform } from '../../domain/calculations';
 import type { ClientDatabaseProvider } from '../../ports/client-provider.port';
 import type { BaaSConnectorPort, RawBaaSDatasetPayload } from '../../ports/baas-connector.port';
 import type { ClientAuthPort } from '../../ports/auth.port';
 import type {
   AuditLogFilterInput,
+  BatchImportCarteiraOptions,
   BatchImportCarteiraRow,
   BatchImportConfirmacaoSAPRow,
   BatchImportHHRow,
   BatchImportPlataformaRow,
+  CarteiraDedupSnapshot,
+  CarteiraPruneKeepOp,
   ClientDataPort,
   SavePessoaInput
 } from '../../ports/data.port';
@@ -271,8 +274,26 @@ export function prepareBatchCarteira(
   );
 
   // Consolidação para carteira_embarques (1 linha por técnico e início de embarque)
+  // Ignora linhas idênticas repetidas na mesma planilha para não somar duas vezes.
   const cartMap = new Map<string, any>();
+  const seenExactCartRows = new Set<string>();
   preparedRows.forEach(r => {
+    const exactSig = [
+      normalizeSapCode(r.matricula),
+      r.data_inicio,
+      r.data_fim,
+      r.plataforma_sigla || '',
+      r.unidade_negocio || '',
+      r.id_embarque || '',
+      r.operacao || '',
+      r.status_programacao || '',
+      r.horas_programadas ?? '',
+      r.pe ?? '',
+      r.ex ?? ''
+    ].join('::');
+    if (seenExactCartRows.has(exactSig)) return;
+    seenExactCartRows.add(exactSig);
+
     const key = `${r.matricula}_${r.data_inicio}`;
     const isCanc = r.status_programacao === 'Cancelada';
     const isFora = r.status_programacao === 'Fora da carteira';
@@ -344,7 +365,7 @@ export function prepareBatchCarteira(
 
       const cleanOrdem = String(r.ordem || '').trim() || (r.op ? 'ORDEM_AVULSA' : 'SEM_ORDEM');
       const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${parseIdEmbarque(r.id_embarque)}` : 'SEM_OP');
-      const key = `${mat}_${r.ini}_${cleanOrdem}_${cleanOp}`;
+      const key = `${normalizeSapCode(mat)}_${r.ini}_${normalizeSapCode(cleanOrdem)}_${normalizeSapCode(cleanOp)}`;
       const cleanId = parseIdEmbarque(r.id_embarque || (!r.ordem ? r.op : '') || '');
 
       opsMap.set(key, {
@@ -439,16 +460,21 @@ export function prepareBatchConfirmacoesSAP(
   const map = new Map<string, any>();
   rows.forEach(r => {
     const mat = String(r.mat || '').trim();
-    const cria = String(r.cria || '').trim();
-    const lanc = String(r.lanc || '').trim() || cria;
-    const real = String(r.real || '').trim() || lanc;
+    const rawCria = String(r.cria || '').trim();
+    const rawLanc = String(r.lanc || '').trim();
+    const rawReal = String(r.real || '').trim();
+    const lanc = rawLanc || rawCria || rawReal;
+    const real = rawReal || lanc;
+    const cria = rawCria || lanc;
     const ordem = String(r.ordem || '').trim();
     const op = String(r.op || '').trim();
-    const hc = Number(r.hc) || 0;
+    const rawHc = Number(r.hc) || 0;
+    const hcRounded = Math.round(rawHc * 10000) / 10000;
+    const hc = Object.is(hcRounded, -0) ? 0 : hcRounded;
     const contador = Number(r.contador) || 0;
     if (!mat || !cria || !ordem) return;
 
-    const key = `${mat}_${cria}_${lanc}_${real}_${ordem}_${op}_${hc}_${contador}`;
+    const key = `${normalizeSapCode(mat)}_${cria}_${lanc}_${real}_${normalizeSapCode(ordem)}_${normalizeSapCode(op)}_${contador}`;
     map.set(key, {
       matricula: mat,
       data_criacao: cria,
@@ -474,6 +500,481 @@ export function prepareBatchConfirmacoesSAP(
     }
     return a.data_lancamento.localeCompare(b.data_lancamento);
   });
+}
+
+export interface SmartSapImportPlan {
+  totalValidRows: number;
+  intraFileDuplicates: number;
+  dbDuplicatesIgnored: number;
+  newCount: number;
+  updatedCount: number;
+  rowsToImport: BatchImportConfirmacaoSAPRow[];
+}
+
+export interface SmartCarteiraImportPlan {
+  isGranular: boolean;
+  totalValidRows: number;
+  intraFileDuplicates: number;
+  dbDuplicatesIgnored: number;
+  newCount: number;
+  updatedCount: number;
+  staleOpsToPruneCount: number;
+  affectedPruneEmbarqueIds: string[];
+  pruneKeepOps: CarteiraPruneKeepOp[];
+  rowsToImport: BatchImportCarteiraRow[];
+}
+
+function buildSapNaturalKey(
+  mat: string,
+  cria: string,
+  lanc: string,
+  real: string,
+  ordem: string,
+  op: string,
+  contador: number
+): string {
+  return [
+    normalizeSapCode(mat),
+    cria,
+    lanc,
+    real,
+    normalizeSapCode(ordem),
+    normalizeSapCode(op),
+    String(Number(contador) || 0)
+  ].join('::');
+}
+
+/**
+ * Analisa lote de confirmações do SAP contra registros existentes no banco:
+ * - Colapsa duplicidades dentro da própria planilha pelo contador natural normalizado;
+ * - Ignora linhas idênticas já existentes no banco;
+ * - Seleciona apenas registros inéditos ou alterados (ex.: estorno +X -> -X no mesmo contador).
+ */
+export function planSmartSapImport(
+  rows: BatchImportConfirmacaoSAPRow[],
+  existingSap: ConfirmacaoSAP[] = []
+): SmartSapImportPlan {
+  const existingByKey = new Map<string, ConfirmacaoSAP>();
+  for (const cs of existingSap) {
+    const key = buildSapNaturalKey(
+      cs.matricula,
+      cs.data_criacao,
+      cs.data_lancamento,
+      cs.data_fim_real,
+      cs.ordem,
+      cs.operacao,
+      Number(cs.contador_confirmacao) || 0
+    );
+    existingByKey.set(key, cs);
+  }
+
+  const intraMap = new Map<string, BatchImportConfirmacaoSAPRow & { _hcRounded: number }>();
+  let totalValidRows = 0;
+  let intraFileDuplicates = 0;
+
+  for (const r of rows) {
+    const mat = String(r.mat || '').trim();
+    const rawCria = String(r.cria || '').trim();
+    const rawLanc = String(r.lanc || '').trim();
+    const rawReal = String(r.real || '').trim();
+    const lanc = rawLanc || rawCria || rawReal;
+    const real = rawReal || lanc;
+    const cria = rawCria || lanc;
+    const ordem = String(r.ordem || '').trim();
+    const op = String(r.op || '').trim();
+    if (!mat || !cria || !ordem) continue;
+
+    totalValidRows++;
+    const rawHc = Number(r.hc) || 0;
+    const hcRounded = Math.round(rawHc * 10000) / 10000;
+    const hc = Object.is(hcRounded, -0) ? 0 : hcRounded;
+    const contador = Number(r.contador) || 0;
+    const key = buildSapNaturalKey(mat, cria, lanc, real, ordem, op, contador);
+
+    if (intraMap.has(key)) {
+      intraFileDuplicates++;
+    }
+    intraMap.set(key, {
+      mat,
+      cria,
+      lanc,
+      real,
+      ordem,
+      op,
+      hc,
+      contador,
+      _hcRounded: hc
+    });
+  }
+
+  let dbDuplicatesIgnored = 0;
+  let newCount = 0;
+  let updatedCount = 0;
+  const rowsToImport: BatchImportConfirmacaoSAPRow[] = [];
+
+  for (const [key, item] of intraMap.entries()) {
+    const prev = existingByKey.get(key);
+    if (!prev) {
+      newCount++;
+      rowsToImport.push({
+        mat: item.mat,
+        cria: item.cria,
+        lanc: item.lanc,
+        real: item.real,
+        ordem: item.ordem,
+        op: item.op,
+        hc: item.hc,
+        contador: item.contador
+      });
+      continue;
+    }
+
+    const prevHc = Math.round((Number(prev.horas_confirmadas) || 0) * 10000) / 10000;
+    if (Math.abs(prevHc - item._hcRounded) < 0.0001) {
+      dbDuplicatesIgnored++;
+      continue;
+    }
+
+    updatedCount++;
+    rowsToImport.push({
+      // Alinha strings brutas à chave armazenada no banco para o UPSERT atualizar o registro existente
+      mat: prev.matricula || item.mat,
+      cria: item.cria,
+      lanc: item.lanc,
+      real: item.real,
+      ordem: prev.ordem || item.ordem,
+      op: prev.operacao || item.op,
+      hc: item.hc,
+      contador: item.contador
+    });
+  }
+
+  return {
+    totalValidRows,
+    intraFileDuplicates,
+    dbDuplicatesIgnored,
+    newCount,
+    updatedCount,
+    rowsToImport
+  };
+}
+
+/**
+ * Analisa lote da Carteira / Portal Offshore contra os registros atuais do banco:
+ * - Remove duplicidades idênticas repetidas dentro da planilha sem somar nem empilhar;
+ * - Detecta linhas idênticas às do banco para ignorar na gravação (no modo incremental);
+ * - Identifica id_embarque cujas datas/operações mudaram para poda prévia sem precisar resetar toda a base.
+ */
+export function planSmartCarteiraImport(
+  rows: BatchImportCarteiraRow[],
+  pidx: Record<string, Plataforma>,
+  existingOps: CarteiraOperacao[] = [],
+  existingCart: CarteiraEmbarque[] = [],
+  replaceAll = false
+): SmartCarteiraImportPlan {
+  const validRows = rows.filter(r => {
+    const mat = String(r.mat || '').trim();
+    return Boolean(mat && r.ini && r.fim && r.fim >= r.ini);
+  });
+
+  const preliminary = prepareBatchCarteira(validRows, pidx);
+  const isGranular = preliminary.isGranular;
+
+  if (!isGranular) {
+    const seenExact = new Set<string>();
+    const dedupedRows: BatchImportCarteiraRow[] = [];
+    let intraFileDuplicates = 0;
+
+    for (const r of validRows) {
+      const mat = r.mat.trim();
+      const pFound = lookupPlatform(pidx, r.plat);
+      const resolvedSigla = pFound ? pFound.sigla : sanitizePlatformCode(r.plat);
+      const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
+      const cleanId = parseIdEmbarque(r.id_embarque || r.op || '');
+      const exactSig = [
+        normalizeSapCode(mat),
+        r.ini,
+        r.fim,
+        resolvedSigla || '',
+        resolvedUn,
+        cleanId,
+        String(r.op || '').trim(),
+        String(r.status_prog || '').trim(),
+        r.hp ?? '',
+        r.pe ?? '',
+        r.ex ?? ''
+      ].join('::');
+
+      if (seenExact.has(exactSig)) {
+        intraFileDuplicates++;
+        continue;
+      }
+      seenExact.add(exactSig);
+      dedupedRows.push(r);
+    }
+
+    if (replaceAll) {
+      return {
+        isGranular: false,
+        totalValidRows: validRows.length,
+        intraFileDuplicates,
+        dbDuplicatesIgnored: 0,
+        newCount: dedupedRows.length,
+        updatedCount: 0,
+        staleOpsToPruneCount: 0,
+        affectedPruneEmbarqueIds: [],
+        pruneKeepOps: [],
+        rowsToImport: dedupedRows
+      };
+    }
+
+    const existingByMatIni = new Map<string, CarteiraEmbarque>();
+    for (const ce of existingCart) {
+      existingByMatIni.set(`${normalizeSapCode(ce.matricula)}::${ce.data_inicio}`, ce);
+    }
+
+    const consolidated = prepareBatchCarteira(dedupedRows, pidx).cartPayload;
+    const changedKeys = new Set<string>();
+    const cartKeysForCount = new Map<string, 'new' | 'upd' | 'dup'>();
+
+    for (const c of consolidated) {
+      const k = `${normalizeSapCode(c.matricula)}::${c.data_inicio}`;
+      const prev = existingByMatIni.get(k);
+      if (!prev) {
+        cartKeysForCount.set(k, 'new');
+        changedKeys.add(k);
+        continue;
+      }
+      const same =
+        parseIdEmbarque(prev.id_embarque || prev.operacao || '') === parseIdEmbarque(c.id_embarque || '') &&
+        (prev.plataforma_sigla || null) === (c.plataforma_sigla || null) &&
+        (prev.unidade_negocio || '') === (c.unidade_negocio || '') &&
+        prev.data_fim === c.data_fim &&
+        (prev.horas_programadas ?? null) === (c.horas_programadas ?? null) &&
+        (prev.pe ?? null) === (c.pe ?? null) &&
+        (prev.ex ?? null) === (c.ex ?? null);
+      if (same) {
+        cartKeysForCount.set(k, 'dup');
+      } else {
+        cartKeysForCount.set(k, 'upd');
+        changedKeys.add(k);
+      }
+    }
+
+    let dbDuplicatesIgnored = 0;
+    let newCount = 0;
+    let updatedCount = 0;
+    const rowsToImport: BatchImportCarteiraRow[] = [];
+
+    for (const r of dedupedRows) {
+      const k = `${normalizeSapCode(r.mat)}::${r.ini}`;
+      const st = cartKeysForCount.get(k);
+      if (st === 'dup') {
+        dbDuplicatesIgnored++;
+      } else {
+        if (st === 'new') newCount++;
+        else updatedCount++;
+        if (changedKeys.has(k)) {
+          rowsToImport.push(r);
+        }
+      }
+    }
+
+    return {
+      isGranular: false,
+      totalValidRows: validRows.length,
+      intraFileDuplicates,
+      dbDuplicatesIgnored,
+      newCount,
+      updatedCount,
+      staleOpsToPruneCount: 0,
+      affectedPruneEmbarqueIds: [],
+      pruneKeepOps: [],
+      rowsToImport
+    };
+  }
+
+  // Modo granular (Portal Offshore)
+  interface NormalizedOpEntry {
+    raw: BatchImportCarteiraRow;
+    cleanId: string;
+    normId: string;
+    mat: string;
+    cleanOrdem: string;
+    cleanOp: string;
+    platSigla: string | null;
+    un: string;
+    statusProg: string;
+    hp: number;
+    hcPortal: number;
+    recursos: number;
+    chavePetrobras: string;
+    empresa: string;
+    estrutura: string;
+  }
+
+  const dedupOpsMap = new Map<string, NormalizedOpEntry>();
+  let intraFileDuplicates = 0;
+
+  for (const r of validRows) {
+    const mat = r.mat.trim();
+    const pFound = lookupPlatform(pidx, r.plat);
+    const resolvedSigla = (pFound ? pFound.sigla : sanitizePlatformCode(r.plat)) || null;
+    const resolvedUn = pFound ? pFound.un : r.reg?.trim() || '';
+    const cleanOrdem = String(r.ordem || '').trim() || (r.op ? 'ORDEM_AVULSA' : 'SEM_ORDEM');
+    const cleanOp = String(r.op || '').trim() || (r.id_embarque ? `EMB_${parseIdEmbarque(r.id_embarque)}` : 'SEM_OP');
+    const cleanId = parseIdEmbarque(r.id_embarque || (!r.ordem ? r.op : '') || '');
+    const key = `${normalizeSapCode(mat)}::${r.ini}::${normalizeSapCode(cleanOrdem)}::${normalizeSapCode(cleanOp)}`;
+
+    if (dedupOpsMap.has(key)) {
+      intraFileDuplicates++;
+    }
+    dedupOpsMap.set(key, {
+      raw: r,
+      cleanId,
+      normId: cleanId ? normalizeSapCode(cleanId) : '',
+      mat,
+      cleanOrdem,
+      cleanOp,
+      platSigla: resolvedSigla,
+      un: resolvedUn,
+      statusProg: String(r.status_prog || 'Carteira').trim() || 'Carteira',
+      hp: r.hp != null ? Number(r.hp) : 0,
+      hcPortal: r.hc_portal != null ? Number(r.hc_portal) : 0,
+      recursos: parseInt(String(r.recursos || '1'), 10) || 1,
+      chavePetrobras: String(r.chave || '').trim(),
+      empresa: String(r.empresa || '').trim(),
+      estrutura: String(r.reg || '').trim()
+    });
+  }
+
+  const dedupedList = Array.from(dedupOpsMap.values());
+
+  if (replaceAll) {
+    return {
+      isGranular: true,
+      totalValidRows: validRows.length,
+      intraFileDuplicates,
+      dbDuplicatesIgnored: 0,
+      newCount: dedupedList.length,
+      updatedCount: 0,
+      staleOpsToPruneCount: 0,
+      affectedPruneEmbarqueIds: [],
+      pruneKeepOps: [],
+      rowsToImport: dedupedList.map(e => e.raw)
+    };
+  }
+
+  const existingByMatIniOrdOp = new Map<string, CarteiraOperacao>();
+  const existingByNormEmbarque = new Map<string, CarteiraOperacao[]>();
+  for (const co of existingOps) {
+    const matKey = `${normalizeSapCode(co.matricula)}::${co.data_inicio}::${normalizeSapCode(co.ordem)}::${normalizeSapCode(co.operacao)}`;
+    existingByMatIniOrdOp.set(matKey, co);
+    const eid = normalizeSapCode(parseIdEmbarque(co.id_embarque || co.portal_id || ''));
+    if (eid) {
+      const list = existingByNormEmbarque.get(eid) || [];
+      list.push(co);
+      existingByNormEmbarque.set(eid, list);
+    }
+  }
+
+  // Conjunto exato ativo por id_embarque para detectar datas deslocadas ou operações removidas
+  const incomingRawKeysByEmb = new Map<string, Set<string>>();
+  const incomingCleanIdByNorm = new Map<string, string>();
+  for (const entry of dedupedList) {
+    if (!entry.normId) continue;
+    incomingCleanIdByNorm.set(entry.normId, entry.cleanId);
+    const set = incomingRawKeysByEmb.get(entry.normId) || new Set<string>();
+    set.add(`${entry.mat}::${entry.raw.ini}::${entry.cleanOrdem}::${entry.cleanOp}`);
+    incomingRawKeysByEmb.set(entry.normId, set);
+  }
+
+  const affectedNormEmbIds = new Set<string>();
+  let staleOpsToPruneCount = 0;
+
+  for (const [normEmbId, activeRawSet] of incomingRawKeysByEmb.entries()) {
+    const prevList = existingByNormEmbarque.get(normEmbId) || [];
+    for (const prevOp of prevList) {
+      const prevRawKey = `${String(prevOp.matricula || '').trim()}::${prevOp.data_inicio}::${String(prevOp.ordem || '').trim()}::${String(prevOp.operacao || '').trim()}`;
+      if (!activeRawSet.has(prevRawKey)) {
+        affectedNormEmbIds.add(normEmbId);
+        staleOpsToPruneCount++;
+      }
+    }
+  }
+
+  const affectedPruneEmbarqueIds = Array.from(affectedNormEmbIds).map(
+    normId => incomingCleanIdByNorm.get(normId) || normId
+  );
+
+  // keepOps inclui TODAS as operações válidas da planilha pertencentes aos id_embarque que passarão por poda
+  const pruneKeepOps: CarteiraPruneKeepOp[] = [];
+  for (const entry of dedupedList) {
+    if (entry.normId && affectedNormEmbIds.has(entry.normId)) {
+      pruneKeepOps.push({
+        id_embarque: entry.cleanId,
+        matricula: entry.mat,
+        data_inicio: entry.raw.ini,
+        ordem: entry.cleanOrdem,
+        operacao: entry.cleanOp
+      });
+    }
+  }
+
+  let dbDuplicatesIgnored = 0;
+  let newCount = 0;
+  let updatedCount = 0;
+  const rowsToImport: BatchImportCarteiraRow[] = [];
+
+  for (const [opKey, entry] of dedupOpsMap.entries()) {
+    const prev = existingByMatIniOrdOp.get(opKey);
+    if (!prev) {
+      newCount++;
+      rowsToImport.push(entry.raw);
+      continue;
+    }
+
+    const prevIdNorm = normalizeSapCode(parseIdEmbarque(prev.id_embarque || prev.portal_id || ''));
+    const sameRawIdentity =
+      String(prev.matricula || '').trim() === entry.mat &&
+      String(prev.ordem || '').trim() === entry.cleanOrdem &&
+      String(prev.operacao || '').trim() === entry.cleanOp;
+
+    const sameData =
+      sameRawIdentity &&
+      prevIdNorm === entry.normId &&
+      (prev.plataforma_sigla || null) === entry.platSigla &&
+      (prev.unidade_negocio || '') === entry.un &&
+      prev.data_fim === entry.raw.fim &&
+      (prev.status_programacao || 'Carteira') === entry.statusProg &&
+      Math.abs((Number(prev.hh_programado) || 0) - entry.hp) < 0.0001 &&
+      Math.abs((Number(prev.hh_confirmado) || 0) - entry.hcPortal) < 0.0001 &&
+      (Number(prev.recursos) || 1) === entry.recursos &&
+      (prev.chave_petrobras || '') === entry.chavePetrobras &&
+      (prev.empresa || '') === entry.empresa &&
+      (prev.estrutura || '') === entry.estrutura;
+
+    if (sameData) {
+      dbDuplicatesIgnored++;
+      continue;
+    }
+
+    updatedCount++;
+    rowsToImport.push(entry.raw);
+  }
+
+  return {
+    isGranular: true,
+    totalValidRows: validRows.length,
+    intraFileDuplicates,
+    dbDuplicatesIgnored,
+    newCount,
+    updatedCount,
+    staleOpsToPruneCount,
+    affectedPruneEmbarqueIds,
+    pruneKeepOps,
+    rowsToImport
+  };
 }
 
 /**
@@ -526,6 +1027,81 @@ export function createDebouncedRealtimeSubscriber(
       }
       unsubscribe();
     };
+  };
+}
+
+export function mapRawCarteiraRow(
+  row: any,
+  tecnicos?: Record<string, Tecnico>
+): CarteiraEmbarque {
+  const mat = String(row.matricula || '');
+  const idEmb = parseIdEmbarque(row.id_embarque || (row as any).operacao || '');
+  const rawHp = row.horas_programadas != null ? Number(row.horas_programadas) : null;
+  const rawHhCart = row.hh_carteira != null ? Number(row.hh_carteira) : undefined;
+  const rawHhFora = row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0;
+  const rawHhCanc = row.hh_cancelado != null ? Number(row.hh_cancelado) : 0;
+  const fonte = String(row.fonte || 'carteira');
+  const resolvedHhCarteira =
+    rawHhCart === undefined
+      ? undefined
+      : fonte !== 'portal_offshore' && rawHhCart === 0 && rawHhFora === 0 && rawHhCanc === 0 && (rawHp == null || rawHp > 0)
+        ? undefined
+        : rawHhCart;
+  return {
+    id: String(row.id || ''),
+    id_embarque: idEmb,
+    matricula: mat,
+    nome: tecnicos?.[mat]?.nome || String(row.nome || ''),
+    funcao: tecnicos?.[mat]?.funcao || String(row.funcao || ''),
+    plataforma_sigla: String(row.plataforma_sigla || ''),
+    unidade_negocio: String(row.unidade_negocio || ''),
+    data_inicio: String(row.data_inicio || ''),
+    data_fim: String(row.data_fim || ''),
+    horas_programadas: rawHp,
+    hh_carteira: resolvedHhCarteira,
+    hh_fora_carteira: rawHhFora,
+    hh_cancelado: rawHhCanc,
+    hh_confirmado_portal: row.hh_confirmado_portal != null ? Number(row.hh_confirmado_portal) : 0,
+    hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
+    divergencia_confirmada: row.divergencia_confirmada != null ? Number(row.divergencia_confirmada) : 0,
+    operacao: idEmb,
+    pe: row.pe != null ? Number(row.pe) : null,
+    ex: row.ex != null ? Number(row.ex) : null,
+    fonte
+  };
+}
+
+export function mapRawCarteiraOperacaoRow(
+  row: any,
+  tecnicos?: Record<string, Tecnico>
+): CarteiraOperacao {
+  const cleanId = parseIdEmbarque((row as any).id_embarque || row.portal_id || '');
+  const mat = String(row.matricula || '');
+  return {
+    id: String(row.id || ''),
+    portal_id: cleanId,
+    id_embarque: cleanId,
+    matricula: mat,
+    chave_petrobras: String(row.chave_petrobras || ''),
+    nome: tecnicos?.[mat]?.nome || String(row.nome || ''),
+    empresa: String(row.empresa || ''),
+    estrutura: String(row.estrutura || ''),
+    unidade_negocio: String(row.unidade_negocio || ''),
+    plataforma_sigla: row.plataforma_sigla ? String(row.plataforma_sigla) : null,
+    data_inicio: String(row.data_inicio || ''),
+    data_fim: String(row.data_fim || ''),
+    ordem: String(row.ordem || ''),
+    operacao: String(row.operacao || ''),
+    status_processamento: String(row.status_processamento || 'Pendente'),
+    prioridade: String(row.prioridade || 'Regular'),
+    status_programacao: String(row.status_programacao || 'Carteira'),
+    hh_programado: row.hh_programado != null ? Number(row.hh_programado) : 0,
+    hh_confirmado: row.hh_confirmado != null ? Number(row.hh_confirmado) : 0,
+    hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
+    divergencia_sap: row.divergencia_sap != null ? Number(row.divergencia_sap) : 0,
+    status_divergencia: String(row.status_divergencia || 'Não Confirmado'),
+    recursos: row.recursos != null ? Number(row.recursos) : 1,
+    fonte: String(row.fonte || 'portal_offshore')
   };
 }
 
@@ -658,73 +1234,14 @@ export async function assembleAppDataset(
   });
 
   // 6. Carteira de embarques
-  const carteira: CarteiraEmbarque[] = (raw.carteiraRows || []).map(row => {
-    const mat = String(row.matricula || '');
-    const idEmb = parseIdEmbarque(row.id_embarque || (row as any).operacao || '');
-    const rawHp = row.horas_programadas != null ? Number(row.horas_programadas) : null;
-    const rawHhCart = row.hh_carteira != null ? Number(row.hh_carteira) : undefined;
-    const rawHhFora = row.hh_fora_carteira != null ? Number(row.hh_fora_carteira) : 0;
-    const rawHhCanc = row.hh_cancelado != null ? Number(row.hh_cancelado) : 0;
-    const fonte = String(row.fonte || 'carteira');
-    const resolvedHhCarteira =
-      rawHhCart === undefined
-        ? undefined
-        : fonte !== 'portal_offshore' && rawHhCart === 0 && rawHhFora === 0 && rawHhCanc === 0 && (rawHp == null || rawHp > 0)
-          ? undefined
-          : rawHhCart;
-    return {
-      id: String(row.id || ''),
-      id_embarque: idEmb,
-      matricula: mat,
-      nome: tecnicos[mat]?.nome || String(row.nome || ''),
-      funcao: tecnicos[mat]?.funcao || String(row.funcao || ''),
-      plataforma_sigla: String(row.plataforma_sigla || ''),
-      unidade_negocio: String(row.unidade_negocio || ''),
-      data_inicio: String(row.data_inicio || ''),
-      data_fim: String(row.data_fim || ''),
-      horas_programadas: rawHp,
-      hh_carteira: resolvedHhCarteira,
-      hh_fora_carteira: rawHhFora,
-      hh_cancelado: rawHhCanc,
-      hh_confirmado_portal: row.hh_confirmado_portal != null ? Number(row.hh_confirmado_portal) : 0,
-      hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
-      divergencia_confirmada: row.divergencia_confirmada != null ? Number(row.divergencia_confirmada) : 0,
-      operacao: idEmb,
-      pe: row.pe != null ? Number(row.pe) : null,
-      ex: row.ex != null ? Number(row.ex) : null,
-      fonte
-    };
-  });
+  const carteira: CarteiraEmbarque[] = (raw.carteiraRows || []).map(row =>
+    mapRawCarteiraRow(row, tecnicos)
+  );
 
   // 6.1. Operações detalhadas da Carteira (com conciliação SAP)
-  const carteiraOperacoes: CarteiraOperacao[] = (raw.carteiraOperacaoRows || []).map(row => {
-    const cleanId = parseIdEmbarque((row as any).id_embarque || row.portal_id || '');
-    return {
-      id: String(row.id || ''),
-      portal_id: cleanId,
-      id_embarque: cleanId,
-      matricula: String(row.matricula || ''),
-    chave_petrobras: String(row.chave_petrobras || ''),
-    nome: tecnicos[String(row.matricula || '')]?.nome || String(row.nome || ''),
-    empresa: String(row.empresa || ''),
-    estrutura: String(row.estrutura || ''),
-    unidade_negocio: String(row.unidade_negocio || ''),
-    plataforma_sigla: row.plataforma_sigla ? String(row.plataforma_sigla) : null,
-    data_inicio: String(row.data_inicio || ''),
-    data_fim: String(row.data_fim || ''),
-    ordem: String(row.ordem || ''),
-    operacao: String(row.operacao || ''),
-    status_processamento: String(row.status_processamento || 'Pendente'),
-    prioridade: String(row.prioridade || 'Regular'),
-    status_programacao: String(row.status_programacao || 'Carteira'),
-    hh_programado: row.hh_programado != null ? Number(row.hh_programado) : 0,
-    hh_confirmado: row.hh_confirmado != null ? Number(row.hh_confirmado) : 0,
-    hh_confirmado_sap: row.hh_confirmado_sap != null ? Number(row.hh_confirmado_sap) : 0,
-    divergencia_sap: row.divergencia_sap != null ? Number(row.divergencia_sap) : 0,
-    status_divergencia: String(row.status_divergencia || 'Não Confirmado'),
-    recursos: row.recursos != null ? Number(row.recursos) : 1,
-    fonte: String(row.fonte || 'portal_offshore')
-  };});
+  const carteiraOperacoes: CarteiraOperacao[] = (raw.carteiraOperacaoRows || []).map(row =>
+    mapRawCarteiraOperacaoRow(row, tecnicos)
+  );
 
   // 6.2. Confirmações do SAP vinculadas a embarques
   const confirmacoesSap: ConfirmacaoSAP[] = (raw.confirmacaoSapRows || []).map(row => ({
@@ -1084,8 +1601,9 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         observacao: `Importação em lote de ${total} apontamentos HH.`
       });
     },
-    async batchImportCarteira(rows, pidx, onProgress, origem = 'planilha (manual)') {
-      if (!rows.length) return;
+    async batchImportCarteira(rows, pidx, onProgress, origem = 'planilha (manual)', options?: BatchImportCarteiraOptions) {
+      const hasPruneTargets = Boolean(!options?.skipPrune && options?.pruneEmbarqueIds?.length);
+      if (!rows.length && !hasPruneTargets) return;
       const prepared = prepareBatchCarteira(rows, pidx);
 
       if (prepared.pendingPlataformas.length > 0) {
@@ -1095,6 +1613,30 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
       for (let i = 0; i < prepared.uniqueTecnicos.length; i += CHUNK_SIZE) {
         const chunk = prepared.uniqueTecnicos.slice(i, i + CHUNK_SIZE);
         await connector.upsertTecnicosChunk(chunk);
+      }
+
+      if (!options?.skipPrune && typeof connector.pruneStaleCarteiraByEmbarquesRPC === 'function') {
+        const pruneIds =
+          options?.pruneEmbarqueIds && options.pruneEmbarqueIds.length > 0
+            ? options.pruneEmbarqueIds
+            : prepared.isGranular
+              ? Array.from(new Set(prepared.opsPayload.map(op => op.id_embarque).filter(Boolean)))
+              : [];
+        if (pruneIds.length > 0) {
+          const pruneSet = new Set(pruneIds.map(id => normalizeSapCode(id)));
+          const keepOps: CarteiraPruneKeepOp[] =
+            options?.pruneKeepOps ??
+            prepared.opsPayload
+              .filter(op => op.id_embarque && pruneSet.has(normalizeSapCode(op.id_embarque)))
+              .map(op => ({
+                id_embarque: op.id_embarque,
+                matricula: op.matricula,
+                data_inicio: op.data_inicio,
+                ordem: op.ordem,
+                operacao: op.operacao
+              }));
+          await connector.pruneStaleCarteiraByEmbarquesRPC(pruneIds, keepOps);
+        }
       }
 
       if (prepared.isGranular && typeof connector.upsertCarteiraOperacoesChunk === 'function') {
@@ -1114,13 +1656,15 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
       }
 
       const totalRowsRecorded = prepared.isGranular ? prepared.opsPayload.length : prepared.cartPayload.length;
-      await connector.insertFluxoImportacao({
-        tipo_fluxo: 'carteira',
-        origem,
-        total_linhas: totalRowsRecorded,
-        data_maxima: prepared.maxDate || null,
-        observacao: `Importação em lote de ${totalRowsRecorded} registros de carteira.`
-      });
+      if (totalRowsRecorded > 0) {
+        await connector.insertFluxoImportacao({
+          tipo_fluxo: 'carteira',
+          origem,
+          total_linhas: totalRowsRecorded,
+          data_maxima: prepared.maxDate || null,
+          observacao: `Importação em lote de ${totalRowsRecorded} registros de carteira.`
+        });
+      }
 
       if (typeof connector.reconciliarConfirmacoesSAPRPC === 'function') {
         try {
@@ -1129,6 +1673,16 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
           console.warn('Reconciliação automática disparada após importação de carteira:', rErr);
         }
       }
+    },
+    async fetchCarteiraDedupSnapshot(): Promise<CarteiraDedupSnapshot> {
+      if (typeof connector.fetchAllCarteiraForDedup === 'function') {
+        const raw = await connector.fetchAllCarteiraForDedup();
+        return {
+          carteira: (raw.carteiraRows || []).map(row => mapRawCarteiraRow(row)),
+          carteiraOperacoes: (raw.carteiraOperacaoRows || []).map(row => mapRawCarteiraOperacaoRow(row))
+        };
+      }
+      return { carteira: [], carteiraOperacoes: [] };
     },
     async batchImportPlataformas(rows, onProgress) {
       if (!rows.length) return;

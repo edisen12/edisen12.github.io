@@ -11,7 +11,17 @@ import {
   mockJustificativasRows,
   mockUsoffUnWeights
 } from '../../test/testFixtures';
-import type { AppDataset, ContractConfig, Justificativa, UsoffUnWeight } from '../../domain/types';
+import type {
+  AppDataset,
+  CarteiraEmbarque,
+  CarteiraOperacao,
+  ConfirmacaoSAP,
+  ContractConfig,
+  Justificativa,
+  Plataforma,
+  UsoffUnWeight
+} from '../../domain/types';
+import { planSmartCarteiraImport, planSmartSapImport } from '../../adapters/shared/client-pipeline';
 
 vi.mock('../supabase', async () => {
   const { createMockSupabaseClient } = await import('../../test/mockSupabase');
@@ -41,6 +51,7 @@ import {
   batchImportConfirmacoesSAP,
   reconciliarConfirmacoesSAP,
   resetCarteiraEmbarques,
+  fetchCarteiraDedupSnapshot,
   exportJsonSnapshot
 } from '../data.service';
 
@@ -799,6 +810,246 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       expect(mockClient.__mockState.tables.carteira_embarques).toEqual([]);
 
       rpcSpy.mockRestore();
+    });
+  });
+
+  describe('11. Deduplicação Inteligente e Estornos SAP / Portal Offshore', () => {
+    const pidxSintetico: Record<string, Plataforma> = {
+      P50: {
+        sigla: 'P50',
+        chave_norm: 'P50',
+        nome: 'P-50',
+        un: 'UN-RIO',
+        armador: '',
+        gerencia: '',
+        tipo: 'FPSO',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    it('planSmartSapImport colapsa duplicatas intra-arquivo, ignora idênticas do banco e atualiza estorno (+9 -> -9) alinhando zeros à esquerda', () => {
+      const existingSap: ConfirmacaoSAP[] = [
+        {
+          id: 'sap-1',
+          matricula: '0001099',
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: '002099990001',
+          operacao: '0010',
+          horas_confirmadas: 9,
+          contador_confirmacao: 1
+        },
+        {
+          id: 'sap-2',
+          matricula: '0001099',
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: '002099990001',
+          operacao: '0010',
+          horas_confirmadas: 9,
+          contador_confirmacao: 2
+        }
+      ];
+
+      const plan = planSmartSapImport(
+        [
+          // Idêntico ao banco (com menos zeros à esquerda): deve ser ignorado
+          { mat: '1099', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '2099990001', op: '10', hc: 9, contador: 1 },
+          // Duplicata exata na própria planilha do contador 1: deve colapsar
+          { mat: '0001099', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990001', op: '0010', hc: 9, contador: 1 },
+          // Estorno no mesmo contador 2 (+9 -> -9): deve ser atualizado e alinhado com raw strings do banco
+          { mat: '1099', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '2099990001', op: '10', hc: -9, contador: 2 },
+          // Registro inédito (contador 3)
+          { mat: '0001099', cria: '2026-10-11', lanc: '2026-10-11', real: '2026-10-11', ordem: '002099990001', op: '0010', hc: 9, contador: 3 }
+        ],
+        existingSap
+      );
+
+      expect(plan.totalValidRows).toBe(4);
+      expect(plan.intraFileDuplicates).toBe(1);
+      expect(plan.dbDuplicatesIgnored).toBe(1);
+      expect(plan.updatedCount).toBe(1);
+      expect(plan.newCount).toBe(1);
+      expect(plan.rowsToImport).toHaveLength(2);
+
+      const estornoRow = plan.rowsToImport.find(r => r.contador === 2);
+      expect(estornoRow).toEqual({
+        mat: '0001099',
+        cria: '2026-10-10',
+        lanc: '2026-10-10',
+        real: '2026-10-10',
+        ordem: '002099990001',
+        op: '0010',
+        hc: -9,
+        contador: 2
+      });
+    });
+
+    it('planSmartCarteiraImport evita somar duplicatas no modo não-granular e gera poda completa (incluindo ops inalteradas do mesmo embarque) no modo granular', async () => {
+      // 1. Modo não-granular com linha idêntica repetida na planilha: não deve duplicar 60 -> 120
+      const legacyDupRows = [
+        { mat: '1099', nome: 'Técnico Sintético 01', plat: 'P50', reg: 'UN-RIO', ini: '2026-10-01', fim: '2026-10-10', hp: 60 },
+        { mat: '001099', nome: 'Técnico Sintético 01', plat: 'P50', reg: 'UN-RIO', ini: '2026-10-01', fim: '2026-10-10', hp: 60 }
+      ];
+      const legacyPlan = planSmartCarteiraImport(legacyDupRows, pidxSintetico, [], []);
+      expect(legacyPlan.isGranular).toBe(false);
+      expect(legacyPlan.intraFileDuplicates).toBe(1);
+      expect(legacyPlan.rowsToImport).toHaveLength(1);
+
+      await batchImportCarteira(legacyDupRows, pidxSintetico, undefined, 'teste-dedup-legado');
+      const legacyCart = mockClient.__mockState.tables.carteira_embarques.filter(
+        (c: any) => c.matricula === '1099' && c.data_inicio === '2026-10-01'
+      );
+      expect(legacyCart).toHaveLength(1);
+      expect(legacyCart[0].horas_programadas).toBe(60);
+
+      // 2. Modo granular: embarque 56900 tinha OP-10 (inalterada) e OP-20 (antes 2026-10-05, agora movida para 2026-10-06)
+      const existingOps: CarteiraOperacao[] = [
+        {
+          id: 'op-10',
+          portal_id: '56900',
+          id_embarque: '56900',
+          matricula: '1098',
+          chave_petrobras: '',
+          nome: 'Técnico Sintético 02',
+          empresa: 'Empresa Teste',
+          estrutura: 'UN-RIO',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-05',
+          data_fim: '2026-10-15',
+          ordem: 'ORD-900',
+          operacao: '0010',
+          status_processamento: 'Programado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 20,
+          hh_confirmado: 0,
+          recursos: 1,
+          fonte: 'portal_offshore'
+        },
+        {
+          id: 'op-20',
+          portal_id: '56900',
+          id_embarque: '56900',
+          matricula: '1098',
+          chave_petrobras: '',
+          nome: 'Técnico Sintético 02',
+          empresa: 'Empresa Teste',
+          estrutura: 'UN-RIO',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-05',
+          data_fim: '2026-10-15',
+          ordem: 'ORD-900',
+          operacao: '0020',
+          status_processamento: 'Programado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 15,
+          hh_confirmado: 0,
+          recursos: 1,
+          fonte: 'portal_offshore'
+        }
+      ];
+
+      const planIdentical = planSmartCarteiraImport(
+        [
+          { mat: '1098', nome: 'Técnico Sintético 02', plat: 'P50', reg: 'UN-RIO', empresa: 'Empresa Teste', ini: '2026-10-05', fim: '2026-10-15', hp: 20, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-900', op: '0010', id_embarque: '56900' },
+          { mat: '1098', nome: 'Técnico Sintético 02', plat: 'P50', reg: 'UN-RIO', empresa: 'Empresa Teste', ini: '2026-10-05', fim: '2026-10-15', hp: 15, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-900', op: '0020', id_embarque: '56900' }
+        ],
+        pidxSintetico,
+        existingOps,
+        []
+      );
+      expect(planIdentical.dbDuplicatesIgnored).toBe(2);
+      expect(planIdentical.rowsToImport).toHaveLength(0);
+      expect(planIdentical.affectedPruneEmbarqueIds).toEqual([]);
+
+      // Agora desloca OP-20 para 2026-10-06 mantendo OP-10 inalterada em 2026-10-05
+      const planShifted = planSmartCarteiraImport(
+        [
+          { mat: '1098', nome: 'Técnico Sintético 02', plat: 'P50', reg: 'UN-RIO', empresa: 'Empresa Teste', ini: '2026-10-05', fim: '2026-10-15', hp: 20, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-900', op: '0010', id_embarque: '56900' },
+          { mat: '1098', nome: 'Técnico Sintético 02', plat: 'P50', reg: 'UN-RIO', empresa: 'Empresa Teste', ini: '2026-10-06', fim: '2026-10-15', hp: 15, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-900', op: '0020', id_embarque: '56900' }
+        ],
+        pidxSintetico,
+        existingOps,
+        []
+      );
+      expect(planShifted.dbDuplicatesIgnored).toBe(1);
+      expect(planShifted.newCount).toBe(1);
+      expect(planShifted.staleOpsToPruneCount).toBe(1);
+      expect(planShifted.affectedPruneEmbarqueIds).toEqual(['56900']);
+      expect(planShifted.rowsToImport).toHaveLength(1);
+      // Crítico: pruneKeepOps deve incluir OP-10 (inalterada) e OP-20 (nova) para não apagar OP-10 na poda!
+      expect(planShifted.pruneKeepOps).toHaveLength(2);
+      expect(planShifted.pruneKeepOps.map(o => `${o.operacao}@${o.data_inicio}`).sort()).toEqual([
+        '0010@2026-10-05',
+        '0020@2026-10-06'
+      ]);
+    });
+
+    it('batchImportConfirmacoesSAP e batchImportCarteira no mockSupabase sobrescrevem estorno (18h em vez de 27h) e podam embarque deslocado sem empilhar linhas órfãs', async () => {
+      // 1. SAP: importa 4 contadores (+9, +9, +9, +9) e depois reimporta contador 2 como estorno (-9)
+      await batchImportConfirmacoesSAP([
+        { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 1 },
+        { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 2 },
+        { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 3 },
+        { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 4 }
+      ]);
+
+      const ds1 = await loadAppDataset('2026-10-01', '2026-10-31', true);
+      const sapPlan2 = planSmartSapImport(
+        [
+          { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 1 },
+          { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: -9, contador: 2 },
+          { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 3 },
+          { mat: '1097', cria: '2026-10-10', lanc: '2026-10-10', real: '2026-10-10', ordem: '002099990002', op: '0010', hc: 9, contador: 4 }
+        ],
+        ds1.confirmacoesSap || []
+      );
+      expect(sapPlan2.updatedCount).toBe(1);
+      expect(sapPlan2.dbDuplicatesIgnored).toBe(3);
+
+      await batchImportConfirmacoesSAP(sapPlan2.rowsToImport);
+      const sap1097 = mockClient.__mockState.tables.confirmacoes_sap.filter(
+        (cs: any) => cs.matricula === '1097' && cs.ordem === '002099990002'
+      );
+      expect(sap1097).toHaveLength(4);
+      const sum1097 = sap1097.reduce((acc: number, cs: any) => acc + Number(cs.horas_confirmadas || 0), 0);
+      expect(sum1097).toBe(18);
+
+      // 2. Portal Offshore granular: embarque 56901 começa em 2026-10-05 (OP-10 e OP-20), depois desloca inteiro para 2026-10-06 e remove OP-20
+      const portalLote1 = [
+        { mat: '1096', nome: 'Técnico Sintético 03', plat: 'P50', reg: 'UN-RIO', ini: '2026-10-05', fim: '2026-10-15', hp: 20, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-901', op: '0010', id_embarque: '56901' },
+        { mat: '1096', nome: 'Técnico Sintético 03', plat: 'P50', reg: 'UN-RIO', ini: '2026-10-05', fim: '2026-10-15', hp: 10, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-901', op: '0020', id_embarque: '56901' }
+      ];
+      await batchImportCarteira(portalLote1, pidxSintetico, undefined, 'portal-lote-1');
+
+      const snap = await fetchCarteiraDedupSnapshot();
+      expect(snap).not.toBeNull();
+      const portalLote2 = [
+        { mat: '1096', nome: 'Técnico Sintético 03', plat: 'P50', reg: 'UN-RIO', ini: '2026-10-06', fim: '2026-10-16', hp: 20, hc_portal: 0, status_prog: 'Carteira', ordem: 'ORD-901', op: '0010', id_embarque: '56901' }
+      ];
+      const cartPlan2 = planSmartCarteiraImport(portalLote2, pidxSintetico, snap?.carteiraOperacoes || [], snap?.carteira || []);
+      expect(cartPlan2.affectedPruneEmbarqueIds).toEqual(['56901']);
+
+      await batchImportCarteira(cartPlan2.rowsToImport, pidxSintetico, undefined, 'portal-lote-2', {
+        pruneEmbarqueIds: cartPlan2.affectedPruneEmbarqueIds,
+        pruneKeepOps: cartPlan2.pruneKeepOps
+      });
+
+      const ops56901 = mockClient.__mockState.tables.carteira_operacoes.filter((o: any) => o.id_embarque === '56901');
+      expect(ops56901).toHaveLength(1);
+      expect(ops56901[0].data_inicio).toBe('2026-10-06');
+
+      const embs1096 = mockClient.__mockState.tables.carteira_embarques.filter((c: any) => c.matricula === '1096');
+      expect(embs1096).toHaveLength(1);
+      expect(embs1096[0].data_inicio).toBe('2026-10-06');
+      expect(embs1096[0].horas_programadas).toBe(20);
     });
   });
 });

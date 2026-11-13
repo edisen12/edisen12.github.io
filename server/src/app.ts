@@ -328,6 +328,12 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
         return sendJson(res, 200, { ok: true, result });
       }
 
+      if (method === 'GET' && pathname === '/api/v1/carteira/dedup-snapshot') {
+        const actor = await authenticate(false);
+        const data = await engine.fetchCarteiraDedupSnapshot(actor);
+        return sendJson(res, 200, { ok: true, data });
+      }
+
       if (method === 'POST' && pathname === '/api/v1/carteira/reset') {
         const actor = await authenticate(true);
         const result = await engine.resetCarteiraEmbarques(actor, clientIp);

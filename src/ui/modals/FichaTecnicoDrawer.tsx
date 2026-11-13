@@ -152,8 +152,8 @@ export function FichaTecnicoDrawer() {
       gw: totGw,
       jus: totJus,
       pend: totPend,
-      totSap,
-      totSapFora
+      totSap: Math.round(totSap * 100) / 100,
+      totSapFora: Math.round(totSapFora * 100) / 100
     };
   }, [mat, P, dataset, dayItems]);
 
@@ -453,8 +453,20 @@ export function FichaTecnicoDrawer() {
                                         <tr key={cs.id || `${cs.ordem}_${cs.operacao}_${idx}`} style={{ borderBottom: '1px dotted var(--line)' }}>
                                           <td style={{ padding: '4px', fontFamily: 'monospace', fontWeight: 600 }}>{cs.ordem}</td>
                                           <td style={{ padding: '4px', fontFamily: 'monospace' }}>{cs.operacao}</td>
-                                          <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>
+                                          <td
+                                            style={{
+                                              padding: '4px',
+                                              textAlign: 'right',
+                                              fontWeight: 600,
+                                              color: (cs.horas_confirmadas || 0) < 0 ? 'var(--bad, #dc2626)' : 'inherit'
+                                            }}
+                                          >
                                             {formatHours(cs.horas_confirmadas)}
+                                            {(cs.horas_confirmadas || 0) < 0 && (
+                                              <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--bad, #dc2626)', fontWeight: 500 }}>
+                                                estorno
+                                              </span>
+                                            )}
                                           </td>
                                           <td style={{ padding: '4px' }}>
                                             <span

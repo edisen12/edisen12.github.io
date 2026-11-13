@@ -108,16 +108,99 @@ export const slugify = (s: unknown): string =>
     .replace(/^-|-$/g, '')
     .slice(0, 60) || 'item';
 
+export const normalizeSapCode = (val: unknown): string => {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  if (/^\d+$/.test(s)) {
+    return s.replace(/^0+(?=\d)/, '');
+  }
+  return s.toUpperCase();
+};
+
+export const isSapEstornoFlag = (val: unknown): boolean => {
+  if (typeof val === 'boolean') return val;
+  const norm = normalizeText(val);
+  if (!norm) return false;
+  return (
+    norm === 'x' ||
+    norm === 's' ||
+    norm === 'sim' ||
+    norm === 'y' ||
+    norm === 'yes' ||
+    norm === 'true' ||
+    norm === '1' ||
+    norm === 'estorno' ||
+    norm === 'estornado' ||
+    norm === 'storno' ||
+    norm === 'cancelado'
+  );
+};
+
 export const parseFlexibleHours = (v: unknown): number | null => {
   if (v == null || v === '') return null;
-  if (typeof v === 'number') return isNaN(v) ? null : v;
-  const s = String(v).trim().replace(/\s|h/gi, '');
-  if (/^\d{1,3}:\d{2}$/.test(s)) {
-    const [a, b] = s.split(':');
-    return +a + +b / 60;
+  if (typeof v === 'number') {
+    if (isNaN(v) || !isFinite(v)) return null;
+    return Object.is(v, -0) ? 0 : v;
   }
-  const n = parseFloat(s.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
-  return isNaN(n) ? null : n;
+
+  let s = String(v)
+    .trim()
+    .replace(/[\u2212\u2013\u2014\uFE63\uFF0D]/g, '-')
+    .replace(/\s/g, '')
+    .replace(/(?:hrs?|hs|h)(?=$|[)\-+])/gi, '');
+
+  if (!s) return null;
+
+  let sign = 1;
+  // Formato contábil entre parênteses: (9,00), (09:30)
+  if (/^\(.+\)$/.test(s)) {
+    s = s.slice(1, -1);
+    if (!s || /^[-+]|[-+]$/.test(s)) return null;
+    sign = -1;
+  } else {
+    const hasLeadSign = /^[+-]/.test(s);
+    const hasTrailSign = /[+-]$/.test(s);
+    if (hasLeadSign && hasTrailSign) return null;
+    if (hasLeadSign) {
+      if (s.startsWith('-')) sign = -1;
+      s = s.slice(1);
+    } else if (hasTrailSign) {
+      // Sinal negativo à direita típico de exportações SAP ALV (ex.: "9,00-", "09:30-")
+      if (s.endsWith('-')) sign = -1;
+      s = s.slice(0, -1);
+    }
+  }
+
+  if (!s) return null;
+
+  const timeMatch = s.match(/^(\d{1,3}):(\d{2})(?::(\d{2}))?$/);
+  if (timeMatch) {
+    const h = Number(timeMatch[1]);
+    const m = Number(timeMatch[2]);
+    const sec = timeMatch[3] ? Number(timeMatch[3]) : 0;
+    if (m >= 60 || sec >= 60) return null;
+    const total = sign * (h + m / 60 + sec / 3600);
+    return Object.is(total, -0) ? 0 : total;
+  }
+
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  let numericStr: string;
+  if (lastComma >= 0 && lastDot >= 0 && lastDot > lastComma) {
+    // Formato EN/US com separador de milhar por vírgula (ex.: 1,250.50)
+    numericStr = s.replace(/,/g, '');
+  } else {
+    // Formato PT-BR com milhar por ponto e decimal por vírgula (ex.: 1.250,50 -> 1250.50)
+    numericStr = s.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+  }
+
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(numericStr)) {
+    return null;
+  }
+
+  const n = Number(numericStr) * sign;
+  if (isNaN(n) || !isFinite(n)) return null;
+  return Object.is(n, -0) ? 0 : n;
 };
 
 export const parseCounter = (v: unknown): number => {

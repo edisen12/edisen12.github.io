@@ -144,6 +144,32 @@ function normalizeServerIdEmbarque(val: unknown): string {
   return str;
 }
 
+/** Normaliza códigos SAP numéricos removendo zeros à esquerda ('002032288155' -> '2032288155', '0010' -> '10'). */
+function normalizeServerSapCode(val: unknown): string {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  if (/^\d+$/.test(s)) {
+    return s.replace(/^0+(?=\d)/, '');
+  }
+  return s.toUpperCase();
+}
+
+function round2(n: number): number {
+  const v = Math.round((Number(n) || 0) * 100) / 100;
+  return Object.is(v, -0) ? 0 : v;
+}
+
+function resolveServerDivergenciaStatus(hhConf: number, totalSap: number): string {
+  const p = round2(hhConf);
+  const s = round2(totalSap);
+  if (Math.abs(p) < 0.01 && Math.abs(s) < 0.01) return 'Não Confirmado';
+  if (p > 0 && Math.abs(s) < 0.01) return 'Não Apontado no SAP';
+  if (Math.abs(p) < 0.01 && s > 0) return 'Não Confirmado no Portal';
+  if (Math.abs(p) < 0.01 && s < 0) return 'Divergente (Portal > SAP)';
+  if (Math.abs(p - s) < 0.01) return 'OK';
+  return p > s ? 'Divergente (Portal > SAP)' : 'Divergente (SAP > Portal)';
+}
+
 function addIsoDays(isoDate: string, delta: number): string {
   const [y, m, d] = isoDate.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + delta));
@@ -686,9 +712,6 @@ export class SelfHostedDomainEngine {
 
     // 6.2. Confirmações do SAP vinculadas a embarques
     const allSapRows = await this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap', {
-      filter: {
-        id_embarque: { neq: '' }
-      },
       orderBy: { field: 'data_fim_real', direction: 'desc' }
     });
 
@@ -1223,11 +1246,74 @@ export class SelfHostedDomainEngine {
   // IMPORTAÇÃO EM CHUNKS, RECONCILIAÇÃO SAP E RESET DE CARTEIRA
   // ============================================================================
 
+  async fetchCarteiraDedupSnapshot(actor: AuthenticatedActor): Promise<{
+    carteiraRows: CarteiraEmbarque[];
+    carteiraOperacaoRows: CarteiraOperacao[];
+  }> {
+    this.assertGlobalRole(actor);
+    const [carteiraRows, carteiraOperacaoRows] = await Promise.all([
+      this.storage.findMany<CarteiraEmbarque>('carteira_embarques', {
+        orderBy: { field: 'data_inicio', direction: 'asc' }
+      }),
+      this.storage.findMany<CarteiraOperacao>('carteira_operacoes', {
+        orderBy: { field: 'data_inicio', direction: 'asc' }
+      })
+    ]);
+    return { carteiraRows, carteiraOperacaoRows };
+  }
+
+  private async pruneStaleCarteiraByEmbarques(
+    embarqueIds: string[],
+    keepOps: Array<{
+      id_embarque: string;
+      matricula: string;
+      data_inicio: string;
+      ordem: string;
+      operacao: string;
+    }>
+  ): Promise<number> {
+    const normIds = new Set(embarqueIds.map(id => normalizeServerSapCode(normalizeServerIdEmbarque(id))).filter(Boolean));
+    if (normIds.size === 0) return 0;
+
+    const keepSet = new Set(
+      (keepOps || [])
+        .filter(k => k && String(k.id_embarque || '').trim())
+        .map(
+          k =>
+            `${normalizeServerSapCode(normalizeServerIdEmbarque(k.id_embarque))}::${String(k.matricula || '').trim()}::${String(k.data_inicio || '').trim()}::${String(k.ordem || '').trim()}::${String(k.operacao || '').trim()}`
+        )
+    );
+
+    const existingOps = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes');
+    const idsToDelete: string[] = [];
+    for (const co of existingOps) {
+      const coEid = normalizeServerSapCode(normalizeServerIdEmbarque(co.id_embarque || co.portal_id || ''));
+      if (!coEid || !normIds.has(coEid)) continue;
+      const coKey = `${coEid}::${String(co.matricula || '').trim()}::${String(co.data_inicio || '').trim()}::${String(co.ordem || '').trim()}::${String(co.operacao || '').trim()}`;
+      if (!keepSet.has(coKey) && co.id) {
+        idsToDelete.push(co.id);
+      }
+    }
+
+    if (idsToDelete.length === 0) return 0;
+    return await this.storage.deleteMany('carteira_operacoes', { id: { in: idsToDelete } });
+  }
+
   private async syncCarteiraEmbarquesFromOperacoes(): Promise<void> {
     const allOps = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes');
-    if (allOps.length === 0) return;
-
     const existingCart = await this.storage.findMany<CarteiraEmbarque>('carteira_embarques');
+    const activeMatIniKeys = new Set(allOps.map(co => `${co.matricula}::${co.data_inicio}`));
+
+    const orphanPortalIds = existingCart
+      .filter(c => c.fonte === 'portal_offshore' && !activeMatIniKeys.has(`${c.matricula}::${c.data_inicio}`))
+      .map(c => c.id)
+      .filter(Boolean);
+
+    if (orphanPortalIds.length > 0) {
+      await this.storage.deleteMany('carteira_embarques', { id: { in: orphanPortalIds } });
+    }
+
+    if (allOps.length === 0) return;
     const existingByKey = new Map<string, CarteiraEmbarque>();
     for (const c of existingCart) {
       existingByKey.set(`${c.matricula}::${c.data_inicio}`, c);
@@ -1334,11 +1420,20 @@ export class SelfHostedDomainEngine {
         | 'fluxo';
       rows: any[];
       fluxo?: Partial<FluxoImportacao>;
+      pruneEmbarqueIds?: string[];
+      pruneKeepOps?: Array<{
+        id_embarque: string;
+        matricula: string;
+        data_inicio: string;
+        ordem: string;
+        operacao: string;
+      }>;
     }
   ): Promise<{ ok: boolean; count: number }> {
     this.assertGlobalRole(actor);
-    const { kind, rows, fluxo } = payload;
-    if (!Array.isArray(rows) || rows.length === 0) {
+    const { kind, rows, fluxo, pruneEmbarqueIds, pruneKeepOps } = payload;
+    const hasPruneTargets = kind === 'carteira_operacoes' && Array.isArray(pruneEmbarqueIds) && pruneEmbarqueIds.length > 0;
+    if ((!Array.isArray(rows) || rows.length === 0) && !hasPruneTargets) {
       return { ok: true, count: 0 };
     }
 
@@ -1374,54 +1469,136 @@ export class SelfHostedDomainEngine {
       });
       await this.storage.upsertMany('carteira_embarques', cartWithIds, ['matricula', 'data_inicio']);
     } else if (kind === 'carteira_operacoes') {
-      const opsWithIds = rows.map(r => {
+      let prunedCount = 0;
+      if (hasPruneTargets && pruneEmbarqueIds) {
+        prunedCount = await this.pruneStaleCarteiraByEmbarques(pruneEmbarqueIds, pruneKeepOps || []);
+      }
+
+      // Deduplicação intra-lote por chave natural normalizada + skip de idênticos já gravados
+      const existingOps = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes');
+      const existingByKey = new Map<string, CarteiraOperacao>();
+      for (const co of existingOps) {
+        existingByKey.set(
+          `${normalizeServerSapCode(co.matricula)}::${co.data_inicio}::${normalizeServerSapCode(co.ordem)}::${normalizeServerSapCode(co.operacao)}`,
+          co
+        );
+      }
+
+      const dedupedOpsMap = new Map<string, any>();
+      for (const r of rows) {
         const cleanId = normalizeServerIdEmbarque(r.id_embarque || r.portal_id || '');
         const cleanPlat = r.plataforma_sigla
           ? sanitizeServerPlatformCode(r.plataforma_sigla)
           : null;
-        return {
+        const mat = String(r.matricula || '').trim();
+        const ordem = String(r.ordem || '').trim();
+        const operacao = String(r.operacao || '').trim();
+        const normKey = `${normalizeServerSapCode(mat)}::${r.data_inicio}::${normalizeServerSapCode(ordem)}::${normalizeServerSapCode(operacao)}`;
+        const prev = existingByKey.get(normKey);
+
+        dedupedOpsMap.set(normKey, {
           ...r,
-          id: r.id || generateUuid(),
+          id: prev?.id || r.id || generateUuid(),
           portal_id: cleanId,
           id_embarque: cleanId,
+          matricula: mat,
+          ordem,
+          operacao,
           plataforma_sigla: cleanPlat,
-          hh_confirmado_sap: Number(r.hh_confirmado_sap || 0),
-          divergencia_sap: Number(r.divergencia_sap || 0),
-          status_divergencia: r.status_divergencia || 'Não Apontado no SAP'
-        };
+          hh_confirmado_sap: prev ? Number(prev.hh_confirmado_sap || 0) : Number(r.hh_confirmado_sap || 0),
+          divergencia_sap: prev ? Number(prev.divergencia_sap || 0) : Number(r.divergencia_sap || 0),
+          status_divergencia: prev?.status_divergencia || r.status_divergencia || 'Não Apontado no SAP'
+        });
+      }
+
+      const opsToUpsert = Array.from(dedupedOpsMap.values()).filter(item => {
+        const normKey = `${normalizeServerSapCode(item.matricula)}::${item.data_inicio}::${normalizeServerSapCode(item.ordem)}::${normalizeServerSapCode(item.operacao)}`;
+        const prev = existingByKey.get(normKey);
+        if (!prev) return true;
+        return !(
+          String(prev.matricula || '').trim() === item.matricula &&
+          String(prev.ordem || '').trim() === item.ordem &&
+          String(prev.operacao || '').trim() === item.operacao &&
+          normalizeServerSapCode(normalizeServerIdEmbarque(prev.id_embarque || prev.portal_id || '')) ===
+            normalizeServerSapCode(item.id_embarque || '') &&
+          (prev.plataforma_sigla || null) === (item.plataforma_sigla || null) &&
+          (prev.unidade_negocio || '') === (item.unidade_negocio || '') &&
+          prev.data_fim === item.data_fim &&
+          (prev.status_programacao || 'Carteira') === (item.status_programacao || 'Carteira') &&
+          Math.abs((Number(prev.hh_programado) || 0) - (Number(item.hh_programado) || 0)) < 0.0001 &&
+          Math.abs((Number(prev.hh_confirmado) || 0) - (Number(item.hh_confirmado) || 0)) < 0.0001 &&
+          (Number(prev.recursos) || 1) === (Number(item.recursos) || 1)
+        );
       });
-      await this.storage.upsertMany(
-        'carteira_operacoes',
-        opsWithIds,
-        ['matricula', 'data_inicio', 'ordem', 'operacao']
-      );
-      await this.syncCarteiraEmbarquesFromOperacoes();
+
+      if (opsToUpsert.length > 0) {
+        await this.storage.upsertMany(
+          'carteira_operacoes',
+          opsToUpsert,
+          ['matricula', 'data_inicio', 'ordem', 'operacao']
+        );
+      }
+      if (opsToUpsert.length > 0 || prunedCount > 0) {
+        await this.syncCarteiraEmbarquesFromOperacoes();
+      }
     } else if (kind === 'confirmacoes_sap') {
       const nowIso = new Date().toISOString();
-      const sapWithIds = rows.map(r => ({
-        ...r,
-        id: r.id || generateUuid(),
-        horas_confirmadas: Number(r.horas_confirmadas || 0),
-        contador_confirmacao: Number(r.contador_confirmacao || 0),
-        id_embarque: normalizeServerIdEmbarque(r.id_embarque || ''),
-        status_reconciliacao: r.status_reconciliacao || 'Pendente',
-        created_at: r.created_at || nowIso,
-        updated_at: r.updated_at || nowIso
-      }));
-      await this.storage.upsertMany(
-        'confirmacoes_sap',
-        sapWithIds,
-        [
-          'matricula',
-          'data_criacao',
-          'data_lancamento',
-          'data_fim_real',
-          'ordem',
-          'operacao',
-          'horas_confirmadas',
-          'contador_confirmacao'
-        ]
-      );
+      const existingSap = await this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap');
+      const existingByNorm = new Map<string, ConfirmacaoSAP>();
+      for (const cs of existingSap) {
+        existingByNorm.set(
+          `${normalizeServerSapCode(cs.matricula)}::${cs.data_criacao}::${cs.data_lancamento}::${cs.data_fim_real}::${normalizeServerSapCode(cs.ordem)}::${normalizeServerSapCode(cs.operacao)}::${Number(cs.contador_confirmacao) || 0}`,
+          cs
+        );
+      }
+
+      const dedupedSapMap = new Map<string, any>();
+      for (const r of rows) {
+        const mat = String(r.matricula || '').trim();
+        const ordem = String(r.ordem || '').trim();
+        const operacao = String(r.operacao || '').trim();
+        const hc = Number(r.horas_confirmadas || 0);
+        const contador = Number(r.contador_confirmacao || 0);
+        const normKey = `${normalizeServerSapCode(mat)}::${r.data_criacao}::${r.data_lancamento}::${r.data_fim_real}::${normalizeServerSapCode(ordem)}::${normalizeServerSapCode(operacao)}::${contador}`;
+        const prev = existingByNorm.get(normKey);
+
+        dedupedSapMap.set(normKey, {
+          ...r,
+          id: prev?.id || r.id || generateUuid(),
+          matricula: prev?.matricula || mat,
+          ordem: prev?.ordem || ordem,
+          operacao: prev?.operacao || operacao,
+          horas_confirmadas: hc,
+          contador_confirmacao: contador,
+          id_embarque: normalizeServerIdEmbarque(r.id_embarque || prev?.id_embarque || ''),
+          status_reconciliacao: r.status_reconciliacao || prev?.status_reconciliacao || 'Pendente',
+          created_at: r.created_at || prev?.created_at || nowIso,
+          updated_at: r.updated_at || nowIso
+        });
+      }
+
+      const sapToUpsert = Array.from(dedupedSapMap.values()).filter(item => {
+        const normKey = `${normalizeServerSapCode(item.matricula)}::${item.data_criacao}::${item.data_lancamento}::${item.data_fim_real}::${normalizeServerSapCode(item.ordem)}::${normalizeServerSapCode(item.operacao)}::${Number(item.contador_confirmacao) || 0}`;
+        const prev = existingByNorm.get(normKey);
+        if (!prev) return true;
+        return Math.abs((Number(prev.horas_confirmadas) || 0) - Number(item.horas_confirmadas || 0)) >= 0.0001;
+      });
+
+      if (sapToUpsert.length > 0) {
+        await this.storage.upsertMany(
+          'confirmacoes_sap',
+          sapToUpsert,
+          [
+            'matricula',
+            'data_criacao',
+            'data_lancamento',
+            'data_fim_real',
+            'ordem',
+            'operacao',
+            'contador_confirmacao'
+          ]
+        );
+      }
     }
 
     if (fluxo && fluxo.tipo_fluxo) {
@@ -1463,25 +1640,66 @@ export class SelfHostedDomainEngine {
 
     const tecMats = new Set<string>(allTecs.map(t => t.matricula));
 
-    // Passo 1: Vincular cada confirmação do SAP ao id_embarque (cascata de 5 prioridades + 4 dias de tolerância)
-    const updatedSap: ConfirmacaoSAP[] = allSap.map(cs => {
+    // Passo 1: Vincular cada confirmação SAP ao id_embarque em 2 passadas
+    // (1A: P1..P5 normalizados sem zeros à esquerda; 1B: desempate multi-embarque e irmãs de estorno tardio)
+    const sapKey3 = (mat: unknown, ordem: unknown, op: unknown) =>
+      `${normalizeServerSapCode(mat)}::${normalizeServerSapCode(ordem)}::${normalizeServerSapCode(op)}`;
+    const opIdOf = (co: CarteiraOperacao) =>
+      normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
+    const embIdOf = (ce: CarteiraEmbarque) =>
+      normalizeServerIdEmbarque(ce.id_embarque || ce.operacao || '');
+    const embMetaById = new Map<string, CarteiraEmbarque>();
+    for (const ce of allCart) {
+      const eid = embIdOf(ce);
+      if (eid) embMetaById.set(eid, ce);
+    }
+
+    const pickByDatePreference = <T extends { data_inicio: string }>(
+      candidates: T[],
+      refDate: string,
+      preferredIds?: Set<string>,
+      idGetter?: (c: T) => string
+    ): T | undefined => {
+      if (candidates.length === 0) return undefined;
+      const started = refDate ? candidates.filter(c => c.data_inicio <= refDate) : candidates;
+      const basePool = started.length > 0 ? started : candidates;
+      if (preferredIds && idGetter) {
+        const prefPool = basePool.filter(c => preferredIds.has(idGetter(c)));
+        if (prefPool.length > 0) {
+          return [...prefPool].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
+        }
+      }
+      return started.length > 0
+        ? [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0]
+        : [...candidates].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0];
+    };
+
+    interface Pass1Draft {
+      cs: ConfirmacaoSAP;
+      k3: string;
+      refDate: string;
+      matchingOps: CarteiraOperacao[];
+      matchingEmbs: CarteiraEmbarque[];
+      resolvedId: string;
+    }
+
+    const posSumByKey3Emb = new Map<string, number>();
+    const linkedIdsByKey3 = new Map<string, Set<string>>();
+
+    const drafts: Pass1Draft[] = allSap.map(cs => {
+      const k3 = sapKey3(cs.matricula, cs.ordem, cs.operacao);
       const matchingOps = allOps
         .filter(
           co =>
-            co.matricula === cs.matricula &&
-            co.ordem === cs.ordem &&
-            co.operacao === cs.operacao
+            normalizeServerSapCode(co.matricula) === normalizeServerSapCode(cs.matricula) &&
+            normalizeServerSapCode(co.ordem) === normalizeServerSapCode(cs.ordem) &&
+            normalizeServerSapCode(co.operacao) === normalizeServerSapCode(cs.operacao)
         )
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
 
       const matchingEmbs = allCart
-        .filter(ce => ce.matricula === cs.matricula)
+        .filter(ce => normalizeServerSapCode(ce.matricula) === normalizeServerSapCode(cs.matricula))
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
-
-      const opIdOf = (co: CarteiraOperacao) =>
-        normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
-      const embIdOf = (ce: CarteiraEmbarque) =>
-        normalizeServerIdEmbarque(ce.id_embarque || ce.operacao || '');
 
       let resolvedId = '';
 
@@ -1501,9 +1719,9 @@ export class SelfHostedDomainEngine {
         if (p2) resolvedId = opIdOf(p2);
       }
 
-      // Prioridade 3: Ordem/Operação existente em único embarque do técnico (estorno retroativo tardio)
+      // Prioridade 3 (passada 1A): Ordem/Operação existente em único embarque do técnico
       if (!resolvedId && matchingOps.length > 0) {
-        const distinctIds = Array.from(new Set(matchingOps.map(opIdOf)));
+        const distinctIds = Array.from(new Set(matchingOps.map(opIdOf).filter(Boolean)));
         if (distinctIds.length === 1) {
           resolvedId = distinctIds[0];
         }
@@ -1527,10 +1745,66 @@ export class SelfHostedDomainEngine {
         if (p5) resolvedId = embIdOf(p5);
       }
 
+      const refDate = cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
+      if (resolvedId) {
+        const set = linkedIdsByKey3.get(k3) || new Set<string>();
+        set.add(resolvedId);
+        linkedIdsByKey3.set(k3, set);
+        const h = Number(cs.horas_confirmadas || 0);
+        if (h > 0) {
+          const pk = `${k3}::${resolvedId}`;
+          posSumByKey3Emb.set(pk, (posSumByKey3Emb.get(pk) || 0) + h);
+        }
+      }
+
+      return { cs, k3, refDate, matchingOps, matchingEmbs, resolvedId };
+    });
+
+    const updatedSap: ConfirmacaoSAP[] = drafts.map(d => {
+      let { resolvedId } = d;
+      const { cs, k3, refDate, matchingOps, matchingEmbs } = d;
+
+      // Passada 1B: Estorno ou lançamento tardio (> 4d) com múltiplos embarques ou fora da carteira
+      if (!resolvedId) {
+        const posSet = new Set<string>();
+        for (const eid of linkedIdsByKey3.get(k3) || []) {
+          if ((posSumByKey3Emb.get(`${k3}::${eid}`) || 0) > 0) posSet.add(eid);
+        }
+
+        if (matchingOps.length > 0) {
+          const picked = pickByDatePreference(
+            matchingOps.filter(co => opIdOf(co) !== ''),
+            refDate,
+            Number(cs.horas_confirmadas || 0) < 0 && posSet.size > 0 ? posSet : undefined,
+            opIdOf
+          );
+          if (picked) resolvedId = opIdOf(picked);
+        } else {
+          // Prioridade 6: Confirmação irmã já vinculada para a mesma ordem/operação fora da carteira
+          const siblingIds = Array.from(linkedIdsByKey3.get(k3) || []);
+          if (siblingIds.length === 1) {
+            resolvedId = siblingIds[0];
+          } else if (siblingIds.length > 1) {
+            const sibEmbs = siblingIds.map(id => ({
+              id,
+              data_inicio: embMetaById.get(id)?.data_inicio || matchingEmbs[0]?.data_inicio || ''
+            }));
+            const picked = pickByDatePreference(
+              sibEmbs,
+              refDate,
+              Number(cs.horas_confirmadas || 0) < 0 && posSet.size > 0 ? posSet : undefined,
+              s => s.id
+            );
+            if (picked) resolvedId = picked.id;
+          }
+        }
+      }
+
       let statusRec: ConfirmacaoSAP['status_reconciliacao'] = 'Sem Embarque';
       if (matchingOps.length > 0) {
         statusRec = 'Em Carteira';
       } else if (
+        resolvedId !== '' ||
         matchingEmbs.some(
           ce =>
             (cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim) ||
@@ -1560,33 +1834,25 @@ export class SelfHostedDomainEngine {
           'data_fim_real',
           'ordem',
           'operacao',
-          'horas_confirmadas',
           'contador_confirmacao'
         ]
       );
     }
 
-    // Passo 2: Atualizar indicadores de confronto em carteira_operacoes
+    // Passo 2: Atualizar indicadores de confronto em carteira_operacoes (soma líquida + e estornos -)
     const sapAggMap = new Map<string, number>();
     for (const cs of updatedSap) {
-      const k = `${cs.matricula}::${cs.ordem}::${cs.operacao}::${cs.id_embarque}`;
+      const k = `${sapKey3(cs.matricula, cs.ordem, cs.operacao)}::${cs.id_embarque}`;
       sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
     }
 
     const updatedOps: CarteiraOperacao[] = allOps.map(co => {
       const idEmb = normalizeServerIdEmbarque(co.id_embarque || co.portal_id || '');
-      const k = `${co.matricula}::${co.ordem}::${co.operacao}::${idEmb}`;
-      const totalSap = sapAggMap.get(k) || 0;
-      const hhConf = Number(co.hh_confirmado || 0);
-      const div = Math.round((hhConf - totalSap) * 100) / 100;
-
-      let statusDiv = 'Divergente';
-      if (hhConf === 0 && totalSap === 0) statusDiv = 'Não Confirmado';
-      else if (hhConf === totalSap) statusDiv = 'OK';
-      else if (totalSap === 0 && hhConf > 0) statusDiv = 'Não Apontado no SAP';
-      else if (hhConf === 0 && totalSap > 0) statusDiv = 'Não Confirmado no Portal';
-      else if (hhConf > totalSap) statusDiv = 'Divergente (Portal > SAP)';
-      else if (hhConf < totalSap) statusDiv = 'Divergente (SAP > Portal)';
+      const k = `${sapKey3(co.matricula, co.ordem, co.operacao)}::${idEmb}`;
+      const totalSap = round2(sapAggMap.get(k) || 0);
+      const hhConf = round2(Number(co.hh_confirmado || 0));
+      const div = round2(hhConf - totalSap);
+      const statusDiv = resolveServerDivergenciaStatus(hhConf, totalSap);
 
       return {
         ...co,
@@ -1622,11 +1888,13 @@ export class SelfHostedDomainEngine {
         (idEmb ? embConfMap.get(`id::${idEmb}`) : undefined) ||
         embConfMap.get(`mat::${ce.matricula}::${ce.data_inicio}`);
       if (agg) {
+        const confPortal = round2(agg.confPortal);
+        const confSap = round2(agg.confSap);
         updatedCart.push({
           ...ce,
-          hh_confirmado_portal: agg.confPortal,
-          hh_confirmado_sap: agg.confSap,
-          divergencia_confirmada: Math.round((agg.confPortal - agg.confSap) * 100) / 100
+          hh_confirmado_portal: confPortal,
+          hh_confirmado_sap: confSap,
+          divergencia_confirmada: round2(confPortal - confSap)
         });
       }
     }
@@ -1763,7 +2031,6 @@ export class SelfHostedDomainEngine {
           'data_fim_real',
           'ordem',
           'operacao',
-          'horas_confirmadas',
           'contador_confirmacao'
         ]
       );

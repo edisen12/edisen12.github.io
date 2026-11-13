@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import {
@@ -7,9 +7,15 @@ import {
   batchImportPlataformas,
   batchImportPessoas,
   batchImportConfirmacoesSAP,
+  fetchCarteiraDedupSnapshot,
   resetCarteiraEmbarques,
   exportJsonSnapshot
 } from '../../services/data.service';
+import {
+  planSmartCarteiraImport,
+  planSmartSapImport
+} from '../../adapters/shared/client-pipeline';
+import type { CarteiraDedupSnapshot } from '../../ports/data.port';
 import {
   parseSpreadsheetFile,
   rebuildPreviewRows,
@@ -31,6 +37,8 @@ export const ImportarDadosView: React.FC = () => {
   const [saving, setSaving] = useState<boolean>(false);
   const [saveProgress, setSaveProgress] = useState<string>('');
   const [substituirCarteira, setSubstituirCarteira] = useState<boolean>(false);
+  const [cartDedupSnapshot, setCartDedupSnapshot] = useState<CarteiraDedupSnapshot | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState<boolean>(false);
 
   const [openManualHH, setOpenManualHH] = useState<boolean>(false);
   const [openManualCart, setOpenManualCart] = useState<boolean>(false);
@@ -69,6 +77,22 @@ export const ImportarDadosView: React.FC = () => {
     }
   };
 
+  const loadCartDedupSnapshot = async () => {
+    setLoadingSnapshot(true);
+    try {
+      const snap = await fetchCarteiraDedupSnapshot();
+      if (snap && (snap.carteiraOperacoes.length > 0 || snap.carteira.length > 0)) {
+        setCartDedupSnapshot(snap);
+      } else {
+        setCartDedupSnapshot(null);
+      }
+    } catch {
+      setCartDedupSnapshot(null);
+    } finally {
+      setLoadingSnapshot(false);
+    }
+  };
+
   const handleFileSelected = async (file: File, forcedKind?: ImportKind) => {
     setParsing(true);
     setPreview(null);
@@ -76,6 +100,9 @@ export const ImportarDadosView: React.FC = () => {
       const parsed = await parseSpreadsheetFile(file, forcedKind || currentUploadKindRef.current);
       const built = rebuildPreviewRows(parsed, pidx);
       setPreview(built);
+      if (built.kind === 'cart') {
+        void loadCartDedupSnapshot();
+      }
       if (built.rows.length > 0) {
         showToast(`Planilha "${file.name}" carregada: ${built.rows.length} registros identificados. Confira a prévia e clique em "Gravar no Banco" abaixo.`, 'info');
       } else {
@@ -121,12 +148,63 @@ export const ImportarDadosView: React.FC = () => {
     if (!preview) return;
     const rebuilt = rebuildPreviewRows(preview, pidx, newKind);
     setPreview(rebuilt);
+    if (newKind === 'cart') {
+      void loadCartDedupSnapshot();
+    }
   };
+
+  const cartPlan = useMemo(() => {
+    if (!preview || preview.kind !== 'cart') return null;
+    const existingOps = cartDedupSnapshot?.carteiraOperacoes ?? dataset.carteiraOperacoes ?? [];
+    const existingCart = cartDedupSnapshot?.carteira ?? dataset.carteira ?? [];
+    return planSmartCarteiraImport(preview.rows, pidx, existingOps, existingCart, substituirCarteira);
+  }, [preview, pidx, cartDedupSnapshot, dataset.carteiraOperacoes, dataset.carteira, substituirCarteira]);
+
+  const sapPlan = useMemo(() => {
+    if (!preview || preview.kind !== 'sap') return null;
+    return planSmartSapImport(preview.rows, dataset.confirmacoesSap || []);
+  }, [preview, dataset.confirmacoesSap]);
+
+  const effectiveSaveCount = useMemo(() => {
+    if (!preview) return 0;
+    if (preview.kind === 'cart' && cartPlan) {
+      return cartPlan.rowsToImport.length;
+    }
+    if (preview.kind === 'sap' && sapPlan) {
+      return sapPlan.rowsToImport.length;
+    }
+    return preview.rows.length;
+  }, [preview, cartPlan, sapPlan]);
+
+  const hasNothingToSave = useMemo(() => {
+    if (!preview || preview.rows.length === 0) return true;
+    if (preview.kind === 'cart' && cartPlan && !substituirCarteira) {
+      return cartPlan.rowsToImport.length === 0 && cartPlan.staleOpsToPruneCount === 0;
+    }
+    if (preview.kind === 'sap' && sapPlan) {
+      return sapPlan.rowsToImport.length === 0;
+    }
+    return false;
+  }, [preview, cartPlan, sapPlan, substituirCarteira]);
 
   const handleSavePreview = async () => {
     if (!preview || preview.rows.length === 0) return;
+    if (hasNothingToSave) {
+      const ignored =
+        preview.kind === 'cart' && cartPlan
+          ? cartPlan.dbDuplicatesIgnored + cartPlan.intraFileDuplicates
+          : preview.kind === 'sap' && sapPlan
+            ? sapPlan.dbDuplicatesIgnored + sapPlan.intraFileDuplicates
+            : 0;
+      showToast(
+        `Nenhuma alteração pendente: todas as ${ignored} linhas duplicadas já constam identicamente no banco e foram ignoradas.`,
+        'info'
+      );
+      return;
+    }
+
     setSaving(true);
-    setSaveProgress(`Iniciando gravação de ${preview.rows.length} registros…`);
+    setSaveProgress(`Iniciando gravação de ${effectiveSaveCount || preview.rows.length} registros…`);
 
     try {
       const onProgress = (current: number, total: number) => {
@@ -144,15 +222,29 @@ export const ImportarDadosView: React.FC = () => {
         setPreview(null);
         setActiveTab('dia');
       } else if (preview.kind === 'cart') {
+        const plan = cartPlan;
+        const rowsToWrite = plan ? plan.rowsToImport : preview.rows;
         if (substituirCarteira) {
           await resetCarteiraEmbarques();
+          await batchImportCarteira(rowsToWrite, pidx, onProgress, `planilha (${preview.fileName})`, {
+            skipPrune: true
+          });
+        } else {
+          await batchImportCarteira(rowsToWrite, pidx, onProgress, `planilha (${preview.fileName})`, {
+            pruneEmbarqueIds: plan?.affectedPruneEmbarqueIds || [],
+            pruneKeepOps: plan?.pruneKeepOps || [],
+            skipPrune: !plan || plan.affectedPruneEmbarqueIds.length === 0
+          });
         }
-        await batchImportCarteira(preview.rows, pidx, onProgress);
         await refreshData();
+        const ignoredTotal = plan ? plan.dbDuplicatesIgnored + plan.intraFileDuplicates : 0;
+        const pruneInfo = !substituirCarteira && plan && plan.staleOpsToPruneCount > 0
+          ? `, ${plan.staleOpsToPruneCount} operação(ões) obsoleta(s) removida(s)`
+          : '';
         showToast(
           substituirCarteira
-            ? 'Carteira anterior substituída e novas linhas importadas com sucesso!'
-            : 'Carteira de programação importada com sucesso!',
+            ? `Carteira anterior substituída e ${rowsToWrite.length} linha(s) importada(s) com sucesso!`
+            : `Carteira sincronizada: ${plan?.newCount ?? rowsToWrite.length} nova(s), ${plan?.updatedCount ?? 0} atualizada(s), ${ignoredTotal} duplicata(s) ignorada(s)${pruneInfo}.`,
           'success'
         );
         setPreview(null);
@@ -170,9 +262,15 @@ export const ImportarDadosView: React.FC = () => {
         setPreview(null);
         setActiveTab('pes');
       } else if (preview.kind === 'sap') {
-        await batchImportConfirmacoesSAP(preview.rows, onProgress);
+        const plan = sapPlan;
+        const rowsToWrite = plan ? plan.rowsToImport : preview.rows;
+        await batchImportConfirmacoesSAP(rowsToWrite, onProgress);
         await refreshData();
-        showToast('Confirmações do SAP importadas e reconciliação concluída com sucesso!', 'success');
+        const ignoredTotal = plan ? plan.dbDuplicatesIgnored + plan.intraFileDuplicates : 0;
+        showToast(
+          `SAP sincronizado e reconciliado: ${plan?.newCount ?? rowsToWrite.length} nova(s), ${plan?.updatedCount ?? 0} atualizada(s), ${ignoredTotal} duplicata(s) ignorada(s).`,
+          'success'
+        );
         setPreview(null);
         setActiveTab('us');
       }
@@ -613,10 +711,18 @@ export const ImportarDadosView: React.FC = () => {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleSavePreview}
-                disabled={saving || preview.rows.length === 0}
+                disabled={saving || hasNothingToSave}
                 style={{ fontWeight: 700 }}
               >
-                {saving ? 'Gravando…' : `Gravar ${preview.rows.length} linhas no Banco`}
+                {saving
+                  ? 'Gravando…'
+                  : hasNothingToSave && preview.rows.length > 0
+                    ? 'Tudo já sincronizado (0 pendentes)'
+                    : (preview.kind === 'cart' || preview.kind === 'sap') && !substituirCarteira
+                      ? effectiveSaveCount === 0 && cartPlan && cartPlan.staleOpsToPruneCount > 0
+                        ? `Limpar ${cartPlan.staleOpsToPruneCount} registro(s) obsoleto(s)`
+                        : `Gravar ${effectiveSaveCount} alterações no Banco`
+                      : `Gravar ${effectiveSaveCount} linhas no Banco`}
               </button>
             </div>
           </div>
@@ -630,8 +736,56 @@ export const ImportarDadosView: React.FC = () => {
                   onChange={e => setSubstituirCarteira(e.target.checked)}
                   style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                 />
-                <span>Substituir carteira existente (apaga os embarques antigos antes de gravar para garantir batimento 1-para-1 com esta planilha)</span>
+                <span>Substituir toda a carteira existente (opcional — no modo padrão, duplicatas são ignoradas e embarques alterados atualizam sem empilhar)</span>
               </label>
+            </div>
+          )}
+
+          {((preview.kind === 'cart' && cartPlan) || (preview.kind === 'sap' && sapPlan)) && preview.rows.length > 0 && (
+            <div
+              className={`note ${hasNothingToSave ? 'note-ok' : 'note-info'}`}
+              style={{ margin: 0, fontSize: '0.88rem', display: 'flex', flexDirection: 'column', gap: '4px' }}
+            >
+              <div>
+                <strong>Deduplicação inteligente ativa:</strong>{' '}
+                {preview.kind === 'cart' && cartPlan ? (
+                  <>
+                    <b>{cartPlan.newCount}</b> nova(s) ·{' '}
+                    <b>{cartPlan.updatedCount}</b> atualizada(s) ·{' '}
+                    <b>{cartPlan.dbDuplicatesIgnored}</b> já idêntica(s) no banco (ignoradas)
+                    {cartPlan.intraFileDuplicates > 0 && (
+                      <>
+                        {' · '}
+                        <b>{cartPlan.intraFileDuplicates}</b> repetida(s) na planilha (ignoradas)
+                      </>
+                    )}
+                    {!substituirCarteira && cartPlan.staleOpsToPruneCount > 0 && (
+                      <>
+                        {' · '}
+                        <b>{cartPlan.staleOpsToPruneCount}</b> antiga(s) de embarques alterados (serão substituídas sem empilhar)
+                      </>
+                    )}
+                    {loadingSnapshot && ' · Verificando histórico completo da base…'}
+                  </>
+                ) : sapPlan ? (
+                  <>
+                    <b>{sapPlan.newCount}</b> nova(s) ·{' '}
+                    <b>{sapPlan.updatedCount}</b> atualizada(s) (incluindo estornos/horas alteradas) ·{' '}
+                    <b>{sapPlan.dbDuplicatesIgnored}</b> já idêntica(s) no banco (ignoradas)
+                    {sapPlan.intraFileDuplicates > 0 && (
+                      <>
+                        {' · '}
+                        <b>{sapPlan.intraFileDuplicates}</b> repetida(s) na planilha (ignoradas)
+                      </>
+                    )}
+                  </>
+                ) : null}
+              </div>
+              {hasNothingToSave && (
+                <div>
+                  Nenhuma linha nova ou alterada encontrada: o sistema ignorará todas as duplicatas para não empilhar nem regravar a base sem necessidade.
+                </div>
+              )}
             </div>
           )}
 
@@ -842,9 +996,17 @@ export const ImportarDadosView: React.FC = () => {
               type="button"
               className="btn btn-primary"
               onClick={handleSavePreview}
-              disabled={saving || preview.rows.length === 0}
+              disabled={saving || hasNothingToSave}
             >
-              {saving ? 'Gravando…' : `Salvar ${preview.rows.length} linhas`}
+              {saving
+                ? 'Gravando…'
+                : hasNothingToSave && preview.rows.length > 0
+                  ? 'Tudo já sincronizado'
+                  : (preview.kind === 'cart' || preview.kind === 'sap') && !substituirCarteira
+                    ? effectiveSaveCount === 0 && cartPlan && cartPlan.staleOpsToPruneCount > 0
+                      ? `Limpar ${cartPlan.staleOpsToPruneCount} obsoletas`
+                      : `Salvar ${effectiveSaveCount} alterações`
+                    : `Salvar ${effectiveSaveCount} linhas`}
             </button>
             <button
               type="button"

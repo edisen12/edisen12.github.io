@@ -16,11 +16,13 @@ import type {
 } from '../domain/types';
 import type {
   AuditLogFilterInput,
+  BatchImportCarteiraOptions,
   BatchImportCarteiraRow,
   BatchImportConfirmacaoSAPRow,
   BatchImportHHRow,
   BatchImportPessoaRow,
   BatchImportPlataformaRow,
+  CarteiraDedupSnapshot,
   ProgressCallback,
   SavePessoaInput
 } from '../ports/data.port';
@@ -128,9 +130,21 @@ export async function batchImportCarteira(
   rows: BatchImportCarteiraRow[],
   pidx: Record<string, Plataforma>,
   onProgress?: ProgressCallback,
-  origem = 'planilha (manual)'
+  origem = 'planilha (manual)',
+  options?: BatchImportCarteiraOptions
 ): Promise<void> {
-  return getClientDatabaseProvider().data.batchImportCarteira(rows, pidx, onProgress, origem);
+  return getClientDatabaseProvider().data.batchImportCarteira(rows, pidx, onProgress, origem, options);
+}
+
+/**
+ * Busca retrato completo da carteira e operações existentes no banco para deduplicação inteligente.
+ */
+export async function fetchCarteiraDedupSnapshot(): Promise<CarteiraDedupSnapshot | null> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.fetchCarteiraDedupSnapshot === 'function') {
+    return provider.data.fetchCarteiraDedupSnapshot();
+  }
+  return null;
 }
 
 /**

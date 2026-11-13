@@ -1353,5 +1353,50 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(sql).toMatch(/fn_sanitize_carteira_plataforma\(\)/i);
       expect(sql).toMatch(/BEFORE INSERT OR UPDATE (OF .+ )?ON public\.carteira_operacoes/i);
     });
+
+    it('Migration 023: corrige reconciliar_confirmacoes_sap para estornos negativos, zeros à esquerda e segurança SECURITY DEFINER', () => {
+      const sql = readMigration('023_fix_reconciliar_sap_estornos.sql');
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.normalize_sap_code\(p_val text\)/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.reconciliar_confirmacoes_sap\(\)/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+      expect(sql).toMatch(/auth_is_active\(\)/i);
+      expect(sql).toMatch(/auth_is_global\(\)/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) TO authenticated/i);
+      // Blindagem safeupdate em todos os UPDATEs da migration
+      expect(sql).toMatch(/WHERE cs\.id = sub\.id/i);
+      expect(sql).toMatch(/WHERE co\.id = co_target\.id/i);
+      expect(sql).toMatch(/WHERE ce\.id = sub\.cart_id/i);
+    });
+
+    it('Migration 024: garante deduplicação SAP sem horas na chave única, limpeza de órfãos e RPC prune segura', () => {
+      const sql = readMigration('024_smart_dedup_sap_e_portal.sql');
+      expect(sql).toMatch(/uq_confirmacao_sap_row/i);
+      expect(sql).not.toMatch(/ADD CONSTRAINT uq_confirmacao_sap_row UNIQUE\s*\([^)]*horas_confirmadas/i);
+      expect(sql).toMatch(/DELETE FROM public\.confirmacoes_sap cs\s+WHERE cs\.id IN/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.prune_stale_carteira_by_embarques\(/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+      expect(sql).toMatch(/auth_is_active\(\)/i);
+      expect(sql).toMatch(/auth_is_global\(\)/i);
+      expect(sql).toMatch(/DELETE FROM public\.carteira_operacoes co\s+WHERE co\.id IS NOT NULL/i);
+      expect(sql).toMatch(/DELETE FROM public\.carteira_embarques ce\s+WHERE ce\.id IS NOT NULL/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.prune_stale_carteira_by_embarques\(text\[\], jsonb\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.prune_stale_carteira_by_embarques\(text\[\], jsonb\) TO authenticated/i);
+    });
+
+    it('Migration 025: otimiza reconciliar_confirmacoes_sap com CTEs MATERIALIZED sem alterar guarda SECURITY DEFINER nem referenciar ce.operacao', () => {
+      const sql = readMigration('025_optimize_reconciliar_sap_hash_joins.sql');
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.reconciliar_confirmacoes_sap\(\)/i);
+      expect(sql).toMatch(/AS MATERIALIZED\s*\(/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public/i);
+      expect(sql).toMatch(/auth_is_active\(\)/i);
+      expect(sql).toMatch(/auth_is_global\(\)/i);
+      expect(sql).not.toMatch(/\bce(?:_[a-z]+)?\.operacao\b/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) TO authenticated/i);
+    });
   });
 });

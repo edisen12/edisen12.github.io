@@ -4,7 +4,8 @@
 // ==============================================================================
 
 import { createInitialMockDatabaseState } from './testFixtures';
-import { sanitizePlatformCode, parseIdEmbarque } from '../utils/format';
+import { sanitizePlatformCode, parseIdEmbarque, normalizeSapCode } from '../utils/format';
+import { resolveDivergenciaSapStatus } from '../domain/calculations';
 
 export interface MockDatabaseState {
   authUsers: Array<{
@@ -33,7 +34,7 @@ function addDaysIsoMock(isoDate: string, delta: number): string {
 
 function syncMockCarteiraEmbarquesFromOperacoes(state: MockDatabaseState): void {
   const ops = state.tables.carteira_operacoes || [];
-  if (ops.length === 0) return;
+  if (!state.tables.carteira_embarques) state.tables.carteira_embarques = [];
 
   for (const op of ops) {
     if (op.plataforma_sigla) {
@@ -43,9 +44,6 @@ function syncMockCarteiraEmbarquesFromOperacoes(state: MockDatabaseState): void 
     op.id_embarque = cleanId;
     op.portal_id = cleanId;
   }
-
-  if (!state.tables.carteira_embarques) state.tables.carteira_embarques = [];
-  const existingCart = state.tables.carteira_embarques;
 
   const grouped = new Map<string, any>();
   for (const co of ops) {
@@ -80,6 +78,12 @@ function syncMockCarteiraEmbarquesFromOperacoes(state: MockDatabaseState): void 
     else if (stProg === 'Fora da carteira') acc.hh_fora_carteira += hhProg;
     else if (stProg === 'Cancelada') acc.hh_cancelado += hhProg;
   }
+
+  // Remove cartões 'portal_offshore' órfãos cujas operações mudaram de data ou foram removidas
+  state.tables.carteira_embarques = state.tables.carteira_embarques.filter(
+    (c: any) => c.fonte !== 'portal_offshore' || grouped.has(`${c.matricula}::${c.data_inicio}`)
+  );
+  const existingCart = state.tables.carteira_embarques;
 
   for (const g of grouped.values()) {
     const idx = existingCart.findIndex(
@@ -124,16 +128,50 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
     };
   }
 
-  for (const cs of allSap) {
+  const key3 = (m: any, o: any, op: any) =>
+    `${normalizeSapCode(m)}::${normalizeSapCode(o)}::${normalizeSapCode(op)}`;
+  const opIdOf = (co: any) => parseIdEmbarque(co.id_embarque || co.portal_id || '');
+  const embIdOf = (ce: any) => parseIdEmbarque(ce.id_embarque || ce.operacao || '');
+  const embMetaById = new Map<string, any>();
+  for (const ce of allCart) {
+    const eid = embIdOf(ce);
+    if (eid) embMetaById.set(eid, ce);
+  }
+
+  const pickByDateMock = <T extends { data_inicio: string }>(
+    candidates: T[],
+    refDate: string,
+    preferredIds?: Set<string>,
+    idGetter?: (c: T) => string
+  ): T | undefined => {
+    if (candidates.length === 0) return undefined;
+    const started = refDate ? candidates.filter(c => c.data_inicio <= refDate) : candidates;
+    const pool = started.length > 0 ? started : candidates;
+    if (preferredIds && idGetter) {
+      const pref = pool.filter(c => preferredIds.has(idGetter(c)));
+      if (pref.length > 0) return [...pref].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0];
+    }
+    return started.length > 0
+      ? [...started].sort((a, b) => b.data_inicio.localeCompare(a.data_inicio))[0]
+      : [...candidates].sort((a, b) => a.data_inicio.localeCompare(b.data_inicio))[0];
+  };
+
+  const posSumByKey3Emb = new Map<string, number>();
+  const linkedIdsByKey3 = new Map<string, Set<string>>();
+
+  const drafts = allSap.map((cs: any) => {
+    const k3 = key3(cs.matricula, cs.ordem, cs.operacao);
     const matchingOps = allOps
-      .filter((co: any) => co.matricula === cs.matricula && co.ordem === cs.ordem && co.operacao === cs.operacao)
+      .filter(
+        (co: any) =>
+          normalizeSapCode(co.matricula) === normalizeSapCode(cs.matricula) &&
+          normalizeSapCode(co.ordem) === normalizeSapCode(cs.ordem) &&
+          normalizeSapCode(co.operacao) === normalizeSapCode(cs.operacao)
+      )
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
     const matchingEmbs = allCart
-      .filter((ce: any) => ce.matricula === cs.matricula)
+      .filter((ce: any) => normalizeSapCode(ce.matricula) === normalizeSapCode(cs.matricula))
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
-
-    const opIdOf = (co: any) => parseIdEmbarque(co.id_embarque || co.portal_id || '');
-    const embIdOf = (ce: any) => parseIdEmbarque(ce.id_embarque || ce.operacao || '');
 
     let resolvedId = '';
     const p1 = matchingOps.find((co: any) => cs.data_fim_real >= co.data_inicio && cs.data_fim_real <= co.data_fim);
@@ -145,7 +183,7 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
       if (p2) resolvedId = opIdOf(p2);
     }
     if (!resolvedId && matchingOps.length > 0) {
-      const distinctIds = Array.from(new Set(matchingOps.map(opIdOf)));
+      const distinctIds = Array.from(new Set(matchingOps.map(opIdOf).filter(Boolean)));
       if (distinctIds.length === 1) resolvedId = distinctIds[0];
     }
     if (!resolvedId) {
@@ -159,10 +197,62 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
       if (p5) resolvedId = embIdOf(p5);
     }
 
+    const refDate = cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
+    if (resolvedId) {
+      const set = linkedIdsByKey3.get(k3) || new Set<string>();
+      set.add(resolvedId);
+      linkedIdsByKey3.set(k3, set);
+      const h = Number(cs.horas_confirmadas || 0);
+      if (h > 0) {
+        const pk = `${k3}::${resolvedId}`;
+        posSumByKey3Emb.set(pk, (posSumByKey3Emb.get(pk) || 0) + h);
+      }
+    }
+
+    return { cs, k3, refDate, matchingOps, matchingEmbs, resolvedId };
+  });
+
+  for (const d of drafts) {
+    let { resolvedId } = d;
+    const { cs, k3, refDate, matchingOps, matchingEmbs } = d;
+    if (!resolvedId) {
+      const posSet = new Set<string>();
+      for (const eid of linkedIdsByKey3.get(k3) || []) {
+        if ((posSumByKey3Emb.get(`${k3}::${eid}`) || 0) > 0) posSet.add(eid);
+      }
+      if (matchingOps.length > 0) {
+        const picked = pickByDateMock(
+          matchingOps.filter((co: any) => opIdOf(co) !== ''),
+          refDate,
+          Number(cs.horas_confirmadas || 0) < 0 && posSet.size > 0 ? posSet : undefined,
+          opIdOf
+        );
+        if (picked) resolvedId = opIdOf(picked);
+      } else {
+        const sibs = Array.from(linkedIdsByKey3.get(k3) || []);
+        if (sibs.length === 1) {
+          resolvedId = sibs[0];
+        } else if (sibs.length > 1) {
+          const sibObjs = sibs.map(id => ({
+            id,
+            data_inicio: embMetaById.get(id)?.data_inicio || matchingEmbs[0]?.data_inicio || ''
+          }));
+          const picked = pickByDateMock(
+            sibObjs,
+            refDate,
+            Number(cs.horas_confirmadas || 0) < 0 && posSet.size > 0 ? posSet : undefined,
+            s => s.id
+          );
+          if (picked) resolvedId = picked.id;
+        }
+      }
+    }
+
     let statusRec = 'Sem Embarque';
     if (matchingOps.length > 0) {
       statusRec = 'Em Carteira';
     } else if (
+      resolvedId !== '' ||
       matchingEmbs.some(
         (ce: any) =>
           (cs.data_fim_real >= ce.data_inicio && cs.data_fim_real <= ce.data_fim) ||
@@ -178,28 +268,22 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
 
   const sapAggMap = new Map<string, number>();
   for (const cs of allSap) {
-    const k = `${cs.matricula}::${cs.ordem}::${cs.operacao}::${cs.id_embarque}`;
+    const k = `${key3(cs.matricula, cs.ordem, cs.operacao)}::${cs.id_embarque}`;
     sapAggMap.set(k, (sapAggMap.get(k) || 0) + Number(cs.horas_confirmadas || 0));
   }
 
   for (const co of allOps) {
     const idEmb = parseIdEmbarque(co.id_embarque || co.portal_id || '');
-    const k = `${co.matricula}::${co.ordem}::${co.operacao}::${idEmb}`;
-    const totalSap = sapAggMap.get(k) || 0;
-    const hhConf = Number(co.hh_confirmado || 0);
-    const div = Math.round((hhConf - totalSap) * 100) / 100;
-
-    let statusDiv = 'Divergente';
-    if (hhConf === 0 && totalSap === 0) statusDiv = 'Não Confirmado';
-    else if (hhConf === totalSap) statusDiv = 'OK';
-    else if (totalSap === 0 && hhConf > 0) statusDiv = 'Não Apontado no SAP';
-    else if (hhConf === 0 && totalSap > 0) statusDiv = 'Não Confirmado no Portal';
-    else if (hhConf > totalSap) statusDiv = 'Divergente (Portal > SAP)';
-    else if (hhConf < totalSap) statusDiv = 'Divergente (SAP > Portal)';
+    const k = `${key3(co.matricula, co.ordem, co.operacao)}::${idEmb}`;
+    const totalSapRaw = Math.round((sapAggMap.get(k) || 0) * 100) / 100;
+    const totalSap = Object.is(totalSapRaw, -0) ? 0 : totalSapRaw;
+    const hhConf = Math.round(Number(co.hh_confirmado || 0) * 100) / 100;
+    const divRaw = Math.round((hhConf - totalSap) * 100) / 100;
+    const div = Object.is(divRaw, -0) ? 0 : divRaw;
 
     co.hh_confirmado_sap = totalSap;
     co.divergencia_sap = div;
-    co.status_divergencia = statusDiv;
+    co.status_divergencia = resolveDivergenciaSapStatus(hhConf, totalSap);
   }
 
   // Sincroniza apontamentos_hh diários a partir das confirmações do SAP (teto [0, 24])
@@ -262,7 +346,7 @@ export class MockQueryBuilder {
   private action: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
   private selectedColumns: string = '*';
   private filters: Array<(row: any) => boolean> = [];
-  private orderConfig?: { column: string; ascending: boolean };
+  private orderConfigs: Array<{ column: string; ascending: boolean }> = [];
   private rangeConfig?: { from: number; to: number };
   private limitConfig?: number;
   private payload?: any;
@@ -315,7 +399,7 @@ export class MockQueryBuilder {
   }
 
   order(column: string, options: { ascending?: boolean } = { ascending: true }) {
-    this.orderConfig = { column, ascending: options.ascending !== false };
+    this.orderConfigs.push({ column, ascending: options.ascending !== false });
     return this;
   }
 
@@ -462,16 +546,18 @@ export class MockQueryBuilder {
       default: {
         let results = this.applyFilters(currentRows).map(row => this.resolveRelationships(row));
 
-        if (this.orderConfig) {
-          const { column, ascending } = this.orderConfig;
+        if (this.orderConfigs.length > 0) {
           results.sort((a, b) => {
-            const valA = a[column];
-            const valB = b[column];
-            if (valA === valB) return 0;
-            if (valA == null) return ascending ? -1 : 1;
-            if (valB == null) return ascending ? 1 : -1;
-            if (valA < valB) return ascending ? -1 : 1;
-            return ascending ? 1 : -1;
+            for (const { column, ascending } of this.orderConfigs) {
+              const valA = a[column];
+              const valB = b[column];
+              if (valA === valB) continue;
+              if (valA == null) return ascending ? -1 : 1;
+              if (valB == null) return ascending ? 1 : -1;
+              if (valA < valB) return ascending ? -1 : 1;
+              return ascending ? 1 : -1;
+            }
+            return 0;
           });
         }
 
@@ -845,6 +931,60 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
               deleted_embarques,
               message: 'Carteira de operações e embarques resetadas com sucesso para reimportação limpa.'
             },
+            error: null
+          };
+        }
+
+        case 'prune_stale_carteira_by_embarques': {
+          if (!state.currentUser) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas usuários globais ativos podem sincronizar embarques da carteira')
+            };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          const metaRole = state.currentUser.user_metadata?.role;
+          const isGlobalRole = prof
+            ? (prof.role === 'admin' || prof.role === 'gestor') && prof.ativo !== false
+            : metaRole === 'admin' || metaRole === 'gestor';
+          if (!isGlobalRole) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas usuários globais ativos podem sincronizar embarques da carteira')
+            };
+          }
+
+          const rawIds: string[] = Array.isArray(params?.p_embarque_ids) ? params.p_embarque_ids : [];
+          const normIds = new Set(rawIds.map(id => normalizeSapCode(id)).filter(Boolean));
+          if (normIds.size === 0) {
+            return { data: { success: true, deleted_operacoes: 0 }, error: null };
+          }
+
+          const keepOps: any[] = Array.isArray(params?.p_keep_ops) ? params.p_keep_ops : [];
+          const keepSet = new Set(
+            keepOps
+              .filter(k => k && String(k.id_embarque || '').trim())
+              .map(
+                k =>
+                  `${normalizeSapCode(k.id_embarque)}::${String(k.matricula || '').trim()}::${String(k.data_inicio || '').trim()}::${String(k.ordem || '').trim()}::${String(k.operacao || '').trim()}`
+              )
+          );
+
+          const prevOps = state.tables.carteira_operacoes || [];
+          const keptOps = prevOps.filter((co: any) => {
+            const coEid = normalizeSapCode(parseIdEmbarque(co.id_embarque || co.portal_id || ''));
+            if (!coEid || !normIds.has(coEid)) return true;
+            const coKey = `${coEid}::${String(co.matricula || '').trim()}::${String(co.data_inicio || '').trim()}::${String(co.ordem || '').trim()}::${String(co.operacao || '').trim()}`;
+            return keepSet.has(coKey);
+          });
+          const deleted_operacoes = prevOps.length - keptOps.length;
+          state.tables.carteira_operacoes = keptOps;
+          if (deleted_operacoes > 0) {
+            syncMockCarteiraEmbarquesFromOperacoes(state);
+          }
+
+          return {
+            data: { success: true, deleted_operacoes },
             error: null
           };
         }

@@ -6,6 +6,8 @@
 
 import type {
   AppDataset,
+  CarteiraEmbarque,
+  CarteiraOperacao,
   ContractConfig,
   Justificativa,
   PapelOperacional,
@@ -78,6 +80,25 @@ export interface BatchImportConfirmacaoSAPRow {
   contador?: number;
 }
 
+export interface CarteiraPruneKeepOp {
+  id_embarque: string;
+  matricula: string;
+  data_inicio: string;
+  ordem: string;
+  operacao: string;
+}
+
+export interface BatchImportCarteiraOptions {
+  pruneEmbarqueIds?: string[];
+  pruneKeepOps?: CarteiraPruneKeepOp[];
+  skipPrune?: boolean;
+}
+
+export interface CarteiraDedupSnapshot {
+  carteira: CarteiraEmbarque[];
+  carteiraOperacoes: CarteiraOperacao[];
+}
+
 export interface BatchImportPessoaRow {
   nome: string;
   papel: PapelOperacional;
@@ -112,8 +133,10 @@ export interface ClientDataPort {
     rows: BatchImportCarteiraRow[],
     pidx: Record<string, Plataforma>,
     onProgress?: ProgressCallback,
-    origem?: string
+    origem?: string,
+    options?: BatchImportCarteiraOptions
   ): Promise<void>;
+  fetchCarteiraDedupSnapshot?(): Promise<CarteiraDedupSnapshot>;
   batchImportPlataformas(
     rows: BatchImportPlataformaRow[],
     onProgress?: ProgressCallback

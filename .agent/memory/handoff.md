@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-12 17:43 (BRT) · HEAD: 93aeaeb · Suíte Completa: 33 arquivos / 586 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.40s ✅ · Server Typecheck: 0 erros ✅ · GitHub Remote (`origin/main`): Sincronizado ✅
+> Última atualização: 2026-11-12 22:47 (BRT) · Base HEAD: d14335d (pronto para commit/push em `main`) · Suíte Completa: 33 arquivos / 601 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 7.64s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas e validadas ✅
 
 ## 1. Resumo Executivo
 
@@ -40,20 +40,23 @@
 - Testes: `src/domain/__tests__/*` (domain, calculations, periods, usoff, communications).
 
 ### Utilitários
-- `src/utils/date.ts`, `src/utils/format.ts` (`parseCounter`, `parseFlexibleHours`, `parseIdEmbarque`, `sanitizePlatformCode`, `PLATFORM_ALIASES`) + `src/utils/__tests__/date-format.test.ts` (67 testes).
+- `src/utils/date.ts`, `src/utils/format.ts` (`parseCounter`, `parseFlexibleHours` com suporte a estornos `9,00-`/`(9,00)`/unicode/`-hh:mm`, `normalizeSapCode`, `isSapEstornoFlag`, `parseIdEmbarque`, `sanitizePlatformCode`, `PLATFORM_ALIASES`) + `src/utils/__tests__/date-format.test.ts` (70 testes).
 - `src/utils/pwa.ts` (ver acima) + `src/utils/__tests__/pwa.test.ts` (8 testes cobrindo Service Worker seguro, Web App Manifest e ciclo de instalação).
 - `src/utils/scrollLock.ts` (`acquireScrollLock` com contagem de referências e `registerEscapeLayer` com pilha por prioridade/LIFO) + `src/utils/__tests__/scrollLock.test.ts` (2 testes).
 
 ### Serviços & Abstração Client-Side (Dual-Topology)
 - `src/ports/{auth,data,realtime,client-provider,baas-connector}.port.ts` — contratos agnósticos de Auth, Data, Realtime e BaaS (`BatchImportConfirmacaoSAPRow` com `contador`).
-- `src/adapters/shared/client-pipeline.ts` — pipeline compartilhado (`assembleAppDataset`, sanitização integrada de plataformas, batching topológico, chunks de 500, ordenação determinística por chave natural, validação de senha, debounce Realtime de 450 ms, overlay demo, deduplicação em memória e ordenação de confirmações SAP).
+- `src/adapters/shared/client-pipeline.ts` — pipeline compartilhado (`assembleAppDataset`, sanitização integrada de plataformas, batching topológico, chunks de 500, ordenação determinística por chave natural, validação de senha, debounce Realtime de 450 ms, overlay demo, planners incrementais `planSmartSapImport` / `planSmartCarteiraImport`, deduplicação em memória e ordenação de confirmações SAP).
 - `src/config/env.ts`, `src/config/topology-guard.ts`, `src/services/provider.registry.ts` — resolução de topologia (`baas` vs `self-hosted`) e travas de build/runtime.
-- `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com `upsertConfirmacoesSAPChunk` usando a chave única estendida com `contador_confirmacao`.
-- `src/adapters/self-hosted/{http.client,self-hosted.provider,index}.ts` — cliente HTTP `credentials: 'same-origin'` com `X-CSRF-Token` apenas em memória + SSE Realtime.
-- `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 6 exportadores, sanitização anti-fórmula).
+- `src/adapters/baas/{registry,index}.ts`, `src/adapters/baas/providers/{supabase.config,supabase.connector}.ts` — registry aberto de BaaS (`registerBaaSConnector`) + conector Supabase com `upsertConfirmacoesSAPChunk` (chave única estendida com `contador_confirmacao` e sem `horas_confirmadas`), `fetchAllCarteiraForDedup` e `pruneStaleCarteiraByEmbarquesRPC`.
+- `src/adapters/self-hosted/{http.client,self-hosted.provider,index}.ts` — cliente HTTP `credentials: 'same-origin'` com `X-CSRF-Token` apenas em memória + SSE Realtime + suporte a `GET /api/v1/carteira/dedup-snapshot` e poda por embarque.
+- `src/services/{supabase,auth.service,data.service,realtime.service}.ts` (fachadas 100% retrocompatíveis, incluindo `fetchCarteiraDedupSnapshot` e opções de poda em `batchImportCarteira`) e `src/services/excel.service.ts` (parser com `parseCounter`, seletor SAP com `contador`, 6 exportadores, sanitização anti-fórmula).
 
 ### Backend Supabase (Topologia `baas` default)
 - `supabase/migrations/001` → `022` — **imutáveis** (021: heartbeat e auditoria de técnicos; 022: unidades e plataformas por diária).
+- `supabase/migrations/023_fix_reconciliar_sap_estornos.sql` — normalização `normalize_sap_code`, reconciliação SAP em 2 passadas (estornos tardios multi-embarque e irmãs Fora da Carteira), soma líquida com arredondamento e guarda `safeupdate` + RBAC global.
+- `supabase/migrations/024_smart_dedup_sap_e_portal.sql` — limpeza de 168 duplicatas em `confirmacoes_sap`, recriação de `uq_confirmacao_sap_row` sem `horas_confirmadas`, trigger `sync_carteira_embarques_from_operacoes` removendo órfãos `portal_offshore` e RPC `prune_stale_carteira_by_embarques`.
+- `supabase/migrations/025_optimize_reconciliar_sap_hash_joins.sql` — otimização de `reconciliar_confirmacoes_sap()` com CTEs `AS MATERIALIZED` e Hash Joins (reduzindo execução em produção para ~4,8 s sem timeout HTTP 524).
 - `supabase/functions/admin-users/index.ts` — Edge Function v4 com rollback compensatório em todas as etapas SQL pós-GoTrue e travas anti-lockout + auditoria WORM.
 - `src/types/database.types.ts` — gerado via schema.
 
@@ -65,12 +68,12 @@
 - `docker/{frontend,backend}.Dockerfile`, `docker/nginx/nginx.conf`, `docker-compose.yml` · `.env.example` · `.env.vps.example` · `docs/DATABASE_ABSTRACTION.md`.
 
 ### Segurança e Suíte Completa de Testes
-- `src/security/__tests__/*` (157 testes em rbac, rls-policies, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
-- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (41 testes cobrindo BaaS connector, provider self-hosted, drivers SQL/Doc/Memória, reconciliação SAP +4 dias, granularidade e operador `neq`).
-- `src/services/__tests__/{auth,data,excel}.service.test.ts` (70 testes cobrindo autenticação, importação em lote, parsing e exportadores Excel com anti-formula injection e escopo parcial).
+- `src/security/__tests__/*` (159 testes em rbac, rls-policies incluindo Migrations 023/024/025, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
+- `src/adapters/__tests__/{topology-and-baas-registry,self-hosted-universal-drivers}.test.ts` (43 testes cobrindo BaaS connector, provider self-hosted, drivers SQL/Doc/Memória, reconciliação SAP +4 dias, estornos tardios multi-embarque, irmãs Fora da Carteira, poda incremental de embarques sem stacking, granularidade e operador `neq`).
+- `src/services/__tests__/{auth,data,excel}.service.test.ts` (75 testes cobrindo autenticação, importação em lote, deduplicação inteligente SAP/Portal Offshore, estornos `+9 -> -9`, parsing SAP IW47 e exportadores Excel com anti-formula injection e escopo parcial).
 - `src/ui/components/__tests__/*` (DataTable incluindo `minWidth`, SegmentedControl, Sidebar, ResponsiveShellAndPwa e MeterBarAndOverlay).
 - `src/ui/modals/__tests__/ModalsAndDrawer.test.tsx` (7 testes).
-- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (8 testes, incluindo retorno `returnToFichaMat`).
+- `src/ui/modals/__tests__/CarteiraEmbarqueModal.test.tsx` (9 testes, incluindo retorno `returnToFichaMat` e estornos `002032288155/0010` = `18,0 h`).
 - `src/ui/views/__tests__/*` (59 testes em AdminAuditView, ConfiguracoesView, FirstLoginGate, LoginView, UserSettingsView, OperationalViews e MedicaoUsoffView).
 - `src/test/setup.ts`, `src/test/mockSupabase.ts`, `src/test/testFixtures.ts`.
 
@@ -126,15 +129,23 @@
     - *Navegação limpa entre Ficha do Técnico e Carteira do Embarque:* `AppContext.tsx` (`returnToFichaMat` e `fichaMatRef`) suspende automaticamente o `FichaTecnicoDrawer` ao abrir `CarteiraEmbarqueModal` (eliminando sobreposição de dois painéis grandes e dois backdrops), e `CarteiraEmbarqueModal.tsx` exibe os botões contextuais **`Voltar à Ficha`** (cabeçalho) e **`Voltar para a Ficha do Técnico`** (rodapé). Da mesma forma, `PainelDiaView.tsx` fecha `modalOrdens` ao abrir a carteira.
     - *Empilhamento seguro para sub-modais compactos:* `.modal-overlay` elevado para `z-index: 120` (acima do `.drawer-box` em `101` e abaixo dos toasts em `200`), combinando `Modal.tsx` e `Drawer.tsx` com `src/utils/scrollLock.ts` para manter o bloqueio de scroll por contagem de referências e fechar sempre a camada superior na tecla `Escape`.
     - *Dimensionamento de tabelas e visibilidade de `<MeterBar />`:* `DataTable.tsx` passa a aceitar `minWidth`; `src/styles/components.css` reforça `.meter` (`min-width: 148px`), `.meter-val` (`min-width: 52px`), `.meter-track` (`min-width: 76px`, `height: 10px`, contraste `var(--line)`/`--line-strong`), e `MeterBar.tsx` aplica `minWidth: '4px'` em percentuais positivos baixos (`> 0%`). Larguras e `minWidth` ajustados em `MedicaoUsoffView.tsx`, `MedicaoRelatoriosView.tsx` (incluindo remoção de `'minmax(170px, 240px)'` inválido em `<td>`), `JustificativasView.tsx` e `VisaoGeralView.tsx` (`175px` / `minWidth: 165px`).
+  - **Frente 9: Correção Sistêmica de Estornos SAP Negativos, Zeros à Esquerda e Reconciliação Multi-Embarque (`[+9, -9, +9, +9] = 18`):**
+    - *Parsing de Horas e Colunas SAP (`src/utils/format.ts`, `src/services/excel.service.ts`, `src/adapters/shared/client-pipeline.ts`):* `parseFlexibleHours` agora reconhece sinal negativo à direita (`9,00-`, `09:30-`), parênteses contábeis (`(9,00)`, `(09:30)`), traços unicode (`−`, `–`, `—`) e `-hh:mm`; `isSapEstornoFlag` inverte positivos quando a coluna de estorno (`STOKZ`/`Estorno`) estiver marcada (`X`, `Sim`, `Estornado`); coluna `hc` (`Trabalho real`) priorizada antes de `real` (`Data Fim Real`), adicionado sinônimo `Oper.` e fallbacks de datas de lançamento/fim real.
+    - *Reconciliação Dual-Topology & Conector (`supabase/migrations/023_fix_reconciliar_sap_estornos.sql`, `server/src/core/domain-engine.service.ts`, `src/test/mockSupabase.ts`, `src/adapters/baas/providers/supabase.connector.ts`):* normalização de códigos sem zeros à esquerda (`normalizeSapCode` / `public.normalize_sap_code`), reconciliação em 2 passadas vinculando estornos tardios (`> 4d`) mesmo em ordens repetidas em múltiplos embarques e acoplando estornos irmãos `Fora da Carteira`, remoção do filtro `.neq('id_embarque', '')` em `loadAppDataset` e desempate `.order('id', { ascending: true })` na paginação Supabase.
+    - *Motor de Confronto e Interfaces (`src/domain/calculations.ts`, `CarteiraEmbarqueModal.tsx`, `MedicaoUsoffView.tsx`, `PainelDiaView.tsx`, `FichaTecnicoDrawer.tsx`):* `mergeConfrontoOperations` recalcula `hh_confirmado_sap` e `status_divergencia` (via `resolveDivergenciaSapStatus`) diretamente das confirmações SAP quando carregadas (evitando saldo cacheado `27`), acopla estornos sem vínculo e preserva isolamento entre `id_embarque`s distintos na `CarteiraEmbarqueModal`; UI destaca estornos negativos em vermelho.
+  - **Frente 10: Deduplicação Inteligente Sem Empilhamento (SAP + Portal Offshore) e Validação em Produção:**
+    - *Chave Única SAP e Limpeza em Produção (`supabase/migrations/024_smart_dedup_sap_e_portal.sql`, `025_optimize_reconciliar_sap_hash_joins.sql`):* removida `horas_confirmadas` de `uq_confirmacao_sap_row`, no `onConflict` do conector Supabase e no `domain-engine.service.ts` (`conflictKeys`), eliminando 168 grupos duplicados em `confirmacoes_sap` (`12.295` → `12.127` linhas; 0 grupos duplicados restantes). `reconciliar_confirmacoes_sap()` otimizada com Hash Joins (`MATERIALIZED` CTEs) rodando em ~4,8 s em produção (`total_confirmacoes_sap = 12.127`, `vinculados_ao_embarque = 4.428`, `operacoes_com_batimento_ok = 1.736`). Caso real `002032288155 / 0010` validado com `[+9, -9, +9, +9] = 18,00 h` (`status_divergencia = 'OK'`, embarque `56586` atualizado para `hh_confirmado_sap = 36,50 h`).
+    - *Poda Segura do Portal Offshore & Pré-visualização Inteligente (`client-pipeline.ts`, `ImportarDadosView.tsx`, `data.service.ts`, `supabase.connector.ts`, `self-hosted.provider.ts`, `server/src/app.ts`, `mockSupabase.ts`):* planners puros `planSmartSapImport` e `planSmartCarteiraImport` colapsam duplicatas intra-arquivo, ignoram linhas idênticas já existentes no banco, alinham zeros à esquerda do SAP e comparam o Portal Offshore contra todo o banco sem recorte mensal (`fetchCarteiraDedupSnapshot`); embarques com `data_inicio` alterada ou operações removidas executam `prune_stale_carteira_by_embarques` mantendo todas as operações válidas (`pruneKeepOps`), e o trigger `sync_carteira_embarques_from_operacoes` limpa linhas órfãs `portal_offshore` em `carteira_embarques` (0 órfãos em produção).
   - **Resultados de Qualidade:**
-    - Suíte de testes: **33 arquivos / 586 testes aprovados (100% verdes)**.
-    - `npm run typecheck`: **0 erros**.
-    - `npm run build`: **bundle de produção gerado com sucesso em 5.40s**.
+    - Suíte de testes: **33 arquivos / 601 testes aprovados (100% verdes)**.
+    - `npm run typecheck`: **0 erros** (`server/tsconfig.json`: **0 erros**).
+    - `npm run build`: **bundle de produção gerado com sucesso em 7.64s**.
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas e auditadas (0 erros nos security advisors).
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Auditoria dos cálculos de USOFF pelo usuário:** exportar a planilha `Portal Offshore + USOFF (Excel)` na tela de Medição USOFF, validar as linhas/totais comparando com o Portal Offshore e apontar eventuais divergências para correção pontual.
-2. **Validação operacional em ambiente de produção / staging:** navegar pela medição de USOFF, gerenciar técnicos offshore em Configurações e conferir unidades sinalizadas como diária.
+1. **Segurança da conta Supabase (ação do usuário):** revogar/rotacionar o Personal Access Token (PAT) colado no chat nas configurações da conta Supabase e recarregar os servidores MCP na UI do IDE após a rotação.
+2. **Auditoria dos cálculos de USOFF pelo usuário:** exportar a planilha `Portal Offshore + USOFF (Excel)` na tela de Medição USOFF, validar os casos com estorno SAP (ex.: `002032288155 / 0010`) e testar reimportações incrementais de Portal Offshore e SAP sem marcar substituição total.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
 
 

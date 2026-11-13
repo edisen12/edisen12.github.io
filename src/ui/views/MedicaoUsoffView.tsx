@@ -559,7 +559,8 @@ export function MedicaoUsoffView() {
       }
     });
 
-    const diffHh = totalHhPortal - totalHhSap;
+    const diffHhRaw = Math.round((totalHhPortal - totalHhSap) * 100) / 100;
+    const diffHh = Object.is(diffHhRaw, -0) ? 0 : diffHhRaw;
 
     return {
       totalOps: confrontoOps.length,
@@ -745,11 +746,11 @@ export function MedicaoUsoffView() {
       align: 'right',
       width: '110px',
       sortValue: r => r.hh_confirmado_sap || 0,
-      render: r => (
-        <b style={{ color: (r.hh_confirmado_sap || 0) > 0 ? 'var(--blue)' : 'var(--ink-muted)' }}>
-          {formatHours(r.hh_confirmado_sap || 0)}
-        </b>
-      )
+      render: r => {
+        const sap = r.hh_confirmado_sap || 0;
+        const color = sap < 0 ? 'var(--bad, #dc2626)' : sap > 0 ? 'var(--blue)' : 'var(--ink-muted)';
+        return <b style={{ color }}>{formatHours(sap)}</b>;
+      }
     },
     {
       key: 'div',

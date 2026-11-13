@@ -86,6 +86,17 @@ export interface BaaSConnectorPort {
   upsertCarteiraChunk(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertCarteiraOperacoesChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
   upsertConfirmacoesSAPChunk?(rows: Array<Record<string, unknown>>): Promise<void>;
+  pruneStaleCarteiraByEmbarquesRPC?(
+    embarqueIds: string[],
+    keepOps: Array<{
+      id_embarque: string;
+      matricula: string;
+      data_inicio: string;
+      ordem: string;
+      operacao: string;
+    }>
+  ): Promise<{ deleted_operacoes: number }>;
+  fetchAllCarteiraForDedup?(): Promise<{ carteiraRows: any[]; carteiraOperacaoRows: any[] }>;
   reconciliarConfirmacoesSAPRPC?(): Promise<any>;
   resetCarteiraEmbarquesRPC?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
   insertFluxoImportacao(row: {

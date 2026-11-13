@@ -15,7 +15,7 @@ import {
 import { resolveUsoffWeights, hasGangwayJustification } from '../../domain/usoff';
 import type { CarteiraOperacao, ConfirmacaoSAP } from '../../domain/types';
 import { addDays, diffDays, formatBr, formatBrShort } from '../../utils/date';
-import { formatHours, formatSignedHours, formatUs } from '../../utils/format';
+import { formatHours, formatSignedHours, formatUs, normalizeSapCode } from '../../utils/format';
 import { Download, Search, CheckCircle2, AlertTriangle, Info, FileSpreadsheet, ExternalLink, ArrowLeft, Briefcase, Calculator } from 'lucide-react';
 
 export interface OperacaoComUsoffRow extends CarteiraOperacao {
@@ -104,21 +104,43 @@ export function CarteiraEmbarqueModal() {
 
     // 1. Filtra operações da carteira_operacoes pertencentes a este técnico e embarque
     const opsDoEmbarque = (dataset.carteiraOperacoes || []).filter(op => {
-      if (op.matricula !== tecMat) return false;
-      if (idEmbFinal && (op.id_embarque === idEmbFinal || op.portal_id === idEmbFinal)) return true;
+      if (normalizeSapCode(op.matricula) !== normalizeSapCode(tecMat)) return false;
+      const opEmb = op.id_embarque || op.portal_id || '';
+      if (idEmbFinal && opEmb === idEmbFinal) return true;
+      if (idEmbFinal && opEmb && opEmb !== idEmbFinal) return false;
       if (dataInicio && dataFim) {
         return op.data_inicio >= dataInicio && op.data_fim <= dataFim;
       }
       return true;
     });
 
+    const opsEmbKeySet = new Set(
+      opsDoEmbarque.map(op => `${normalizeSapCode(op.ordem)}|${normalizeSapCode(op.operacao)}`)
+    );
+
     // 2. Filtra confirmações SAP deste técnico vinculadas ao embarque ou na janela de datas
     const sapDoEmbarque = (dataset.confirmacoesSap || []).filter(cs => {
-      if (cs.matricula !== tecMat) return false;
-      if (idEmbFinal && cs.id_embarque === idEmbFinal) return true;
+      if (normalizeSapCode(cs.matricula) !== normalizeSapCode(tecMat)) return false;
+      const csEmb = cs.id_embarque || '';
+      if (idEmbFinal && csEmb === idEmbFinal) return true;
+      // Nunca sequestrar confirmação explicitamente vinculada a outro embarque.
+      if (idEmbFinal && csEmb && csEmb !== idEmbFinal) return false;
+      const csDate = cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
+      // Estorno ou confirmação sem id_embarque pertencente a ordem/operação deste embarque (inclui tardios > 4d)
+      if (!csEmb && opsEmbKeySet.has(`${normalizeSapCode(cs.ordem)}|${normalizeSapCode(cs.operacao)}`)) {
+        if (dataInicio && csDate && csDate < dataInicio) return false;
+        const hasBetterLaterOp = (dataset.carteiraOperacoes || []).some(other =>
+          normalizeSapCode(other.matricula) === normalizeSapCode(tecMat) &&
+          normalizeSapCode(other.ordem) === normalizeSapCode(cs.ordem) &&
+          normalizeSapCode(other.operacao) === normalizeSapCode(cs.operacao) &&
+          (other.id_embarque || other.portal_id || '') !== idEmbFinal &&
+          other.data_inicio <= csDate &&
+          (!dataInicio || other.data_inicio > dataInicio)
+        );
+        if (!hasBetterLaterOp) return true;
+      }
       if (dataInicio && dataFim) {
-        const d = cs.data_fim_real || cs.data_lancamento;
-        return d >= dataInicio && d <= addDays(dataFim, 4);
+        return csDate >= dataInicio && csDate <= addDays(dataFim, 4);
       }
       return false;
     });
@@ -163,7 +185,7 @@ export function CarteiraEmbarqueModal() {
 
     const operacoesComUsoff: OperacaoComUsoffRow[] = merged.map(o => {
       const hp = Number(o.hh_programado) || 0;
-      const hc = Math.max(Number(o.hh_confirmado_sap) || 0, Number(o.hh_confirmado) || 0);
+      const hc = Math.max(Number(o.hh_confirmado_sap) || 0, Number(o.hh_confirmado) || 0, 0);
       const isCarteira = o.status_programacao === 'Carteira';
       const isFora = o.status_programacao === 'Fora da carteira';
       const hpCart = isCarteira ? hp : 0;
@@ -235,11 +257,11 @@ export function CarteiraEmbarqueModal() {
     return {
       operacoes: operacoesComUsoff,
       summary: {
-        totHp: Math.round(totHp * 10) / 10,
-        totHpCarteira: Math.round(totHpCarteira * 10) / 10,
-        totHpFora: Math.round(totHpFora * 10) / 10,
-        totPortal: Math.round(totPortal * 10) / 10,
-        totSap: Math.round(totSap * 10) / 10,
+        totHp: Math.round(totHp * 100) / 100,
+        totHpCarteira: Math.round(totHpCarteira * 100) / 100,
+        totHpFora: Math.round(totHpFora * 100) / 100,
+        totPortal: Math.round(totPortal * 100) / 100,
+        totSap: Math.round(totSap * 100) / 100,
         saldoDiv,
         okCount,
         divCount,
@@ -785,7 +807,18 @@ export function CarteiraEmbarqueModal() {
                       </td>
 
                       {/* HH Confirmado SAP */}
-                      <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--ok, #16a34a)' }}>
+                      <td
+                        style={{
+                          padding: '9px 12px',
+                          textAlign: 'right',
+                          fontWeight: 600,
+                          color: (op.hh_confirmado_sap || 0) < 0
+                            ? 'var(--bad, #dc2626)'
+                            : (op.hh_confirmado_sap || 0) === 0
+                              ? 'var(--ink-muted)'
+                              : 'var(--ok, #16a34a)'
+                        }}
+                      >
                         {formatHours(op.hh_confirmado_sap)}
                       </td>
 
@@ -809,7 +842,7 @@ export function CarteiraEmbarqueModal() {
                           <span style={{ color: 'var(--bad)' }}>falta</span>
                         ) : op.opPeHp > 0 ? (
                           <b>{formatUs(op.opPeHp)}</b>
-                        ) : op.hh_programado && (op.hh_confirmado === 0 && (op.hh_confirmado_sap || 0) === 0) ? (
+                        ) : op.hh_programado && ((op.hh_confirmado || 0) <= 0 && (op.hh_confirmado_sap || 0) <= 0) ? (
                           <span className="sub" style={{ color: 'var(--orange-dark, #c2410c)' }}>0,00 (HC=0)</span>
                         ) : !isCarteira ? (
                           <span className="sub" style={{ color: 'var(--ink-muted)' }}>0,00 (fora)</span>

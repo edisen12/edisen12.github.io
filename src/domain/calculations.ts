@@ -31,6 +31,8 @@ import {
 import {
   calcPct,
   formatHours,
+  normalizeSapCode,
+  parseIdEmbarque,
   platformKey,
   sanitizePlatformCode
 } from '../utils/format';
@@ -1232,29 +1234,168 @@ export const buildSapIndex = (confirmacoes?: ConfirmacaoSAP[]): SapIndex => {
   return { byTechDate, byEmbarkation, byTech };
 };
 
+export interface ResolveDivergenciaSapOptions {
+  statusProgramacao?: string;
+  statusDivergencia?: string;
+  detailed?: boolean;
+}
+
+/**
+ * Classifica o status de confronto Portal Offshore vs SAP a partir das horas confirmadas.
+ * Centraliza tolerância (0.01 h), arredondamento e tratamento de estornos líquidos negativos.
+ */
+export function resolveDivergenciaSapStatus(
+  hhPortal: number,
+  hhSap: number,
+  options: ResolveDivergenciaSapOptions = {}
+): string {
+  const { statusProgramacao, statusDivergencia, detailed = false } = options;
+  if (statusProgramacao === 'Cancelada') return 'Cancelada';
+  if (statusProgramacao === 'Não Cadastrado no Portal') return 'Não Cadastrado no Portal';
+  if (detailed && statusDivergencia && statusDivergencia !== 'Pendente') {
+    return statusDivergencia;
+  }
+
+  const pRaw = Math.round((Number(hhPortal) || 0) * 100) / 100;
+  const sRaw = Math.round((Number(hhSap) || 0) * 100) / 100;
+  const p = Object.is(pRaw, -0) ? 0 : pRaw;
+  const s = Object.is(sRaw, -0) ? 0 : sRaw;
+
+  if (Math.abs(p) < 0.01 && Math.abs(s) < 0.01) return 'Não Confirmado';
+  if (p > 0 && Math.abs(s) < 0.01) return 'Não Apontado no SAP';
+  if (Math.abs(p) < 0.01 && s > 0) return 'Não Confirmado no Portal';
+  if (Math.abs(p) < 0.01 && s < 0) return 'Divergente (Portal > SAP)';
+  if (Math.abs(p - s) < 0.01) return 'OK';
+  return p > s ? 'Divergente (Portal > SAP)' : 'Divergente (SAP > Portal)';
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (isNaN(d.getTime())) return ymd;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function getSapRefDate(cs: ConfirmacaoSAP): string {
+  return cs.data_fim_real || cs.data_lancamento || cs.data_criacao || '';
+}
+
+function pickBestEmbarqueWindowMatch<T extends { data_inicio?: string; data_fim?: string }>(
+  items: T[],
+  refDate: string
+): T | undefined {
+  if (items.length === 0) return undefined;
+  if (items.length === 1 || !refDate) return items[0];
+
+  const exactWindow = items.filter(
+    it => it.data_inicio && it.data_fim && refDate >= it.data_inicio && refDate <= it.data_fim
+  );
+  if (exactWindow.length === 1) return exactWindow[0];
+  if (exactWindow.length > 1) {
+    return [...exactWindow].sort((a, b) => (b.data_inicio || '').localeCompare(a.data_inicio || ''))[0];
+  }
+
+  const graceWindow = items.filter(
+    it =>
+      it.data_inicio &&
+      it.data_fim &&
+      refDate >= it.data_inicio &&
+      refDate <= addDaysYmd(it.data_fim, 4)
+  );
+  if (graceWindow.length === 1) return graceWindow[0];
+  if (graceWindow.length > 1) {
+    return [...graceWindow].sort((a, b) => (b.data_inicio || '').localeCompare(a.data_inicio || ''))[0];
+  }
+
+  const startedBefore = items.filter(it => it.data_inicio && it.data_inicio <= refDate);
+  if (startedBefore.length > 0) {
+    return [...startedBefore].sort((a, b) => (b.data_inicio || '').localeCompare(a.data_inicio || ''))[0];
+  }
+
+  return [...items].sort((a, b) => (a.data_inicio || '').localeCompare(b.data_inicio || ''))[0];
+}
+
 export const mergeConfrontoOperations = (
   carteiraOps: CarteiraOperacao[],
   sapConfirmacoes: ConfirmacaoSAP[] = [],
   carteiraEmbarques: CarteiraEmbarque[] = [],
   tecnicos: Record<string, Tecnico> = {}
 ): CarteiraOperacao[] => {
-  // Chaves existentes na carteira do Portal: matricula|ordem|operacao|id_embarque
-  const portalKeySet = new Set<string>();
-  carteiraOps.forEach(op => {
-    const idEmb = op.id_embarque || op.portal_id || '';
-    portalKeySet.add(`${op.matricula}|${op.ordem}|${op.operacao}|${idEmb}`);
+  const normEmb = (v: unknown): string => parseIdEmbarque(v) || String(v ?? '').trim();
+  const buildKey3 = (mat: unknown, ordem: unknown, op: unknown): string =>
+    `${normalizeSapCode(mat)}|${normalizeSapCode(ordem)}|${normalizeSapCode(op)}`;
+
+  const portalExactMap = new Map<string, number[]>();
+  const portalByKey3 = new Map<string, number[]>();
+
+  carteiraOps.forEach((op, idx) => {
+    const idEmb = normEmb(op.id_embarque || op.portal_id || '');
+    const k3 = buildKey3(op.matricula, op.ordem, op.operacao);
+    const exactKey = `${k3}|${idEmb}`;
+
+    const exactArr = portalExactMap.get(exactKey) || [];
+    exactArr.push(idx);
+    portalExactMap.set(exactKey, exactArr);
+
+    const k3Arr = portalByKey3.get(k3) || [];
+    k3Arr.push(idx);
+    portalByKey3.set(k3, k3Arr);
   });
 
-  // Mapear embarques por id_embarque
   const embById = new Map<string, CarteiraEmbarque>();
+  const embByMat = new Map<string, CarteiraEmbarque[]>();
   carteiraEmbarques.forEach(ce => {
-    if (ce.id_embarque) {
-      embById.set(ce.id_embarque, ce);
+    const eid = normEmb(ce.id_embarque);
+    if (eid) embById.set(eid, ce);
+    const mKey = normalizeSapCode(ce.matricula);
+    if (mKey) {
+      const list = embByMat.get(mKey) || [];
+      list.push(ce);
+      embByMat.set(mKey, list);
     }
   });
 
-  // Agrupar confirmações do SAP que não estão cadastradas na carteira do Portal
-  const extraSapMap = new Map<string, {
+  // Se houver confirmações SAP carregadas, recalculamos o total líquido (+ e estornos -)
+  // diretamente a partir de sapConfirmacoes para evitar cache desatualizado no banco/fixture.
+  const hasSapSource = sapConfirmacoes.length > 0;
+  const portalSapSums = new Array<number>(carteiraOps.length).fill(0);
+  const unmatchedCs: ConfirmacaoSAP[] = [];
+
+  const matchPortalOpIndex = (cs: ConfirmacaoSAP): number | null => {
+    const k3 = buildKey3(cs.matricula, cs.ordem, cs.operacao);
+    const csEmb = normEmb(cs.id_embarque);
+
+    if (csEmb) {
+      const exactMatches = portalExactMap.get(`${k3}|${csEmb}`);
+      if (exactMatches && exactMatches.length > 0) {
+        return exactMatches[0];
+      }
+      // Nunca sequestrar confirmação explicitamente vinculada a outro id_embarque.
+      return null;
+    }
+
+    const candidates = portalByKey3.get(k3);
+    if (!candidates || candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    const csDate = getSapRefDate(cs);
+    const candidateObjs = candidates.map(i => ({ idx: i, ...carteiraOps[i] }));
+    const picked = pickBestEmbarqueWindowMatch(candidateObjs, csDate);
+    return picked ? picked.idx : candidates[0];
+  };
+
+  sapConfirmacoes.forEach(cs => {
+    const matchedIdx = matchPortalOpIndex(cs);
+    const hcVal = Number(cs.horas_confirmadas) || 0;
+    if (matchedIdx !== null) {
+      portalSapSums[matchedIdx] += hcVal;
+    } else {
+      unmatchedCs.push(cs);
+    }
+  });
+
+  interface ExtraSapGroup {
     matricula: string;
     ordem: string;
     operacao: string;
@@ -1262,34 +1403,100 @@ export const mergeConfrontoOperations = (
     totalHcSap: number;
     dataMin: string;
     dataMax: string;
-  }>();
+    data_inicio?: string;
+    data_fim?: string;
+  }
 
-  sapConfirmacoes.forEach(cs => {
-    const idEmb = cs.id_embarque || '';
-    const key = `${cs.matricula}|${cs.ordem}|${cs.operacao}|${idEmb}`;
-    if (!portalKeySet.has(key)) {
-      const existing = extraSapMap.get(key) || {
+  const extraSapMap = new Map<string, ExtraSapGroup>();
+  const extraByKey3 = new Map<string, ExtraSapGroup[]>();
+
+  const accumulateExtra = (group: ExtraSapGroup, cs: ConfirmacaoSAP) => {
+    group.totalHcSap += Number(cs.horas_confirmadas) || 0;
+    const refDate = getSapRefDate(cs);
+    if (refDate) {
+      if (!group.dataMin || refDate < group.dataMin) group.dataMin = refDate;
+      if (!group.dataMax || refDate > group.dataMax) group.dataMax = refDate;
+    }
+  };
+
+  const getOrCreateExtra = (cs: ConfirmacaoSAP, embId: string): ExtraSapGroup => {
+    const k3 = buildKey3(cs.matricula, cs.ordem, cs.operacao);
+    const key = `${k3}|${embId}`;
+    let entry = extraSapMap.get(key);
+    if (!entry) {
+      const embMeta = embId ? embById.get(embId) : undefined;
+      entry = {
         matricula: cs.matricula,
         ordem: cs.ordem,
         operacao: cs.operacao,
-        id_embarque: idEmb,
+        id_embarque: embId,
         totalHcSap: 0,
-        dataMin: cs.data_fim_real || '',
-        dataMax: cs.data_fim_real || ''
+        dataMin: getSapRefDate(cs),
+        dataMax: getSapRefDate(cs),
+        data_inicio: embMeta?.data_inicio,
+        data_fim: embMeta?.data_fim
       };
-      existing.totalHcSap += cs.horas_confirmadas || 0;
-      if (cs.data_fim_real) {
-        if (!existing.dataMin || cs.data_fim_real < existing.dataMin) existing.dataMin = cs.data_fim_real;
-        if (!existing.dataMax || cs.data_fim_real > existing.dataMax) existing.dataMax = cs.data_fim_real;
-      }
-      extraSapMap.set(key, existing);
+      extraSapMap.set(key, entry);
+      const list = extraByKey3.get(k3) || [];
+      list.push(entry);
+      extraByKey3.set(k3, list);
+    }
+    return entry;
+  };
+
+  // Passo A: confirmações extra com id_embarque explícito
+  const unlinkedExtras: ConfirmacaoSAP[] = [];
+  unmatchedCs.forEach(cs => {
+    const idEmb = normEmb(cs.id_embarque);
+    if (idEmb) {
+      const entry = getOrCreateExtra(cs, idEmb);
+      accumulateExtra(entry, cs);
+    } else {
+      unlinkedExtras.push(cs);
     }
   });
 
+  // Passo B: confirmações extra sem id_embarque (ex.: estornos tardios de ordens fora da carteira)
+  // acoplam-se à irmã com id_embarque para que +9 e -9 somem 0 na mesma linha.
+  unlinkedExtras.forEach(cs => {
+    const k3 = buildKey3(cs.matricula, cs.ordem, cs.operacao);
+    const siblings = extraByKey3.get(k3);
+    if (siblings && siblings.length > 0) {
+      const target = pickBestEmbarqueWindowMatch(siblings, getSapRefDate(cs)) || siblings[0];
+      accumulateExtra(target, cs);
+    } else {
+      const entry = getOrCreateExtra(cs, '');
+      accumulateExtra(entry, cs);
+    }
+  });
+
+  const normalizedCarteiraOps = hasSapSource
+    ? carteiraOps.map((op, idx) => {
+        const totalSapRaw = Math.round(portalSapSums[idx] * 100) / 100;
+        const totalSap = Object.is(totalSapRaw, -0) ? 0 : totalSapRaw;
+        const hhConf = Number(op.hh_confirmado) || 0;
+        const divRaw = Math.round((hhConf - totalSap) * 100) / 100;
+        const divergencia = Object.is(divRaw, -0) ? 0 : divRaw;
+        return {
+          ...op,
+          hh_confirmado_sap: totalSap,
+          divergencia_sap: divergencia,
+          status_divergencia: resolveDivergenciaSapStatus(hhConf, totalSap, {
+            statusProgramacao: op.status_programacao
+          })
+        };
+      })
+    : carteiraOps;
+
   const extraOps: CarteiraOperacao[] = Array.from(extraSapMap.values()).map(item => {
-    const emb = embById.get(item.id_embarque) || carteiraEmbarques.find(ce => ce.matricula === item.matricula);
+    const matEmbs = embByMat.get(normalizeSapCode(item.matricula)) || [];
+    const emb =
+      (item.id_embarque ? embById.get(item.id_embarque) : undefined) ||
+      pickBestEmbarqueWindowMatch(matEmbs, item.dataMin || item.dataMax) ||
+      carteiraEmbarques.find(ce => normalizeSapCode(ce.matricula) === normalizeSapCode(item.matricula));
     const tec = tecnicos[item.matricula];
-    const totalSap = Math.round(item.totalHcSap * 100) / 100;
+    const totalSapRaw = Math.round(item.totalHcSap * 100) / 100;
+    const totalSap = Object.is(totalSapRaw, -0) ? 0 : totalSapRaw;
 
     return {
       id: `sap-extra-${item.matricula}-${item.ordem}-${item.operacao}-${item.id_embarque}`,
@@ -1312,12 +1519,12 @@ export const mergeConfrontoOperations = (
       hh_programado: 0,
       hh_confirmado: 0,
       hh_confirmado_sap: totalSap,
-      divergencia_sap: -totalSap,
+      divergencia_sap: Object.is(-totalSap, -0) ? 0 : -totalSap,
       status_divergencia: 'Não Cadastrado no Portal',
       recursos: 1,
       fonte: 'sap_fora_carteira'
     };
   });
 
-  return [...carteiraOps, ...extraOps];
+  return [...normalizedCarteiraOps, ...extraOps];
 };

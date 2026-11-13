@@ -33,6 +33,7 @@ import { createSelfHostedHttpHandler } from '../../../server/src/app';
 
 // Importações do cliente frontend Self-Hosted
 import { createSelfHostedClientProvider } from '../self-hosted/self-hosted.provider';
+import { planSmartCarteiraImport, planSmartSapImport } from '../shared/client-pipeline';
 import { DEFAULT_CONFIG } from '../../config/constants';
 import type { Plataforma } from '../../domain/types';
 
@@ -1228,5 +1229,247 @@ describe('Parte 2: Integração Real Full-Stack (Server Node.js ↔ Client Provi
     const resetLog = logsAfter.find(l => l.action === 'carteira_reset');
     expect(resetLog).toBeDefined();
     expect(resetLog?.category).toBe('importacao');
+  });
+
+  it('2.5 Reconciliação SAP com estornos negativos ([+9, -9 tardio, +9, +9] = 18 na ordem 002032288155/0010), zeros à esquerda e irmão Fora da Carteira', async () => {
+    const adminJar = createCookieJar();
+    const adminProvider = createSelfHostedClientProvider({
+      baseUrl,
+      customFetch: adminJar.customFetch
+    });
+    await adminProvider.auth.signInWithPassword('admin.vps@teste.local', 'AdminForte2026!');
+
+    const pidx: Record<string, Plataforma> = {
+      MXL: {
+        sigla: 'MXL',
+        chave_norm: 'MXL',
+        nome: 'Mexilhão',
+        un: 'UN-BS',
+        gerencia: '',
+        tipo: 'Fixa',
+        armador: '',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    // Multi-embarque: mesmo técnico 1005 tem a ordem 2032288155 / 10 em dois embarques diferentes (56100 em out e 56200 em dez)
+    await adminProvider.data.batchImportCarteira(
+      [
+        {
+          mat: '1005',
+          nome: 'Técnico 1005 Estorno',
+          plat: 'MXL',
+          reg: 'UN-BS',
+          ini: '2026-10-01',
+          fim: '2026-10-14',
+          hp: 20,
+          status_prog: 'Carteira',
+          ordem: '2032288155', // sem zeros à esquerda no Portal
+          op: '10',
+          id_embarque: '56100',
+          hc_portal: 18
+        },
+        {
+          mat: '1005',
+          nome: 'Técnico 1005 Estorno',
+          plat: 'MXL',
+          reg: 'UN-BS',
+          ini: '2026-12-01',
+          fim: '2026-12-14',
+          hp: 10,
+          status_prog: 'Carteira',
+          ordem: '2032288155',
+          op: '10',
+          id_embarque: '56200',
+          hc_portal: 0
+        }
+      ],
+      pidx
+    );
+
+    await adminProvider.data.batchImportHH(
+      [{ mat: '1005', p: 'MXL', D: '2026-10-05', e: 9, nome: 'Técnico 1005 Estorno' }],
+      pidx
+    );
+
+    await adminProvider.data.batchImportConfirmacoesSAP!([
+      // Ordem 002032288155 / 0010 com zeros à esquerda no SAP: [+9, -9 (estorno 11d pós-desembarque 56100), +9, +9] = 18
+      { mat: '1005', cria: '2026-10-05', lanc: '2026-10-05', real: '2026-10-05', ordem: '002032288155', op: '0010', hc: 9, contador: 1 },
+      { mat: '1005', cria: '2026-10-25', lanc: '2026-10-25', real: '2026-10-25', ordem: '002032288155', op: '0010', hc: -9, contador: 2 },
+      { mat: '1005', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002032288155', op: '0010', hc: 9, contador: 3 },
+      { mat: '1005', cria: '2026-10-08', lanc: '2026-10-08', real: '2026-10-08', ordem: '002032288155', op: '0010', hc: 9, contador: 4 },
+      // Ordem Fora da Carteira com +9 em 56100 e estorno tardio -9 (>4d após 14/10)
+      { mat: '1005', cria: '2026-10-06', lanc: '2026-10-06', real: '2026-10-06', ordem: '00408888', op: '0010', hc: 9, contador: 5 },
+      { mat: '1005', cria: '2026-10-26', lanc: '2026-10-26', real: '2026-10-26', ordem: '00408888', op: '0010', hc: -9, contador: 6 }
+    ]);
+
+    await adminProvider.data.reconciliarConfirmacoesSAP!();
+    const ds = await adminProvider.data.loadAppDataset('2026-10-01', '2026-12-31', true);
+
+    const opEmb1 = (ds.carteiraOperacoes ?? []).find(o => o.matricula === '1005' && o.id_embarque === '56100');
+    const opEmb2 = (ds.carteiraOperacoes ?? []).find(o => o.matricula === '1005' && o.id_embarque === '56200');
+    expect(opEmb1?.hh_confirmado_sap).toBe(18);
+    expect(opEmb1?.divergencia_sap).toBe(0);
+    expect(opEmb1?.status_divergencia).toBe('OK');
+    expect(opEmb2?.hh_confirmado_sap).toBe(0);
+
+    // Todas as 4 confirmações da 002032288155/0010 (incluindo o estorno tardio -9 de 25/10) vinculadas a 56100
+    const sap155 = (ds.confirmacoesSap ?? []).filter(cs => cs.matricula === '1005' && cs.ordem === '002032288155');
+    expect(sap155).toHaveLength(4);
+    expect(sap155.every(cs => cs.id_embarque === '56100')).toBe(true);
+
+    // Ordem Fora da Carteira 00408888 acoplou o estorno tardio -9 ao embarque 56100 somando 0 líquido
+    const sapFora = (ds.confirmacoesSap ?? []).filter(cs => cs.matricula === '1005' && cs.ordem === '00408888');
+    expect(sapFora).toHaveLength(2);
+    expect(sapFora.every(cs => cs.id_embarque === '56100' && cs.status_reconciliacao === 'Fora da Carteira')).toBe(true);
+
+    // Confirmações antigas de 2.4 ('1003') sem id_embarque permanecem visíveis no dataset em vez de filtradas por id_embarque != ''
+    const sapSemEmb = (ds.confirmacoesSap ?? []).filter(cs => cs.matricula === '1003' && cs.id_embarque === '');
+    expect(sapSemEmb.length).toBeGreaterThan(0);
+  });
+
+  it('2.6 Deduplicação inteligente Self-Hosted: poda de embarque deslocado, colapso intra-arquivo e estorno SAP sem stacking (18h em vez de 27h)', async () => {
+    const adminJar = createCookieJar();
+    const adminProvider = createSelfHostedClientProvider({
+      baseUrl,
+      customFetch: adminJar.customFetch
+    });
+    await adminProvider.auth.signInWithPassword('admin.vps@teste.local', 'AdminForte2026!');
+
+    const pidx: Record<string, Plataforma> = {
+      P50: {
+        sigla: 'P50',
+        chave_norm: 'P50',
+        nome: 'P-50',
+        un: 'UN-RIO',
+        armador: '',
+        gerencia: '',
+        tipo: 'FPSO',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    // 1. Portal Offshore Lote 1 com linha duplicada intra-arquivo na OP 0010 e uma segunda OP 0020 no embarque 56910
+    await adminProvider.data.batchImportCarteira(
+      [
+        {
+          mat: '1095',
+          nome: 'Técnico Sintético 04',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-05',
+          fim: '2026-10-15',
+          hp: 25,
+          hc_portal: 0,
+          status_prog: 'Carteira',
+          ordem: '002099990003',
+          op: '0010',
+          id_embarque: '56910'
+        },
+        {
+          // Duplicata exata na própria planilha: não pode empilhar
+          mat: '1095',
+          nome: 'Técnico Sintético 04',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-05',
+          fim: '2026-10-15',
+          hp: 25,
+          hc_portal: 0,
+          status_prog: 'Carteira',
+          ordem: '002099990003',
+          op: '0010',
+          id_embarque: '56910'
+        },
+        {
+          mat: '1095',
+          nome: 'Técnico Sintético 04',
+          plat: 'P50',
+          reg: 'UN-RIO',
+          ini: '2026-10-05',
+          fim: '2026-10-15',
+          hp: 15,
+          hc_portal: 0,
+          status_prog: 'Carteira',
+          ordem: '002099990003',
+          op: '0020',
+          id_embarque: '56910'
+        }
+      ],
+      pidx
+    );
+
+    const snap1 = await adminProvider.data.fetchCarteiraDedupSnapshot!();
+    expect(snap1).not.toBeNull();
+    expect(snap1?.carteiraOperacoes.filter(o => o.id_embarque === '56910')).toHaveLength(2);
+    expect(snap1?.carteira.filter(c => c.matricula === '1095' && c.id_embarque === '56910')).toHaveLength(1);
+
+    // 2. Portal Offshore Lote 2 desloca 56910 para 2026-10-06 e remove OP 0020
+    const portalLote2 = [
+      {
+        mat: '1095',
+        nome: 'Técnico Sintético 04',
+        plat: 'P50',
+        reg: 'UN-RIO',
+        ini: '2026-10-06',
+        fim: '2026-10-16',
+        hp: 25,
+        hc_portal: 0,
+        status_prog: 'Carteira',
+        ordem: '002099990003',
+        op: '0010',
+        id_embarque: '56910'
+      }
+    ];
+    const cartPlan2 = planSmartCarteiraImport(portalLote2, pidx, snap1?.carteiraOperacoes || [], snap1?.carteira || []);
+    expect(cartPlan2.affectedPruneEmbarqueIds).toEqual(['56910']);
+
+    await adminProvider.data.batchImportCarteira(cartPlan2.rowsToImport, pidx, undefined, 'portal-lote-2', {
+      pruneEmbarqueIds: cartPlan2.affectedPruneEmbarqueIds,
+      pruneKeepOps: cartPlan2.pruneKeepOps
+    });
+
+    const dsPortal2 = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const ops56910 = (dsPortal2.carteiraOperacoes ?? []).filter(o => o.id_embarque === '56910');
+    expect(ops56910).toHaveLength(1);
+    expect(ops56910[0].data_inicio).toBe('2026-10-06');
+
+    // Órfão 2026-10-05 em carteira_embarques foi removido pelo sync sem deixar empilhamento
+    const embs1095 = dsPortal2.carteira.filter(c => c.matricula === '1095');
+    expect(embs1095).toHaveLength(1);
+    expect(embs1095[0].data_inicio).toBe('2026-10-06');
+    expect(embs1095[0].horas_programadas).toBe(25);
+
+    // 3. SAP Lote 1: 4 contadores (+9, +9, +9, +9); SAP Lote 2: contador 2 estornado (+9 -> -9)
+    await adminProvider.data.batchImportConfirmacoesSAP!([
+      { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 1 },
+      { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 2 },
+      { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 3 },
+      { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 4 }
+    ]);
+
+    const dsSap1 = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const sapPlan2 = planSmartSapImport(
+      [
+        { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 1 },
+        { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: -9, contador: 2 },
+        { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 3 },
+        { mat: '1095', cria: '2026-10-07', lanc: '2026-10-07', real: '2026-10-07', ordem: '002099990003', op: '0010', hc: 9, contador: 4 }
+      ],
+      dsSap1.confirmacoesSap || []
+    );
+    expect(sapPlan2.updatedCount).toBe(1);
+    expect(sapPlan2.dbDuplicatesIgnored).toBe(3);
+
+    await adminProvider.data.batchImportConfirmacoesSAP!(sapPlan2.rowsToImport);
+    const dsSap2 = await adminProvider.data.loadAppDataset('2026-10-01', '2026-10-31', true);
+    const sap1095 = (dsSap2.confirmacoesSap ?? []).filter(cs => cs.matricula === '1095' && cs.ordem === '002099990003');
+    expect(sap1095).toHaveLength(4);
+    expect(sap1095.reduce((acc, cs) => acc + Number(cs.horas_confirmadas || 0), 0)).toBe(18);
+
+    const op0010 = (dsSap2.carteiraOperacoes ?? []).find(o => o.id_embarque === '56910' && o.operacao === '0010');
+    expect(op0010?.hh_confirmado_sap).toBe(18);
   });
 });

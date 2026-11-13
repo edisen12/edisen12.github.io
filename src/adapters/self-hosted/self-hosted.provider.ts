@@ -9,10 +9,13 @@ import type {
   ClientDataPort,
   SavePessoaInput,
   BatchImportHHRow,
+  BatchImportCarteiraOptions,
   BatchImportCarteiraRow,
   BatchImportConfirmacaoSAPRow,
   BatchImportPlataformaRow,
   BatchImportPessoaRow,
+  CarteiraDedupSnapshot,
+  CarteiraPruneKeepOp,
   AuditLogFilterInput,
   ProgressCallback
 } from '../../ports/data.port';
@@ -26,12 +29,14 @@ import type {
   UserPreferences,
   UsoffUnWeight
 } from '../../domain/types';
-import { platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
+import { normalizeSapCode, platformKey, sanitizePlatformCode, slugify } from '../../utils/format';
 import {
   CHUNK_SIZE,
   assembleAppDataset,
   createDebouncedRealtimeSubscriber,
   filterAuditLogsClientSide,
+  mapRawCarteiraOperacaoRow,
+  mapRawCarteiraRow,
   normalizeEmail,
   prepareBatchCarteira,
   prepareBatchConfirmacoesSAP,
@@ -271,9 +276,11 @@ export function createSelfHostedClientProvider(
       rows: BatchImportCarteiraRow[],
       pidx: Record<string, Plataforma>,
       onProgress?: ProgressCallback,
-      origem = 'planilha (manual)'
+      origem = 'planilha (manual)',
+      options?: BatchImportCarteiraOptions
     ): Promise<void> {
-      if (!rows.length) return;
+      const hasPruneTargets = Boolean(!options?.skipPrune && options?.pruneEmbarqueIds?.length);
+      if (!rows.length && !hasPruneTargets) return;
       const prepared = prepareBatchCarteira(rows, pidx);
 
       if (prepared.pendingPlataformas.length > 0) {
@@ -291,30 +298,66 @@ export function createSelfHostedClientProvider(
         });
       }
 
-      const targetKind = prepared.isGranular ? 'carteira_operacoes' : 'carteira';
+      const pruneEmbarqueIds = !options?.skipPrune
+        ? options?.pruneEmbarqueIds && options.pruneEmbarqueIds.length > 0
+          ? options.pruneEmbarqueIds
+          : prepared.isGranular
+            ? Array.from(new Set(prepared.opsPayload.map(op => op.id_embarque).filter(Boolean)))
+            : []
+        : [];
+      const pruneSet = new Set(pruneEmbarqueIds.map(id => normalizeSapCode(id)));
+      const pruneKeepOps: CarteiraPruneKeepOp[] =
+        pruneEmbarqueIds.length > 0
+          ? options?.pruneKeepOps ??
+            prepared.opsPayload
+              .filter(op => op.id_embarque && pruneSet.has(normalizeSapCode(op.id_embarque)))
+              .map(op => ({
+                id_embarque: op.id_embarque,
+                matricula: op.matricula,
+                data_inicio: op.data_inicio,
+                ordem: op.ordem,
+                operacao: op.operacao
+              }))
+          : [];
+
+      const useGranularTarget = prepared.isGranular || pruneEmbarqueIds.length > 0;
+      const targetKind = useGranularTarget ? 'carteira_operacoes' : 'carteira';
       const payloadRows = prepared.isGranular ? prepared.opsPayload : prepared.cartPayload;
       const total = payloadRows.length;
 
-      for (let i = 0; i < total; i += CHUNK_SIZE) {
-        const chunk = payloadRows.slice(i, i + CHUNK_SIZE);
-        const isLast = i + CHUNK_SIZE >= total;
-        const fluxo = isLast
-          ? {
-              tipo_fluxo: 'carteira' as const,
-              origem,
-              total_linhas: total,
-              data_maxima: prepared.maxDate || null,
-              observacao: `Importação em lote de ${total} registros de carteira.`
-            }
-          : undefined;
-
+      if (total === 0 && pruneEmbarqueIds.length > 0) {
         await http.post('/imports/batch', {
-          kind: targetKind,
-          rows: chunk,
-          fluxo
+          kind: 'carteira_operacoes',
+          rows: [],
+          pruneEmbarqueIds,
+          pruneKeepOps
         });
+      } else {
+        for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = payloadRows.slice(i, i + CHUNK_SIZE);
+          const isFirst = i === 0;
+          const isLast = i + CHUNK_SIZE >= total;
+          const fluxo = isLast
+            ? {
+                tipo_fluxo: 'carteira' as const,
+                origem,
+                total_linhas: total,
+                data_maxima: prepared.maxDate || null,
+                observacao: `Importação em lote de ${total} registros de carteira.`
+              }
+            : undefined;
 
-        onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+          await http.post('/imports/batch', {
+            kind: targetKind,
+            rows: chunk,
+            fluxo,
+            ...(isFirst && targetKind === 'carteira_operacoes' && pruneEmbarqueIds.length > 0
+              ? { pruneEmbarqueIds, pruneKeepOps }
+              : {})
+          });
+
+          onProgress?.(Math.min(i + CHUNK_SIZE, total), total);
+        }
       }
 
       try {
@@ -322,6 +365,17 @@ export function createSelfHostedClientProvider(
       } catch (rErr) {
         console.warn('Reconciliação automática disparada após importação de carteira:', rErr);
       }
+    },
+
+    async fetchCarteiraDedupSnapshot(): Promise<CarteiraDedupSnapshot> {
+      const res = await http.get<{
+        ok: boolean;
+        data: { carteiraRows: any[]; carteiraOperacaoRows: any[] };
+      }>('/carteira/dedup-snapshot');
+      return {
+        carteira: (res.data?.carteiraRows || []).map(row => mapRawCarteiraRow(row)),
+        carteiraOperacoes: (res.data?.carteiraOperacaoRows || []).map(row => mapRawCarteiraOperacaoRow(row))
+      };
     },
 
     async batchImportPlataformas(

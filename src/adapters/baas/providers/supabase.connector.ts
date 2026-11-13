@@ -366,8 +366,8 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       fetchAllPages<any>((from, to) =>
         (supabase.from('confirmacoes_sap') as any)
           .select('*')
-          .neq('id_embarque', '')
           .order('data_fim_real', { ascending: false })
+          .order('id', { ascending: true })
           .range(from, to)
       ),
       fetchAllPages<any>((from, to) =>
@@ -703,8 +703,46 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
 
   async upsertConfirmacoesSAPChunk(rows: Array<Record<string, unknown>>): Promise<void> {
     const { error } = await (supabase.from('confirmacoes_sap') as any)
-      .upsert(rows, { onConflict: 'matricula,data_criacao,data_lancamento,data_fim_real,ordem,operacao,horas_confirmadas,contador_confirmacao' });
+      .upsert(rows, { onConflict: 'matricula,data_criacao,data_lancamento,data_fim_real,ordem,operacao,contador_confirmacao' });
     if (error) throw error;
+  },
+
+  async pruneStaleCarteiraByEmbarquesRPC(
+    embarqueIds: string[],
+    keepOps: Array<{
+      id_embarque: string;
+      matricula: string;
+      data_inicio: string;
+      ordem: string;
+      operacao: string;
+    }>
+  ): Promise<{ deleted_operacoes: number }> {
+    if (!embarqueIds.length) return { deleted_operacoes: 0 };
+    const { data, error } = await (supabase as any).rpc('prune_stale_carteira_by_embarques', {
+      p_embarque_ids: embarqueIds,
+      p_keep_ops: keepOps
+    });
+    if (error) throw error;
+    return { deleted_operacoes: Number((data as any)?.deleted_operacoes || 0) };
+  },
+
+  async fetchAllCarteiraForDedup(): Promise<{ carteiraRows: any[]; carteiraOperacaoRows: any[] }> {
+    const [carteiraRows, carteiraOperacaoRows] = await Promise.all([
+      fetchAllPages<any>((from, to) =>
+        supabase
+          .from('carteira_embarques')
+          .select('id, id_embarque, matricula, plataforma_sigla, unidade_negocio, data_inicio, data_fim, horas_programadas, hh_carteira, hh_fora_carteira, hh_cancelado, pe, ex, fonte')
+          .order('id', { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages<any>((from, to) =>
+        (supabase.from('carteira_operacoes') as any)
+          .select('id, portal_id, id_embarque, matricula, chave_petrobras, empresa, estrutura, unidade_negocio, plataforma_sigla, data_inicio, data_fim, ordem, operacao, status_programacao, hh_programado, hh_confirmado, recursos, fonte')
+          .order('id', { ascending: true })
+          .range(from, to)
+      )
+    ]);
+    return { carteiraRows, carteiraOperacaoRows };
   },
 
   async reconciliarConfirmacoesSAPRPC(): Promise<any> {

@@ -344,4 +344,59 @@ describe('CarteiraEmbarqueModal', () => {
     expect(closeCarteiraModal).toHaveBeenCalledTimes(1);
     expect(openFichaDrawer).toHaveBeenCalledWith('10231');
   });
+
+  it('soma corretamente 18h na ordem 002032288155/0010 para [+9, -9 tardio, +9, +9] ignorando cache 27 e confirmações de outros embarques', () => {
+    const ds = createSyntheticDataset();
+    ds.carteiraOperacoes = [
+      {
+        ...ds.carteiraOperacoes![0],
+        id: 'op-155',
+        ordem: '2032288155',
+        operacao: '10',
+        hh_programado: 20,
+        hh_confirmado: 18,
+        hh_confirmado_sap: 27,
+        divergencia_sap: -9,
+        status_divergencia: 'Divergente (SAP > Portal)'
+      }
+    ];
+    ds.confirmacoesSap = [
+      {
+        id: 's1', matricula: '10231', data_criacao: '2026-06-05', data_lancamento: '2026-06-05', data_fim_real: '2026-06-05',
+        ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 1, id_embarque: 'EMB-99881', status_reconciliacao: 'Em Carteira'
+      },
+      {
+        id: 's2', matricula: '10231', data_criacao: '2026-06-25', data_lancamento: '2026-06-25', data_fim_real: '2026-06-25',
+        ordem: '002032288155', operacao: '0010', horas_confirmadas: -9, contador_confirmacao: 2, id_embarque: '', status_reconciliacao: 'Pendente'
+      },
+      {
+        id: 's3', matricula: '10231', data_criacao: '2026-06-07', data_lancamento: '2026-06-07', data_fim_real: '2026-06-07',
+        ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 3, id_embarque: 'EMB-99881', status_reconciliacao: 'Em Carteira'
+      },
+      {
+        id: 's4', matricula: '10231', data_criacao: '2026-06-08', data_lancamento: '2026-06-08', data_fim_real: '2026-06-08',
+        ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 4, id_embarque: 'EMB-99881', status_reconciliacao: 'Em Carteira'
+      },
+      {
+        // Confirmação explícita de OUTRO embarque na janela não pode contaminar EMB-99881
+        id: 's-outro', matricula: '10231', data_criacao: '2026-06-09', data_lancamento: '2026-06-09', data_fim_real: '2026-06-09',
+        ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 5, id_embarque: 'EMB-OUTRO', status_reconciliacao: 'Em Carteira'
+      }
+    ];
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-99881' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: ds,
+      pidx: MOCK_PIDX,
+      activePeriod: MOCK_PERIOD,
+      currentUser: MOCK_USER
+    });
+
+    renderWithToast(<CarteiraEmbarqueModal />);
+    expect(screen.getAllByText('18,0 h').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('27,0 h')).toBeNull();
+    expect(screen.getByText('OK (Conciliado)')).not.toBeNull();
+  });
 });

@@ -26,7 +26,7 @@ import {
   exportConfrontoSAPXlsx,
   exportPainelDiaOrdensXlsx
 } from '../excel.service';
-import { buildPlatformIndex } from '../../domain/calculations';
+import { buildPlatformIndex, mergeConfrontoOperations } from '../../domain/calculations';
 import { computeUsoffOperations, summarizeUsoff } from '../../domain/usoff';
 
 /**
@@ -915,6 +915,200 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       const wbParcial = XLSX.read(await capturedBlobs[1].arrayBuffer(), { type: 'array' });
       const parcialAoa = XLSX.utils.sheet_to_json<any[]>(wbParcial.Sheets['Portal Offshore + USOFF'], { header: 1 });
       expect(parcialAoa[0][0]).toBe('[ESCOPO PARCIAL DE CARTEIRA - UN-ES]');
+    });
+
+    it('importa estornos SAP (9,00-, (9,00), coluna Estorno=X, Trabalho real/Oper.) somando 18 para [+9, -9, +9, +9] na ordem 002032288155/0010 e exporta 18h no Confronto e USOFF', async () => {
+      // 1. Detecção IW47 com Trabalho real, Oper. e Estorno (Trabalho real não pode ser roubado por Data Fim Real)
+      const headersIw47 = ['Pernr', 'Data Lançamento', 'Data Fim Real', 'Ordem', 'Oper.', 'Estorno', 'Trabalho real', 'Contador'];
+      expect(guessImportKind(headersIw47)).toBe('sap');
+      const colMap = mapColumns(headersIw47, 'sap');
+      expect(colMap.hc).toBe(6);
+      expect(colMap.op).toBe(4);
+      expect(colMap.estorno).toBe(5);
+      expect(colMap.real).toBe(2);
+
+      // 2. Planilha IW47: ordem 002032288155 op 0010 com 4 lançamentos: [+9, 9,00-, 09:00, 9] = 18
+      const fileSap = createExcelFile(
+        [
+          headersIw47,
+          ['1001', '2026-10-05', '2026-10-05', '002032288155', '0010', '', '9,00', '0001'],
+          ['1001', '2026-10-06', '2026-10-06', '002032288155', '0010', '', '9,00-', '0002'],
+          ['1001', '2026-10-07', '2026-10-07', '002032288155', '0010', '', '09:00', '0003'],
+          ['1001', '2026-10-08', '2026-10-08', '002032288155', '0010', '', '9', '0004'],
+          // Caso extra: Estorno='X' com hora positiva + parênteses contábil
+          ['1001', '2026-10-09', '2026-10-09', '002032288999', '0020', 'X', '9,00', '0005'],
+          ['1001', '2026-10-10', '2026-10-10', '002032288999', '0020', '', '(4,50)', '0006']
+        ],
+        'iw47_estornos.xlsx',
+        'IW47'
+      );
+
+      const parsed = await parseSpreadsheetFile(fileSap, 'sap');
+      expect(parsed.kind).toBe('sap');
+      expect(parsed.errors).toEqual([]);
+      const rows = parsed.rows as Array<{ ordem: string; op: string; hc: number }>;
+      expect(rows).toHaveLength(6);
+
+      const sumOrd155 = rows
+        .filter(r => r.ordem === '002032288155' && r.op === '0010')
+        .reduce((acc, r) => acc + r.hc, 0);
+      expect(rows.slice(0, 4).map(r => r.hc)).toEqual([9, -9, 9, 9]);
+      expect(sumOrd155).toBe(18);
+      expect(rows[4].hc).toBe(-9); // Estorno=X inverte +9 para -9
+      expect(rows[5].hc).toBe(-4.5); // (4,50) contábil = -4.5
+
+      // 3. Rejeita texto inválido explícito em hc sem derrubar a linha por silent 0
+      const fileErr = createExcelFile(
+        [
+          ['Matrícula', 'Data Criação', 'Ordem', 'Operação', 'Horas Confirmadas'],
+          ['1001', '2026-10-05', '002032288155', '0010', 'INVALIDO']
+        ],
+        'sap_erro.xlsx',
+        'SAPErr'
+      );
+      const parsedErr = await parseSpreadsheetFile(fileErr, 'sap');
+      expect(parsedErr.errors.length).toBeGreaterThan(0);
+
+      // 4. Confronto e Exportação USOFF devem somar 18h mesmo com hh_confirmado_sap legado=27 na operação
+      const capturedBlobs: Blob[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-18h';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      const ds18 = createTestDataset({
+        config: { ...mockContractConfig, us_pe_padrao: 0.3, us_ex_padrao: 0.7 },
+        carteira: [
+          {
+            id: 'emb-55104',
+            matricula: '1001',
+            nome: 'Técnico Teste',
+            unidade_negocio: 'UN-ES',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 154,
+            hh_carteira: 154,
+            id_embarque: '55104',
+            operacao: '55104',
+            pe: 0.3,
+            ex: 0.7,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-155',
+            portal_id: '55104',
+            id_embarque: '55104',
+            matricula: '1001',
+            chave_petrobras: 'CHV1',
+            nome: 'Técnico Teste',
+            empresa: 'Infotec Brasil',
+            estrutura: 'Manutenção',
+            unidade_negocio: 'UN-ES',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '2032288155',
+            operacao: '10',
+            status_processamento: 'Embarcado',
+            prioridade: 'Alta',
+            status_programacao: 'Carteira',
+            hh_programado: 20,
+            hh_confirmado: 18,
+            hh_confirmado_sap: 27, // cache antigo sem descontar o estorno -9
+            divergencia_sap: -9,
+            status_divergencia: 'Divergente (SAP > Portal)',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        confirmacoesSap: [
+          {
+            id: 's1',
+            matricula: '1001',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: '002032288155',
+            operacao: '0010',
+            horas_confirmadas: 9,
+            contador_confirmacao: 1,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 's2',
+            matricula: '1001',
+            data_criacao: '2026-10-06',
+            data_lancamento: '2026-10-25', // estorno tardio > 4d ainda sem id_embarque
+            data_fim_real: '2026-10-06',
+            ordem: '002032288155',
+            operacao: '0010',
+            horas_confirmadas: -9,
+            contador_confirmacao: 2,
+            id_embarque: '',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 's3',
+            matricula: '1001',
+            data_criacao: '2026-10-07',
+            data_lancamento: '2026-10-07',
+            data_fim_real: '2026-10-07',
+            ordem: '002032288155',
+            operacao: '0010',
+            horas_confirmadas: 9,
+            contador_confirmacao: 3,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 's4',
+            matricula: '1001',
+            data_criacao: '2026-10-08',
+            data_lancamento: '2026-10-08',
+            data_fim_real: '2026-10-08',
+            ordem: '002032288155',
+            operacao: '0010',
+            horas_confirmadas: 9,
+            contador_confirmacao: 4,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      const period: PeriodWindow = { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' };
+      const emptyFilters = { fDate: '', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' };
+
+      const confrontoRows = mergeConfrontoOperations(
+        ds18.carteiraOperacoes!,
+        ds18.confirmacoesSap,
+        ds18.carteira,
+        ds18.tecnicos
+      );
+      await exportConfrontoSAPXlsx(confrontoRows, 'Outubro 2026');
+      await exportUsoffPortalOffshoreXlsx(ds18, period, emptyFilters);
+      expect(capturedBlobs).toHaveLength(2);
+
+      const confWb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      const confAoa = XLSX.utils.sheet_to_json<any[]>(confWb.Sheets['Confronto SAP x Portal'], { header: 1 });
+      const confHeader = confAoa[0];
+      const confRow = confAoa.find(r => r && String(r[1]) === '1001')!;
+      expect(confRow[confHeader.indexOf('HH Confirmado (SAP)')]).toBe(18);
+      expect(confRow[confHeader.indexOf('Divergência (Portal - SAP)')]).toBe(0);
+      expect(confRow[confHeader.indexOf('Status do Confronto')]).toBe('OK');
+
+      const usoffWb = XLSX.read(await capturedBlobs[1].arrayBuffer(), { type: 'array' });
+      const usoffAoa = XLSX.utils.sheet_to_json<any[]>(usoffWb.Sheets['Portal Offshore + USOFF'], { header: 1 });
+      const usHeader = usoffAoa[0];
+      const usRow = usoffAoa[1];
+      expect(usRow[usHeader.indexOf('HH Confirmado (SAP)')]).toBe(18);
+      expect(usRow[usHeader.indexOf('Status Confronto SAP')]).toBe('OK');
     });
   });
 });

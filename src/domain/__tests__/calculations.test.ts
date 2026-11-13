@@ -50,6 +50,7 @@ import {
   prazoOf,
   resolveLocation,
   resolvePlace,
+  resolveDivergenciaSapStatus,
   resolveRecord,
   resolveTechName,
   resolveTechSituation,
@@ -1546,6 +1547,146 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(synth.nome).toBe('Carlos Sintético');
       // Alias PMXL-1 resolve deterministicamente para MXL no índice de plataformas
       expect(lookupPlatform(pidx, synth.plataforma_sigla)?.sigla).toBe('MXL');
+    });
+
+    it('recalcula soma líquida SAP de [+9, -9 (estorno tardio), +9, +9] = 18 para ordem 002032288155/0010 normalizando zeros à esquerda e evitando saldo stale 27', () => {
+      const embs: CarteiraEmbarque[] = [
+        {
+          id: 'emb-55104',
+          matricula: '1001',
+          nome: 'Carlos Sintético',
+          unidade_negocio: 'UN-ES',
+          plataforma_sigla: 'P58',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 154,
+          hh_carteira: 154,
+          id_embarque: '55104',
+          operacao: '55104',
+          pe: 0.3,
+          ex: 0.7,
+          fonte: 'portal_offshore'
+        },
+        {
+          id: 'emb-55200',
+          matricula: '1001',
+          nome: 'Carlos Sintético',
+          unidade_negocio: 'UN-ES',
+          plataforma_sigla: 'P58',
+          data_inicio: '2026-11-01',
+          data_fim: '2026-11-14',
+          horas_programadas: 154,
+          hh_carteira: 154,
+          id_embarque: '55200',
+          operacao: '55200',
+          pe: 0.3,
+          ex: 0.7,
+          fonte: 'portal_offshore'
+        }
+      ];
+
+      const ops = [
+        {
+          id: 'op-emb1',
+          portal_id: '55104',
+          id_embarque: '55104',
+          matricula: '1001',
+          chave_petrobras: '',
+          nome: 'Carlos Sintético',
+          empresa: 'Infotec Brasil',
+          estrutura: '',
+          unidade_negocio: 'UN-ES',
+          plataforma_sigla: 'P58',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          ordem: '2032288155', // sem zeros à esquerda
+          operacao: '10',       // sem zeros à esquerda
+          status_processamento: 'Concluído',
+          prioridade: 'Regular',
+          status_programacao: 'Carteira',
+          hh_programado: 20,
+          hh_confirmado: 18,
+          hh_confirmado_sap: 27, // cache antigo no banco
+          divergencia_sap: -9,
+          status_divergencia: 'Divergente (SAP > Portal)',
+          recursos: 1,
+          fonte: 'portal_offshore'
+        },
+        {
+          id: 'op-emb2',
+          portal_id: '55200',
+          id_embarque: '55200',
+          matricula: '1001',
+          chave_petrobras: '',
+          nome: 'Carlos Sintético',
+          empresa: 'Infotec Brasil',
+          estrutura: '',
+          unidade_negocio: 'UN-ES',
+          plataforma_sigla: 'P58',
+          data_inicio: '2026-11-01',
+          data_fim: '2026-11-14',
+          ordem: '002032288155',
+          operacao: '0010',
+          status_processamento: 'Concluído',
+          prioridade: 'Regular',
+          status_programacao: 'Carteira',
+          hh_programado: 10,
+          hh_confirmado: 0,
+          hh_confirmado_sap: 0,
+          divergencia_sap: 0,
+          status_divergencia: 'Não Confirmado',
+          recursos: 1,
+          fonte: 'portal_offshore'
+        }
+      ];
+
+      const sap = [
+        {
+          id: 's1', matricula: '1001', data_criacao: '2026-10-05', data_lancamento: '2026-10-05', data_fim_real: '2026-10-05',
+          ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 1, id_embarque: '55104', status_reconciliacao: 'Em Carteira' as const
+        },
+        {
+          id: 's2', matricula: '1001', data_criacao: '2026-10-22', data_lancamento: '2026-10-22', data_fim_real: '2026-10-22', // antes de 2026-11-01 e > 4d após 2026-10-14
+          ordem: '002032288155', operacao: '0010', horas_confirmadas: -9, contador_confirmacao: 2, id_embarque: '', status_reconciliacao: 'Pendente' as const
+        },
+        {
+          id: 's3', matricula: '1001', data_criacao: '2026-10-07', data_lancamento: '2026-10-07', data_fim_real: '2026-10-07',
+          ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 3, id_embarque: '55104', status_reconciliacao: 'Em Carteira' as const
+        },
+        {
+          id: 's4', matricula: '1001', data_criacao: '2026-10-08', data_lancamento: '2026-10-08', data_fim_real: '2026-10-08',
+          ordem: '002032288155', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 4, id_embarque: '55104', status_reconciliacao: 'Em Carteira' as const
+        }
+      ];
+
+      const merged = mergeConfrontoOperations(ops, sap, embs, { '1001': { matricula: '1001', nome: 'Carlos Sintético', funcao: 'Mecânico' } });
+      expect(merged).toHaveLength(2);
+      const emb1 = merged.find(o => o.id === 'op-emb1')!;
+      const emb2 = merged.find(o => o.id === 'op-emb2')!;
+      expect(emb1.hh_confirmado_sap).toBe(18);
+      expect(emb1.divergencia_sap).toBe(0);
+      expect(emb1.status_divergencia).toBe('OK');
+      expect(emb2.hh_confirmado_sap).toBe(0);
+    });
+
+    it('acopla estorno tardio sem id_embarque em ordem Fora da Carteira à confirmação irmã (+9 e -9 somam 0) e trata saldo negativo líquido', () => {
+      const extraMerged = mergeConfrontoOperations([], [
+        {
+          id: 'ex1', matricula: '1001', data_criacao: '2026-10-05', data_lancamento: '2026-10-05', data_fim_real: '2026-10-05',
+          ordem: '00409988', operacao: '0010', horas_confirmadas: 9, contador_confirmacao: 1, id_embarque: '55104', status_reconciliacao: 'Fora da Carteira'
+        },
+        {
+          id: 'ex2', matricula: '1001', data_criacao: '2026-10-25', data_lancamento: '2026-10-25', data_fim_real: '2026-10-25',
+          ordem: '409988', operacao: '10', horas_confirmadas: -9, contador_confirmacao: 2, id_embarque: '', status_reconciliacao: 'Sem Embarque'
+        }
+      ]);
+      expect(extraMerged).toHaveLength(1);
+      expect(extraMerged[0].id_embarque).toBe('55104');
+      expect(extraMerged[0].hh_confirmado_sap).toBe(0);
+
+      expect(resolveDivergenciaSapStatus(18, 18.000001)).toBe('OK');
+      expect(resolveDivergenciaSapStatus(0, -9)).toBe('Divergente (Portal > SAP)');
+      expect(resolveDivergenciaSapStatus(9, 0)).toBe('Não Apontado no SAP');
     });
   });
 });

@@ -22,6 +22,8 @@ import {
   formatPct,
   formatSignedHours,
   formatUs,
+  isSapEstornoFlag,
+  normalizeSapCode,
   normalizeText,
   parseCounter,
   parseFlexibleHours,
@@ -390,6 +392,47 @@ describe('src/utils/format.ts - Formatação Numérica, Textual & Slugs', () => 
       expect(parseFlexibleHours(null)).toBeNull();
       expect(parseFlexibleHours('')).toBeNull();
       expect(parseFlexibleHours('não-numérico')).toBeNull();
+      expect(parseFlexibleHours('-9-')).toBeNull();
+    });
+
+    it('suporta estornos e negativos SAP (sinal à direita, parênteses contábeis, unicode e -hh:mm)', () => {
+      // Caso real SAP: [9, 9-, 9, 9] => +9 - 9 + 9 + 9 = 18
+      expect(parseFlexibleHours('9,00-')).toBe(-9);
+      expect(parseFlexibleHours('9-')).toBe(-9);
+      expect(parseFlexibleHours('09:30-')).toBe(-9.5);
+      expect(parseFlexibleHours('9,5h-')).toBe(-9.5);
+      expect(parseFlexibleHours('(9,00)')).toBe(-9);
+      expect(parseFlexibleHours('(09:30)')).toBe(-9.5);
+      expect(parseFlexibleHours('−9')).toBe(-9);
+      expect(parseFlexibleHours('–9,5')).toBe(-9.5);
+      expect(parseFlexibleHours('—11:00')).toBe(-11);
+      expect(parseFlexibleHours('-09:30')).toBe(-9.5);
+      expect(Object.is(parseFlexibleHours('-0'), -0)).toBe(false);
+      expect(parseFlexibleHours('-0')).toBe(0);
+    });
+  });
+
+  describe('normalizeSapCode & isSapEstornoFlag', () => {
+    it('remove zeros à esquerda em códigos numéricos mantendo texto normalizado', () => {
+      expect(normalizeSapCode('002032288155')).toBe('2032288155');
+      expect(normalizeSapCode('2032288155')).toBe('2032288155');
+      expect(normalizeSapCode('0010')).toBe('10');
+      expect(normalizeSapCode('10')).toBe('10');
+      expect(normalizeSapCode('000')).toBe('0');
+      expect(normalizeSapCode(' ord-1001 ')).toBe('ORD-1001');
+      expect(normalizeSapCode('')).toBe('');
+    });
+
+    it('identifica flags de estorno SAP em diferentes idiomas e convenções', () => {
+      expect(isSapEstornoFlag('X')).toBe(true);
+      expect(isSapEstornoFlag('x')).toBe(true);
+      expect(isSapEstornoFlag('Estornado')).toBe(true);
+      expect(isSapEstornoFlag('Estorno')).toBe(true);
+      expect(isSapEstornoFlag('Sim')).toBe(true);
+      expect(isSapEstornoFlag(true)).toBe(true);
+      expect(isSapEstornoFlag('')).toBe(false);
+      expect(isSapEstornoFlag('Não')).toBe(false);
+      expect(isSapEstornoFlag(false)).toBe(false);
     });
   });
 

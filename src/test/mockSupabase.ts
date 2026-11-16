@@ -149,6 +149,29 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
     return false;
   };
 
+  const isSapAfterEndMock = (cs: any, dataFim?: string): boolean => {
+    const end = String(dataFim || '').trim();
+    if (!end) return false;
+    if (Number(cs.horas_confirmadas || 0) < 0) return false;
+
+    const endPlus4 = addDaysIsoMock(end, 4);
+    const fimReal = String(cs.data_fim_real || '').trim();
+    const lanc = String(cs.data_lancamento || '').trim();
+    const criacao = String(cs.data_criacao || '').trim();
+
+    if (fimReal) {
+      if (fimReal <= end) return false;
+      if (fimReal <= endPlus4 && lanc !== '' && lanc <= endPlus4) {
+        return false;
+      }
+      return true;
+    }
+
+    const ref = lanc || criacao;
+    if (!ref) return false;
+    return ref > endPlus4;
+  };
+
   const pickByDateMock = <T extends { data_inicio: string }>(
     candidates: T[],
     refDate: string,
@@ -176,14 +199,16 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
           normalizeSapCode(co.matricula) === normalizeSapCode(cs.matricula) &&
           normalizeSapCode(co.ordem) === normalizeSapCode(cs.ordem) &&
           normalizeSapCode(co.operacao) === normalizeSapCode(cs.operacao) &&
-          !isSapBeforeStartMock(cs, co.data_inicio)
+          !isSapBeforeStartMock(cs, co.data_inicio) &&
+          !isSapAfterEndMock(cs, co.data_fim)
       )
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
     const matchingEmbs = allCart
       .filter(
         (ce: any) =>
           normalizeSapCode(ce.matricula) === normalizeSapCode(cs.matricula) &&
-          !isSapBeforeStartMock(cs, ce.data_inicio)
+          !isSapBeforeStartMock(cs, ce.data_inicio) &&
+          !isSapAfterEndMock(cs, ce.data_fim)
       )
       .sort((a: any, b: any) => b.data_inicio.localeCompare(a.data_inicio));
 
@@ -192,7 +217,10 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
     if (p1) resolvedId = opIdOf(p1);
     if (!resolvedId) {
       const p2 = matchingOps.find(
-        (co: any) => cs.data_lancamento >= co.data_inicio && cs.data_lancamento <= addDaysIsoMock(co.data_fim, 4)
+        (co: any) =>
+          cs.data_lancamento >= co.data_inicio &&
+          cs.data_lancamento <= addDaysIsoMock(co.data_fim, 4) &&
+          (!cs.data_fim_real || cs.data_fim_real <= addDaysIsoMock(co.data_fim, 4))
       );
       if (p2) resolvedId = opIdOf(p2);
     }
@@ -206,7 +234,10 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
     }
     if (!resolvedId) {
       const p5 = matchingEmbs.find(
-        (ce: any) => cs.data_lancamento >= ce.data_inicio && cs.data_lancamento <= addDaysIsoMock(ce.data_fim, 4)
+        (ce: any) =>
+          cs.data_lancamento >= ce.data_inicio &&
+          cs.data_lancamento <= addDaysIsoMock(ce.data_fim, 4) &&
+          (!cs.data_fim_real || cs.data_fim_real <= addDaysIsoMock(ce.data_fim, 4))
       );
       if (p5) resolvedId = embIdOf(p5);
     }
@@ -247,9 +278,10 @@ function executeMockReconciliacaoSap(state: MockDatabaseState) {
         const sibObjs = sibs
           .map(id => ({
             id,
-            data_inicio: embMetaById.get(id)?.data_inicio || ''
+            data_inicio: embMetaById.get(id)?.data_inicio || '',
+            data_fim: embMetaById.get(id)?.data_fim || ''
           }))
-          .filter(s => !isSapBeforeStartMock(cs, s.data_inicio));
+          .filter(s => !isSapBeforeStartMock(cs, s.data_inicio) && !isSapAfterEndMock(cs, s.data_fim));
         if (sibObjs.length === 1) {
           resolvedId = sibObjs[0].id;
         } else if (sibObjs.length > 1) {

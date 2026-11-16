@@ -1675,6 +1675,35 @@ export class SelfHostedDomainEngine {
       return false;
     };
 
+    const isSapAfterEnd = (
+      cs: Pick<
+        ConfirmacaoSAP,
+        'data_lancamento' | 'data_fim_real' | 'data_criacao' | 'horas_confirmadas'
+      >,
+      dataFim?: string
+    ): boolean => {
+      const end = (dataFim || '').trim();
+      if (!end) return false;
+      if (Number(cs.horas_confirmadas || 0) < 0) return false;
+
+      const endPlus4 = addIsoDays(end, 4);
+      const fimReal = (cs.data_fim_real || '').trim();
+      const lanc = (cs.data_lancamento || '').trim();
+      const criacao = (cs.data_criacao || '').trim();
+
+      if (fimReal) {
+        if (fimReal <= end) return false;
+        if (fimReal <= endPlus4 && lanc !== '' && lanc <= endPlus4) {
+          return false;
+        }
+        return true;
+      }
+
+      const ref = lanc || criacao;
+      if (!ref) return false;
+      return ref > endPlus4;
+    };
+
     const pickByDatePreference = <T extends { data_inicio: string }>(
       candidates: T[],
       refDate: string,
@@ -1713,7 +1742,8 @@ export class SelfHostedDomainEngine {
             normalizeServerSapCode(co.matricula) === normalizeServerSapCode(cs.matricula) &&
             normalizeServerSapCode(co.ordem) === normalizeServerSapCode(cs.ordem) &&
             normalizeServerSapCode(co.operacao) === normalizeServerSapCode(cs.operacao) &&
-            !isSapBeforeStart(cs, co.data_inicio)
+            !isSapBeforeStart(cs, co.data_inicio) &&
+            !isSapAfterEnd(cs, co.data_fim)
         )
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
 
@@ -1721,7 +1751,8 @@ export class SelfHostedDomainEngine {
         .filter(
           ce =>
             normalizeServerSapCode(ce.matricula) === normalizeServerSapCode(cs.matricula) &&
-            !isSapBeforeStart(cs, ce.data_inicio)
+            !isSapBeforeStart(cs, ce.data_inicio) &&
+            !isSapAfterEnd(cs, ce.data_fim)
         )
         .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
 
@@ -1733,12 +1764,13 @@ export class SelfHostedDomainEngine {
       );
       if (p1) resolvedId = opIdOf(p1);
 
-      // Prioridade 2: Ordem/Operação com data_lancamento até +4 dias após desembarque
+      // Prioridade 2: Ordem/Operação com data_lancamento e data_fim_real até +4 dias após desembarque
       if (!resolvedId) {
         const p2 = matchingOps.find(
           co =>
             cs.data_lancamento >= co.data_inicio &&
-            cs.data_lancamento <= addIsoDays(co.data_fim, 4)
+            cs.data_lancamento <= addIsoDays(co.data_fim, 4) &&
+            (!cs.data_fim_real || cs.data_fim_real <= addIsoDays(co.data_fim, 4))
         );
         if (p2) resolvedId = opIdOf(p2);
       }
@@ -1764,7 +1796,8 @@ export class SelfHostedDomainEngine {
         const p5 = matchingEmbs.find(
           ce =>
             cs.data_lancamento >= ce.data_inicio &&
-            cs.data_lancamento <= addIsoDays(ce.data_fim, 4)
+            cs.data_lancamento <= addIsoDays(ce.data_fim, 4) &&
+            (!cs.data_fim_real || cs.data_fim_real <= addIsoDays(ce.data_fim, 4))
         );
         if (p5) resolvedId = embIdOf(p5);
       }
@@ -1809,9 +1842,10 @@ export class SelfHostedDomainEngine {
           const sibEmbs = siblingIds
             .map(id => ({
               id,
-              data_inicio: embMetaById.get(id)?.data_inicio || ''
+              data_inicio: embMetaById.get(id)?.data_inicio || '',
+              data_fim: embMetaById.get(id)?.data_fim || ''
             }))
-            .filter(s => !isSapBeforeStart(cs, s.data_inicio));
+            .filter(s => !isSapBeforeStart(cs, s.data_inicio) && !isSapAfterEnd(cs, s.data_fim));
           if (sibEmbs.length === 1) {
             resolvedId = sibEmbs[0].id;
           } else if (sibEmbs.length > 1) {

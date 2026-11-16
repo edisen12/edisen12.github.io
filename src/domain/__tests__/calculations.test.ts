@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type {
   AppDataset,
   CarteiraEmbarque,
+  CarteiraOperacao,
+  ConfirmacaoSAP,
   ContractConfig,
   FilterState,
   PeriodDayEntry,
@@ -37,6 +39,7 @@ import {
   groupDaysByField,
   hpSourceLabel,
   inferEmbarkation,
+  isSapAfterEmbarkation,
   isSapBeforeEmbarkation,
   isArmadorDiariaSemProg,
   isArmadorPlatform,
@@ -1976,6 +1979,191 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       const mergedFut = mergeConfrontoOperations([opFut], sapPreFut, [embFut]);
       expect(mergedFut).toHaveLength(1);
       expect(mergedFut[0].hh_confirmado_sap).toBe(0);
+    });
+
+    it('isSapAfterEmbarkation e mergeConfrontoOperations rejeitam execução positiva pós-embarque após data_fim, preservando PMB (+4d), data_fim_real dentro do embarque e estornos negativos', () => {
+      // 1. Execução dentro do embarque com lançamento tardio -> válida (não é pós-embarque)
+      expect(
+        isSapAfterEmbarkation(
+          {
+            data_lancamento: '2026-11-10',
+            data_fim_real: '2026-10-20',
+            data_criacao: '2026-11-10',
+            horas_confirmadas: 4
+          },
+          '2026-10-28'
+        )
+      ).toBe(false);
+
+      // 2. Janela PMB (+4d em data_fim_real E em data_lancamento) -> válida
+      expect(
+        isSapAfterEmbarkation(
+          {
+            data_lancamento: '2026-11-12',
+            data_fim_real: '2026-11-11',
+            data_criacao: '2026-11-12',
+            horas_confirmadas: 2
+          },
+          '2026-11-10'
+        )
+      ).toBe(false);
+
+      // 3. data_fim_real em +1d mas data_lancamento > +4d -> rejeitada (fora PMB)
+      expect(
+        isSapAfterEmbarkation(
+          {
+            data_lancamento: '2026-11-04',
+            data_fim_real: '2026-10-29',
+            data_criacao: '2026-11-04',
+            horas_confirmadas: 3
+          },
+          '2026-10-28'
+        )
+      ).toBe(true);
+
+      // 4. Execução semanas após desembarque (caso 13/11 após 28/10) -> rejeitada
+      expect(
+        isSapAfterEmbarkation(
+          {
+            data_lancamento: '2026-11-14',
+            data_fim_real: '2026-11-13',
+            data_criacao: '2026-11-14',
+            horas_confirmadas: 1
+          },
+          '2026-10-28'
+        )
+      ).toBe(true);
+
+      // 5. Estorno negativo tardio após desembarque -> preservado
+      expect(
+        isSapAfterEmbarkation(
+          {
+            data_lancamento: '2026-10-25',
+            data_fim_real: '2026-10-25',
+            data_criacao: '2026-10-25',
+            horas_confirmadas: -9
+          },
+          '2026-10-14'
+        )
+      ).toBe(false);
+
+      // Confronto completo: embarque 14/10–28/10 com +2h em 23/10 e +1h espúria em 13/11 (mesmo se pré-vinculada no banco legado)
+      const embOct: CarteiraEmbarque = {
+        id: 'emb-post-1',
+        id_embarque: '99100',
+        matricula: '9910',
+        nome: 'Tecnico Sintetico Post',
+        plataforma_sigla: 'P50',
+        unidade_negocio: 'UN-RIO',
+        data_inicio: '2026-10-14',
+        data_fim: '2026-10-28',
+        horas_programadas: 14,
+        operacao: '0010',
+        pe: 1,
+        ex: 1,
+        fonte: 'Portal'
+      };
+      const opOct: CarteiraOperacao = {
+        portal_id: '99100',
+        id_embarque: '99100',
+        matricula: '9910',
+        chave_petrobras: 'CHV9910',
+        nome: 'Tecnico Sintetico Post',
+        empresa: 'EMP',
+        estrutura: 'EST',
+        unidade_negocio: 'UN-RIO',
+        plataforma_sigla: 'P50',
+        data_inicio: '2026-10-14',
+        data_fim: '2026-10-28',
+        ordem: '002099895683',
+        operacao: '0010',
+        status_processamento: 'Confirmado',
+        prioridade: 'Normal',
+        status_programacao: 'Carteira',
+        hh_programado: 2,
+        hh_confirmado: 2,
+        recursos: 1,
+        fonte: 'Portal'
+      };
+      const opEstorno: CarteiraOperacao = {
+        ...opOct,
+        portal_id: '99101',
+        id_embarque: '99101',
+        matricula: '9911',
+        ordem: '002099288155',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14',
+        hh_programado: 9,
+        hh_confirmado: 9
+      };
+      const sapPost: ConfirmacaoSAP[] = [
+        {
+          id: 's1',
+          matricula: '9910',
+          data_criacao: '2026-10-24',
+          data_lancamento: '2026-10-24',
+          data_fim_real: '2026-10-23',
+          ordem: '002099895683',
+          operacao: '0010',
+          horas_confirmadas: 2,
+          id_embarque: '99100'
+        },
+        {
+          id: 's2',
+          matricula: '9910',
+          data_criacao: '2026-11-14',
+          data_lancamento: '2026-11-14',
+          data_fim_real: '2026-11-13',
+          ordem: '002099895683',
+          operacao: '0010',
+          horas_confirmadas: 1,
+          id_embarque: '99100'
+        },
+        {
+          id: 's3',
+          matricula: '9910',
+          data_criacao: '2026-11-14',
+          data_lancamento: '2026-11-14',
+          data_fim_real: '2026-11-13',
+          ordem: '002099895684',
+          operacao: '0010',
+          horas_confirmadas: 4,
+          id_embarque: '99100'
+        },
+        {
+          id: 's4',
+          matricula: '9911',
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: '002099288155',
+          operacao: '0010',
+          horas_confirmadas: 18
+        },
+        {
+          id: 's5',
+          matricula: '9911',
+          data_criacao: '2026-10-25',
+          data_lancamento: '2026-10-25',
+          data_fim_real: '2026-10-25',
+          ordem: '002099288155',
+          operacao: '0010',
+          horas_confirmadas: -9
+        }
+      ];
+
+      const mergedPost = mergeConfrontoOperations([opOct, opEstorno], sapPost, [
+        embOct,
+        { ...embOct, id: 'emb-post-2', id_embarque: '99101', matricula: '9911', data_inicio: '2026-10-01', data_fim: '2026-10-14' }
+      ]);
+      const rowOct = mergedPost.find(r => r.ordem === '002099895683');
+      const rowEst = mergedPost.find(r => r.ordem === '002099288155');
+      const rowLeak = mergedPost.find(r => r.ordem === '002099895684');
+      expect(rowOct?.hh_confirmado_sap).toBe(2);
+      expect(rowOct?.status_divergencia).toBe('OK');
+      expect(rowEst?.hh_confirmado_sap).toBe(9);
+      expect(rowEst?.status_divergencia).toBe('OK');
+      expect(rowLeak).toBeUndefined();
     });
   });
 });

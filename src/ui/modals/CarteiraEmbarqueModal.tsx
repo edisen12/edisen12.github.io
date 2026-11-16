@@ -6,6 +6,7 @@ import {
   findCarteira,
   inferEmbarkation,
   isArmadorPlatform,
+  isSapAfterEmbarkation,
   isSapBeforeEmbarkation,
   lookupPlatform,
   mergeConfrontoOperations,
@@ -119,11 +120,13 @@ export function CarteiraEmbarqueModal() {
       opsDoEmbarque.map(op => `${normalizeSapCode(op.ordem)}|${normalizeSapCode(op.operacao)}`)
     );
     const embStart = dataInicio || opsDoEmbarque[0]?.data_inicio || '';
+    const embEnd = dataFim || opsDoEmbarque[0]?.data_fim || '';
 
     // 2. Filtra confirmações SAP deste técnico vinculadas ao embarque ou na janela de datas
     const sapDoEmbarque = (dataset.confirmacoesSap || []).filter(cs => {
       if (normalizeSapCode(cs.matricula) !== normalizeSapCode(tecMat)) return false;
       if (isSapBeforeEmbarkation(cs, embStart)) return false;
+      if (isSapAfterEmbarkation(cs, embEnd)) return false;
       const csEmb = cs.id_embarque || '';
       if (idEmbFinal && csEmb === idEmbFinal) return true;
       // Nunca sequestrar confirmação explicitamente vinculada a outro embarque.

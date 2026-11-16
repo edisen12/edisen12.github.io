@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-13 15:57 (BRT) · Branch `main` (base `a8ca35e`, pendente commit `fix(sap)`) · Suíte Completa: 34 arquivos / 616 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado com sucesso em 5.31s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023, 024 e 025 aplicadas; Migrations 026 e 027 versionadas no repositório aguardando execução no SQL Editor ⏳
+> Última atualização: 2026-11-16 10:13 (BRT) · Branch `main` (pré-commit pós-`bc959e0`) · Suíte Completa (validada agora): 34 arquivos / 620 testes aprovados (100% verdes) ✅ · `npm run typecheck`: 0 erros ✅ · `npm run build`: bundle de produção gerado em 4.43s ✅ · Server Typecheck: 0 erros ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023–028 aplicadas e reconciliadas em produção ✅
 
 ## 1. Resumo Executivo
 
@@ -158,16 +158,21 @@
     - *Domínio Puro, UI e Exportação (`src/domain/calculations.ts`, `CarteiraEmbarqueModal.tsx`, `PainelDiaView.tsx`, `FichaTecnicoDrawer.tsx`, `excel.service.ts`):* criado helper exportado `isSapBeforeEmbarkation`; `mergeConfrontoOperations` rejeita confirmações pré-embarque mesmo quando trazem `id_embarque` legado gravado no banco (`PRE_EMBARKATION_REJECT = -1`, sem vazar para `extraOps`), protegendo também `Passo A` e `Passo B`; telas e exportação filtram via `emb?.ini`.
     - *Testes de Regressão Adicionados (+5 testes):* `rls-policies.test.ts` (50 testes), `calculations.test.ts` (46 testes), `self-hosted-universal-drivers.test.ts` (21 testes), `data.service.test.ts` e `CarteiraEmbarqueModal.test.tsx`.
   - **Resultados de Qualidade:**
-    - Suíte de testes: **34 arquivos / 616 testes aprovados (100% verdes)**.
+    - Suíte de testes (validada antes do commit atual): **34 arquivos / 620 testes aprovados (100% verdes)**.
     - `npm run typecheck`: **0 erros** (`server/tsconfig.json`: **0 erros**).
-    - `npm run build`: **bundle de produção gerado com sucesso em 5.31s**.
-    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`, `024` e `025` aplicadas; Migrations `026` e `027` versionadas no repositório aguardando execução no SQL Editor (PAT/MCP atual retornou `Unauthorized`).
+    - `npm run build`: **bundle de produção gerado com sucesso em 4.43s**.
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`–`028` aplicadas via MCP ✅; após Migration `028_fix_sap_post_embarkation_reconciliation`, `reconciliar_confirmacoes_sap()` executada em produção (`12.980` confirmações SAP, `4.671` vinculadas, `8.309` sem embarque, `1.986` operações `OK`, `10` divergentes). Validados todos os 12 casos do Grupo 1 (`56082`, `56083`, `56077`, `52974`, `53658`, `52953` — confirmações pós-embarque desvinculadas para `'Sem Embarque'`, `hh_confirmado_sap` corrigido para `2.00`/`1.50`/`10.00`/`0.00`) e preservadas as regressões (`52969` `002031549540/0020` = `5.00 OK`, `56586` `002032288155/0010` = `18.00 OK`, `52663` PMB `+4d` = `2.00 OK`, Grupo 2 `51679`/`55155` = `OK`).
+  - **Auditoria das 49 divergências SAP × Portal Offshore (`diver.xlsx`):** 100% explicadas em 4 grupos — Grupo 1 (12 linhas) corrigido em código + SQL PROD; Grupos 2 (31 linhas), 3 (3 linhas) e 4 (3 linhas + reflexo no `52953`) documentados para decisão do usuário sem alterar `src/domain/usoff.ts`.
 
 ## 4. Próximos Passos (priorizados)
 
-1. **Aplicar Migrations `026` e `027` no Supabase PROD (`fwdvrkfootvublicetim`):** executar `supabase/migrations/026_perf_indexes_confirmacoes_sap.sql` e `supabase/migrations/027_fix_sap_pre_embarkation_reconciliation.sql` no SQL Editor do Supabase (ou fornecer nova PAT com permissão ao MCP) e inspecionar `ORD 002031549540 / op 0020` em `confirmacoes_sap` + `carteira_operacoes` para confirmar `6h -> 5h` após recálculo em banco.
-2. **Validação pelo usuário em produção após o redeploy no GitHub Pages:** confirmar `ORD 002031549540 / op 0020` com `5,0 h`, upload SAP/Portal Offshore com carregamento rápido, filtro **`Responsável`** e edição de pessoas em `Pessoas & Plataformas` sem seletor manual de Regional/UN.
+1. **Decisão pendente do usuário sobre os 3 grupos restantes da auditoria (`diver.xlsx`):**
+   - **Grupo 2 (31 linhas):** manter confirmações cujo `data_fim_real <= data_fim` mesmo com `data_lancamento > data_fim + 4d` (atualmente `App == Portal`) ou restringir também por `data_lancamento`?
+   - **Grupo 3 (3 linhas — `56082`/`56083` `002030310807/0020`, `53684` `002032198204/0020`):** validar divergência real SAP × Portal dentro do embarque.
+   - **Grupo 4 (3 linhas — `53676`, `51679`, `54873` + efeito em `52953`):** confirmar manutenção ou alteração da regra `Math.max(hh_confirmado_sap, hh_confirmado)` no cálculo USOFF (`src/domain/usoff.ts`).
+2. **Validação pelo usuário em produção no GitHub Pages:** confirmar na UI as 12 operações do Grupo 1 corrigidas (`56082`, `56083`, `56077`, `52974`, `53658`, `52953`) após o deploy da Migration `028` e do frontend.
 3. **Decisão pendente do usuário — visibilidade da aba `adm`:** confirmar se o perfil `gestor` deve manter acesso à aba ADM ou se fica restrita a `admin`.
+4. **Backlog opcional de hardening (advisors Supabase):** avaliar futura migration para revogar `EXECUTE` de `anon`/`authenticated` nas 3 funções de trigger `SECURITY DEFINER` (`fn_normalize_carteira_operacoes_ids`, `fn_sanitize_carteira_plataforma`, `sync_carteira_embarques_from_operacoes`) e habilitar `Leaked Password Protection` no Auth se desejado.
 
 
 

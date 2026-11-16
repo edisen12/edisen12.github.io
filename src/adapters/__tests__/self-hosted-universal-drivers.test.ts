@@ -1581,4 +1581,281 @@ describe('Parte 2: Integração Real Full-Stack (Server Node.js ↔ Client Provi
     expect(ds.hhMap?.['1091|2026-10-12']?.horas_executadas ?? 0).toBe(5);
     expect(ds.hhMap?.['1091|2026-10-11']?.horas_executadas ?? 0).toBe(0);
   });
+
+  it('2.7 Reconciliação SAP Self-Hosted bloqueia execução positiva pós-embarque após data_fim preservando PMB (+4d) e estornos negativos', async () => {
+    const mem = new InMemoryStorageDriver();
+    await mem.init();
+    const engine = new SelfHostedDomainEngine(mem);
+
+    await mem.upsertMany(
+      'tecnicos',
+      [
+        { matricula: '3001', nome: 'Tecnico Server Pos', funcao: 'Instrumentista' },
+        { matricula: '3002', nome: 'Tecnico Server Estorno', funcao: 'Instrumentista' }
+      ],
+      ['matricula']
+    );
+
+    await mem.upsertMany(
+      'carteira_embarques',
+      [
+        {
+          id: 'emb-s1',
+          id_embarque: '77100',
+          matricula: '3001',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          data_inicio: '2026-10-14',
+          data_fim: '2026-10-28',
+          horas_programadas: 14,
+          operacao: '0010',
+          pe: 1,
+          ex: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'emb-s2',
+          id_embarque: '77101',
+          matricula: '3001',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          data_inicio: '2026-10-15',
+          data_fim: '2026-10-28',
+          horas_programadas: 14,
+          operacao: '0010',
+          pe: 1,
+          ex: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'emb-s3',
+          id_embarque: '77102',
+          matricula: '3001',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          data_inicio: '2026-10-15',
+          data_fim: '2026-10-28',
+          horas_programadas: 14,
+          operacao: '0010',
+          pe: 1,
+          ex: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'emb-s4',
+          id_embarque: '77200',
+          matricula: '3002',
+          plataforma_sigla: 'P50',
+          unidade_negocio: 'UN-RIO',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          horas_programadas: 14,
+          operacao: '0010',
+          pe: 1,
+          ex: 1,
+          fonte: 'Portal'
+        }
+      ],
+      ['id']
+    );
+
+    await mem.upsertMany(
+      'carteira_operacoes',
+      [
+        {
+          id: 'op-s1',
+          portal_id: '77100',
+          id_embarque: '77100',
+          matricula: '3001',
+          chave_petrobras: 'C1',
+          nome: 'Tecnico Server Pos',
+          empresa: 'INFOTEC',
+          estrutura: 'OFFSHORE',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-14',
+          data_fim: '2026-10-28',
+          ordem: '002099895683',
+          operacao: '0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 2,
+          hh_confirmado: 2,
+          recursos: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'op-s2',
+          portal_id: '77101',
+          id_embarque: '77101',
+          matricula: '3001',
+          chave_petrobras: 'C1',
+          nome: 'Tecnico Server Pos',
+          empresa: 'INFOTEC',
+          estrutura: 'OFFSHORE',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-15',
+          data_fim: '2026-10-28',
+          ordem: '002099834159',
+          operacao: '0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 3,
+          hh_confirmado: 3,
+          recursos: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'op-s3',
+          portal_id: '77102',
+          id_embarque: '77102',
+          matricula: '3001',
+          chave_petrobras: 'C1',
+          nome: 'Tecnico Server Pos',
+          empresa: 'INFOTEC',
+          estrutura: 'OFFSHORE',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-15',
+          data_fim: '2026-10-28',
+          ordem: '002099867139',
+          operacao: '0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 2,
+          hh_confirmado: 2,
+          recursos: 1,
+          fonte: 'Portal'
+        },
+        {
+          id: 'op-s4',
+          portal_id: '77200',
+          id_embarque: '77200',
+          matricula: '3002',
+          chave_petrobras: 'C2',
+          nome: 'Tecnico Server Estorno',
+          empresa: 'INFOTEC',
+          estrutura: 'OFFSHORE',
+          unidade_negocio: 'UN-RIO',
+          plataforma_sigla: 'P50',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-14',
+          ordem: '002099288155',
+          operacao: '0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Normal',
+          status_programacao: 'Carteira',
+          hh_programado: 18,
+          hh_confirmado: 18,
+          recursos: 1,
+          fonte: 'Portal'
+        }
+      ],
+      ['id']
+    );
+
+    await mem.upsertMany(
+      'confirmacoes_sap',
+      [
+        {
+          id: 'cs-1',
+          matricula: '3001',
+          data_criacao: '2026-10-24',
+          data_lancamento: '2026-10-24',
+          data_fim_real: '2026-10-23',
+          ordem: '002099895683',
+          operacao: '0010',
+          horas_confirmadas: 2,
+          contador_confirmacao: 1
+        },
+        {
+          id: 'cs-2',
+          matricula: '3001',
+          data_criacao: '2026-11-14',
+          data_lancamento: '2026-11-14',
+          data_fim_real: '2026-11-13',
+          ordem: '002099895683',
+          operacao: '0010',
+          horas_confirmadas: 1,
+          contador_confirmacao: 2
+        },
+        {
+          id: 'cs-3',
+          matricula: '3001',
+          data_criacao: '2026-11-04',
+          data_lancamento: '2026-11-04',
+          data_fim_real: '2026-10-29',
+          ordem: '002099834159',
+          operacao: '0010',
+          horas_confirmadas: 3,
+          contador_confirmacao: 3
+        },
+        {
+          id: 'cs-4',
+          matricula: '3001',
+          data_criacao: '2026-10-30',
+          data_lancamento: '2026-10-30',
+          data_fim_real: '2026-10-29',
+          ordem: '002099867139',
+          operacao: '0010',
+          horas_confirmadas: 2,
+          contador_confirmacao: 4
+        },
+        {
+          id: 'cs-5',
+          matricula: '3002',
+          data_criacao: '2026-10-10',
+          data_lancamento: '2026-10-10',
+          data_fim_real: '2026-10-10',
+          ordem: '002099288155',
+          operacao: '0010',
+          horas_confirmadas: 27,
+          contador_confirmacao: 5
+        },
+        {
+          id: 'cs-6',
+          matricula: '3002',
+          data_criacao: '2026-10-25',
+          data_lancamento: '2026-10-25',
+          data_fim_real: '2026-10-25',
+          ordem: '002099288155',
+          operacao: '0010',
+          horas_confirmadas: -9,
+          contador_confirmacao: 6
+        }
+      ],
+      ['id']
+    );
+
+    await engine.reconciliarConfirmacoesSAP({
+      id: 'admin-test',
+      email: 'admin@teste.local',
+      nome: 'Admin Teste',
+      role: 'admin',
+      ativo: true,
+      sessionId: 'sess-1',
+      csrfToken: 'csrf-1'
+    });
+
+    const ops = await mem.findMany<Record<string, any>>('carteira_operacoes');
+    const saps = await mem.findMany<Record<string, any>>('confirmacoes_sap');
+
+    expect(ops.find(o => o.id === 'op-s1')?.hh_confirmado_sap).toBe(2);
+    expect(ops.find(o => o.id === 'op-s1')?.status_divergencia).toBe('OK');
+    expect(ops.find(o => o.id === 'op-s2')?.hh_confirmado_sap).toBe(0);
+    expect(ops.find(o => o.id === 'op-s2')?.status_divergencia).toBe('Não Apontado no SAP');
+    expect(ops.find(o => o.id === 'op-s3')?.hh_confirmado_sap).toBe(2);
+    expect(ops.find(o => o.id === 'op-s3')?.status_divergencia).toBe('OK');
+    expect(ops.find(o => o.id === 'op-s4')?.hh_confirmado_sap).toBe(18);
+    expect(ops.find(o => o.id === 'op-s4')?.status_divergencia).toBe('OK');
+
+    expect(saps.find(s => s.id === 'cs-2')?.id_embarque).toBe('');
+    expect(saps.find(s => s.id === 'cs-2')?.status_reconciliacao).toBe('Sem Embarque');
+    expect(saps.find(s => s.id === 'cs-3')?.id_embarque).toBe('');
+    expect(saps.find(s => s.id === 'cs-3')?.status_reconciliacao).toBe('Sem Embarque');
+  });
 });

@@ -1342,6 +1342,39 @@ export const isSapBeforeEmbarkation = (
   return false;
 };
 
+/**
+ * Indica se uma confirmação SAP positiva (`horas_confirmadas >= 0`) ocorreu após o término do embarque.
+ * Estornos (`horas_confirmadas < 0`) e lançamentos na janela de tolerância pós-desembarque (até +4 dias
+ * tanto em `data_fim_real` quanto em `data_lancamento`, ex.: PMB) permanecem válidos.
+ * Quando `data_fim_real <= data_fim`, a execução ocorreu durante o embarque independentemente da data de lançamento.
+ */
+export const isSapAfterEmbarkation = (
+  cs: Pick<ConfirmacaoSAP, 'data_lancamento' | 'data_fim_real' | 'data_criacao' | 'horas_confirmadas'>,
+  dataFim?: string | null
+): boolean => {
+  const end = (dataFim || '').trim();
+  if (!end) return false;
+  if (Number(cs.horas_confirmadas || 0) < 0) return false;
+
+  const endPlus4 = addDaysYmd(end, 4);
+  const fimReal = (cs.data_fim_real || '').trim();
+  const lanc = (cs.data_lancamento || '').trim();
+  const criacao = (cs.data_criacao || '').trim();
+
+  if (fimReal) {
+    if (fimReal <= end) return false;
+    // Tolerância pós-desembarque (PMB): válido apenas se data_fim_real <= data_fim + 4d e data_lancamento <= data_fim + 4d.
+    if (fimReal <= endPlus4 && lanc !== '' && lanc <= endPlus4) {
+      return false;
+    }
+    return true;
+  }
+
+  const ref = lanc || criacao;
+  if (!ref) return false;
+  return ref > endPlus4;
+};
+
 function pickBestEmbarqueWindowMatch<T extends { data_inicio?: string; data_fim?: string }>(
   items: T[],
   refDate: string
@@ -1432,12 +1465,14 @@ export const mergeConfrontoOperations = (
       const exactMatches = portalExactMap.get(`${k3}|${csEmb}`);
       if (exactMatches && exactMatches.length > 0) {
         const validExact = exactMatches.find(
-          idx => !isSapBeforeEmbarkation(cs, carteiraOps[idx].data_inicio)
+          idx =>
+            !isSapBeforeEmbarkation(cs, carteiraOps[idx].data_inicio) &&
+            !isSapAfterEmbarkation(cs, carteiraOps[idx].data_fim)
         );
         if (validExact !== undefined) {
           return validExact;
         }
-        // Confirmação anterior ao início do embarque vinculado: descartar sem vazar para extraOps.
+        // Confirmação fora da janela do embarque vinculado (pré ou pós-embarque): descartar sem vazar para extraOps.
         return PRE_EMBARKATION_REJECT;
       }
       // Nunca sequestrar confirmação explicitamente vinculada a outro id_embarque.
@@ -1452,6 +1487,7 @@ export const mergeConfrontoOperations = (
       .map(i => ({ idx: i, ...carteiraOps[i] }))
       .filter(c => {
         if (isSapBeforeEmbarkation(cs, c.data_inicio)) return false;
+        if (isSapAfterEmbarkation(cs, c.data_fim)) return false;
         if (!csDate) return true;
         if (c.data_inicio && csDate < c.data_inicio) return false;
         if (c.data_fim && csDate > addDaysYmd(c.data_fim, 45)) return false;
@@ -1535,7 +1571,11 @@ export const mergeConfrontoOperations = (
         (normId
           ? carteiraEmbarques.find(ce => normalizeSapCode(ce.id_embarque) === normId)
           : undefined);
-      if (embMeta && isSapBeforeEmbarkation(cs, embMeta.data_inicio)) {
+      if (
+        embMeta &&
+        (isSapBeforeEmbarkation(cs, embMeta.data_inicio) ||
+          isSapAfterEmbarkation(cs, embMeta.data_fim))
+      ) {
         return;
       }
       const entry = getOrCreateExtra(cs, idEmb);
@@ -1557,6 +1597,7 @@ export const mergeConfrontoOperations = (
         const sibEmb = sib.id_embarque ? embById.get(sib.id_embarque) : undefined;
         const start = sibEmb?.data_inicio || sib.dataMin;
         if (isSapBeforeEmbarkation(cs, start)) return false;
+        if (sibEmb?.data_fim && isSapAfterEmbarkation(cs, sibEmb.data_fim)) return false;
         if (!csDate) return true;
         const end = sibEmb?.data_fim || sib.dataMax;
         if (start && csDate < start) return false;

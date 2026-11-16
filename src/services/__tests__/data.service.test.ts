@@ -1198,5 +1198,177 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       expect(ds.hhMap['1088|2026-10-12']?.horas_executadas ?? 0).toBe(5);
       expect(ds.hhMap['1088|2026-10-11']?.horas_executadas ?? 0).toBe(0);
     });
+
+    it('reconciliarConfirmacoesSAP bloqueia execução positiva pós-embarque após data_fim preservando janela PMB (+4d) e estornos negativos tardios', async () => {
+      await batchImportTecnicos([
+        { matricula: '2001', nome: 'Tecnico Teste Pos', funcao: 'Instrumentista' },
+        { matricula: '2002', nome: 'Tecnico Teste Estorno', funcao: 'Instrumentista' }
+      ]);
+
+      await batchImportCarteira(
+        [
+          {
+            id_embarque: '67100',
+            mat: '2001',
+            chave: 'CH2001',
+            nome: 'Tecnico Teste Pos',
+            empresa: 'INFOTEC',
+            reg: 'UN-RIO',
+            plat: 'P50',
+            ini: '2026-10-14',
+            fim: '2026-10-28',
+            ordem: '002099895683',
+            op: '0010',
+            status_prog: 'Carteira',
+            hp: 2,
+            hc_portal: 2,
+            recursos: 1
+          },
+          {
+            id_embarque: '67101',
+            mat: '2001',
+            chave: 'CH2001B',
+            nome: 'Tecnico Teste Pos',
+            empresa: 'INFOTEC',
+            reg: 'UN-RIO',
+            plat: 'P50',
+            ini: '2026-10-15',
+            fim: '2026-10-28',
+            ordem: '002099834159',
+            op: '0010',
+            status_prog: 'Carteira',
+            hp: 3,
+            hc_portal: 3,
+            recursos: 1
+          },
+          {
+            id_embarque: '67102',
+            mat: '2002',
+            chave: 'CH2002',
+            nome: 'Tecnico Teste Estorno',
+            empresa: 'INFOTEC',
+            reg: 'UN-RIO',
+            plat: 'P50',
+            ini: '2026-10-01',
+            fim: '2026-10-14',
+            ordem: '002099288155',
+            op: '0010',
+            status_prog: 'Carteira',
+            hp: 18,
+            hc_portal: 18,
+            recursos: 1
+          },
+          {
+            id_embarque: '67103',
+            mat: '2002',
+            chave: 'CH2002B',
+            nome: 'Tecnico Teste Estorno',
+            empresa: 'INFOTEC',
+            reg: 'UN-RIO',
+            plat: 'P50',
+            ini: '2026-10-01',
+            fim: '2026-10-14',
+            ordem: '002099867139',
+            op: '0010',
+            status_prog: 'Carteira',
+            hp: 2,
+            hc_portal: 2,
+            recursos: 1
+          }
+        ],
+        mockPlatforms
+      );
+
+      await batchImportConfirmacoesSAP([
+        // 2h dentro do embarque -> aceita
+        {
+          mat: '2001',
+          cria: '2026-10-24',
+          lanc: '2026-10-24',
+          real: '2026-10-23',
+          ordem: '002099895683',
+          op: '0010',
+          hc: 2,
+          contador: 1
+        },
+        // 1h executada em 13/11 e lançada em 14/11 após embarque até 28/10 -> rejeitada (Sem Embarque)
+        {
+          mat: '2001',
+          cria: '2026-11-14',
+          lanc: '2026-11-14',
+          real: '2026-11-13',
+          ordem: '002099895683',
+          op: '0010',
+          hc: 1,
+          contador: 2
+        },
+        // data_fim_real em +1d (29/10), mas data_lancamento em 04/11 (> +4d) -> rejeitada (Sem Embarque)
+        {
+          mat: '2001',
+          cria: '2026-11-04',
+          lanc: '2026-11-04',
+          real: '2026-10-29',
+          ordem: '002099834159',
+          op: '0010',
+          hc: 3,
+          contador: 3
+        },
+        // +27h dentro e -9h estorno tardio -> líquido 18h OK
+        {
+          mat: '2002',
+          cria: '2026-10-10',
+          lanc: '2026-10-10',
+          real: '2026-10-10',
+          ordem: '002099288155',
+          op: '0010',
+          hc: 27,
+          contador: 4
+        },
+        {
+          mat: '2002',
+          cria: '2026-10-25',
+          lanc: '2026-10-25',
+          real: '2026-10-25',
+          ordem: '002099288155',
+          op: '0010',
+          hc: -9,
+          contador: 5
+        },
+        // Janela PMB +4d (data_fim_real +1d, data_lancamento +2d) -> válida via P2
+        {
+          mat: '2002',
+          cria: '2026-10-16',
+          lanc: '2026-10-16',
+          real: '2026-10-15',
+          ordem: '002099867139',
+          op: '0010',
+          hc: 2,
+          contador: 6
+        }
+      ]);
+
+      await reconciliarConfirmacoesSAP();
+      const ds = await loadAppDataset('2026-10-01', '2026-11-30', true);
+
+      const op67100 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '67100');
+      const op67101 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '67101');
+      const op67102 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '67102');
+      const op67103 = (ds.carteiraOperacoes ?? []).find(o => o.id_embarque === '67103');
+
+      expect(op67100?.hh_confirmado_sap).toBe(2);
+      expect(op67100?.status_divergencia).toBe('OK');
+      expect(op67101?.hh_confirmado_sap).toBe(0);
+      expect(op67101?.status_divergencia).toBe('Não Apontado no SAP');
+      expect(op67102?.hh_confirmado_sap).toBe(18);
+      expect(op67102?.status_divergencia).toBe('OK');
+      expect(op67103?.hh_confirmado_sap).toBe(2);
+      expect(op67103?.status_divergencia).toBe('OK');
+
+      const sapPost1113 = (ds.confirmacoesSap ?? []).find(
+        s => s.matricula === '2001' && s.ordem === '002099895683' && s.data_fim_real === '2026-11-13'
+      );
+      expect(sapPost1113?.id_embarque).toBe('');
+      expect(sapPost1113?.status_reconciliacao).toBe('Sem Embarque');
+    });
   });
 });

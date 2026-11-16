@@ -284,6 +284,146 @@ describe('Shell Responsivo & UI de Instalação PWA', () => {
       fireEvent.click(retryBtn);
       expect(reloadDataset).toHaveBeenCalledTimes(1);
     });
+
+    it('lista apenas períodos com dados no select, sincroniza fDate ao filtrar período, bloqueia volta e destaca dias sem dados no calendário', () => {
+      const setFilters = vi.fn();
+      const updateFilter = vi.fn();
+      const datasetComOutENov: AppDataset = {
+        ...MOCK_DATASET,
+        tecnicos: {
+          '10231': {
+            matricula: '10231',
+            nome: 'Carlos Eduardo Sintético',
+            funcao: 'Técnico de Automação'
+          }
+        },
+        carteira: [
+          {
+            id: 'emb-out',
+            id_embarque: '55101',
+            matricula: '10231',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            data_inicio: '2026-09-12',
+            data_fim: '2026-09-26',
+            horas_programadas: 165,
+            operacao: '0010',
+            pe: 0.3,
+            ex: 0.7,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'emb-nov',
+            id_embarque: '55202',
+            matricula: '10231',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            data_inicio: '2026-10-25',
+            data_fim: '2026-11-05',
+            horas_programadas: 132,
+            operacao: '0020',
+            pe: 0.3,
+            ex: 0.7,
+            fonte: 'portal_offshore'
+          }
+        ],
+        hhMap: {
+          '10231|2026-09-26': {
+            matricula: '10231',
+            data: '2026-09-26',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          },
+          '10231|2026-10-25': {
+            matricula: '10231',
+            data: '2026-10-25',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          },
+          '10231|2026-11-05': {
+            matricula: '10231',
+            data: '2026-11-05',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          }
+        },
+        watermark: { ultima_data_hh: '2026-11-05', ultima_importacao_em: '2026-11-06T08:00:00Z' }
+      };
+
+      setupMockApp({
+        dataset: datasetComOutENov,
+        activePeriod: { ini: '2026-10-21', fim: '2026-11-20', m: '2026-11' },
+        filters: {
+          fDate: '2026-10-25', // Primeiro dia com dados da medição de novembro
+          fReg: '',
+          fPlat: '',
+          fResp: '',
+          fPer: '2026-11',
+          cIni: '',
+          cFim: ''
+        },
+        setFilters,
+        updateFilter
+      });
+
+      const { container } = render(<StickyFilterBar />);
+
+      // 1) Dropdown de período não oferece setembro (sem medição) e exibe apenas 2026-11 e 2026-10
+      const perSelect = screen.getByLabelText('Período') as HTMLSelectElement;
+      const optionValues = Array.from(perSelect.options).map(o => o.value);
+      expect(optionValues).toEqual(['', '2026-11', '2026-10', 'custom']);
+      expect(screen.queryByText(/setembro\/2026/i)).toBeNull();
+
+      // 2) No primeiro dia com dados do período (2026-10-25), botão "Dia anterior" fica desabilitado (não dá para voltar)
+      const prevDayBtn = screen.getByRole('button', { name: 'Dia anterior' }) as HTMLButtonElement;
+      expect(prevDayBtn.disabled).toBe(true);
+
+      // 3) Popover de calendário mostra dias com dados vs dias sem dados claramente bloqueados
+      const calBtn = screen.getByRole('button', { name: 'Abrir calendário do período' });
+      fireEvent.click(calBtn);
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog.textContent).toContain('12 dias com dados');
+      expect(dialog.textContent).toContain('19 sem dados');
+
+      // Botão de mês anterior deve estar bloqueado porque minCalendarMonth já é 2026-10
+      const prevMonthBtn = screen.getByRole('button', { name: 'Mês anterior' }) as HTMLButtonElement;
+      expect(prevMonthBtn.disabled).toBe(true);
+
+      // Dia 22/10/2026 (dentro do período 21/10-20/11, mas sem dados) aparece aparente com classe no-data e disabled
+      const emptyDayBtn = container.querySelector('button[aria-label*="22/10/2026"]') as HTMLButtonElement;
+      expect(emptyDayBtn).not.toBeNull();
+      expect(emptyDayBtn.classList.contains('no-data')).toBe(true);
+      expect(emptyDayBtn.disabled).toBe(true);
+      expect(emptyDayBtn.textContent).toContain('s/ dados');
+
+      // Dia 26/10/2026 (com dados) tem classe has-data e permite seleção
+      const validDayBtn = container.querySelector('button[aria-label*="26/10/2026"]') as HTMLButtonElement;
+      expect(validDayBtn).not.toBeNull();
+      expect(validDayBtn.classList.contains('has-data')).toBe(true);
+      expect(validDayBtn.disabled).toBe(false);
+      fireEvent.click(validDayBtn);
+      expect(updateFilter).toHaveBeenCalledWith('fDate', '2026-10-26');
+
+      // 4) Ao filtrar a medição de outubro (2026-10), atualiza fPer e fDate juntos para 2026-09-26 (não mantém hoje)
+      fireEvent.change(perSelect, { target: { value: '2026-10' } });
+      expect(setFilters).toHaveBeenCalledTimes(1);
+      const updater = setFilters.mock.calls[0][0] as (prev: FilterState) => FilterState;
+      expect(
+        updater({
+          fDate: todayIso(),
+          fReg: '',
+          fPlat: '',
+          fResp: '',
+          fPer: '2026-11',
+          cIni: '',
+          cFim: ''
+        })
+      ).toMatchObject({ fPer: '2026-10', fDate: '2026-09-26' });
+    });
   });
 
   describe('Sidebar Mobile (Gaveta Legível Ignorando Colapso do Desktop)', () => {

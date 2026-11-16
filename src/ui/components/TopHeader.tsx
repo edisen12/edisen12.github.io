@@ -9,7 +9,9 @@ import {
   LogOut,
   ShieldCheck,
   Download,
-  Smartphone
+  Smartphone,
+  Eye,
+  RotateCcw
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { usePwaInstall } from '../../utils/pwa';
@@ -25,6 +27,11 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
   const {
     userProfile,
     isGlobal,
+    isRealAdmin,
+    isImpersonating,
+    impersonatedTarget,
+    openImpersonateModal,
+    stopImpersonation,
     scopeLabel,
     activeTab,
     activePeriod,
@@ -128,6 +135,24 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
       </div>
 
       <div className="header-actions">
+        {/* Botão Administrativo: Ver e usar o sistema como outro usuário */}
+        {isRealAdmin && (
+          <button
+            type="button"
+            className={`btn btn-sm ${isImpersonating ? 'btn-accent' : 'btn-ghost'}`}
+            onClick={() => openImpersonateModal?.()}
+            title="Ver e usar o sistema como outro usuário para validação"
+            aria-label="Ver como outro usuário"
+          >
+            <Eye size={14} />
+            <span className="hide-mobile">
+              {isImpersonating && impersonatedTarget
+                ? `Simulando: ${impersonatedTarget.profile.nome.trim().split(' ')[0]}`
+                : 'Ver como usuário'}
+            </span>
+          </button>
+        )}
+
         {/* Botão de Instalação PWA */}
         {canShowInstallOption && (
           <button
@@ -200,6 +225,42 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
                 </div>
 
                 <div className="profile-menu-divider" />
+
+                {/* Simulação de Usuário (Apenas Admin) */}
+                {isRealAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="profile-menu-item"
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        openImpersonateModal?.();
+                      }}
+                    >
+                      <Eye size={16} className="profile-item-icon" />
+                      <span>Ver sistema como outro usuário</span>
+                    </button>
+
+                    {isImpersonating && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="profile-menu-item"
+                        style={{ color: 'var(--orange, #d97706)', fontWeight: 600 }}
+                        onClick={() => {
+                          setDropdownOpen(false);
+                          stopImpersonation?.();
+                        }}
+                      >
+                        <RotateCcw size={16} className="profile-item-icon" />
+                        <span>Voltar para minha conta (Admin)</span>
+                      </button>
+                    )}
+
+                    <div className="profile-menu-divider" />
+                  </>
+                )}
 
                 {/* Itens de Navegação */}
                 {canShowInstallOption && (

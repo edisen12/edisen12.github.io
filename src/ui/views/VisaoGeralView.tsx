@@ -28,7 +28,7 @@ import {
   resolveTechName,
   statusOf
 } from '../../domain/calculations';
-import { periodDisplayName } from '../../domain/periods';
+import { periodDisplayName, resolveDisplayDateForPeriod } from '../../domain/periods';
 import { formatBr, formatBrShort, todayIso } from '../../utils/date';
 import {
   formatHours,
@@ -41,6 +41,7 @@ export function VisaoGeralView() {
   const {
     dataset,
     pidx,
+    availability,
     activePeriod,
     filters,
     setFilters,
@@ -55,7 +56,10 @@ export function VisaoGeralView() {
 
   const TODAY = todayIso();
   const P = activePeriod;
-  const D = filters.fDate;
+  const D = useMemo(
+    () => resolveDisplayDateForPeriod(P, filters, dataset, availability, TODAY),
+    [P, filters, dataset, availability, TODAY]
+  );
   const fResp = filters.fResp;
   const fPlat = filters.fPlat;
   const fReg = filters.fReg;

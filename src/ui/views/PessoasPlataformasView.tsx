@@ -65,7 +65,19 @@ type SubTab = 'pessoas' | 'plataformas' | 'tecnicos';
 type PapelFilter = 'todos' | 'preposto' | 'controlador' | 'gestor';
 
 export const PessoasPlataformasView: React.FC = () => {
-  const { dataset, pidx, refreshData, isGlobal, isAdmin, userProfile, setFilter, setActiveTab } = useApp();
+  const {
+    dataset,
+    pidx,
+    refreshData,
+    isGlobal,
+    isAdmin,
+    isRealAdmin,
+    realUserProfile,
+    impersonateByPessoa,
+    userProfile,
+    setFilter,
+    setActiveTab
+  } = useApp();
   const { showToast } = useToast();
 
   // Sub-aba interna ativa
@@ -550,7 +562,7 @@ export const PessoasPlataformasView: React.FC = () => {
                 <th style={{ width: '220px', minWidth: '200px' }}>E-mail</th>
                 <th style={{ width: '160px', minWidth: '150px' }}>Conta de login</th>
                 <th>Carteira de responsabilidade</th>
-                <th style={{ width: '160px', minWidth: '150px', textAlign: 'right' }}>Ações</th>
+                <th style={{ width: '190px', minWidth: '180px', textAlign: 'right' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -674,6 +686,18 @@ export const PessoasPlataformasView: React.FC = () => {
                           >
                             <LayoutDashboard size={16} />
                           </button>
+                          {isRealAdmin && (!realUserProfile || p.user_id !== realUserProfile.id) && (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-icon btn-ghost"
+                              title={`Ver e usar o sistema como ${p.nome}`}
+                              aria-label="Ver e usar o sistema como este usuário"
+                              style={{ color: 'var(--orange, #d97706)' }}
+                              onClick={() => impersonateByPessoa?.(p)}
+                            >
+                              <Eye size={16} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             className={`btn btn-sm ${delPesId === p.id ? 'btn-danger' : 'btn-icon btn-ghost'}`}

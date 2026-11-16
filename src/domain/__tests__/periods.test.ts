@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { FilterState, PeriodWindow } from '../types';
+import type { AppDataset, FilterState, PeriodWindow } from '../types';
+import { DEFAULT_CONFIG } from '../../config/constants';
 import {
+  clampDateToPeriodBounds,
+  computeDatasetAvailability,
   eachDay,
   listMeasurementOptions,
   neededQueryWindow,
@@ -8,7 +11,10 @@ import {
   periodDisplayName,
   periodFileSlug,
   periodOf,
-  resolveActivePeriod
+  resolveActivePeriod,
+  resolveDisplayDateForPeriod,
+  resolveEffectivePeriod,
+  resolvePeriodDateBounds
 } from '../periods';
 import { diffDays } from '../../utils/date';
 
@@ -359,6 +365,149 @@ describe('src/domain/periods.ts - Gestão de Períodos Contratuais & Janelas de 
 
       const window = neededQueryWindow(P, refDate);
       expect(diffDays(window.queryIni, '2026-09-01')).toBe(45);
+    });
+  });
+
+  describe('computeDatasetAvailability, resolvePeriodDateBounds e trava de datas sem dados', () => {
+    const createBaseDataset = (overrides: Partial<AppDataset> = {}): AppDataset => ({
+      config: { ...DEFAULT_CONFIG, dia_corte_medicao: 21, med_criterio: 'enc' },
+      usoffUnWeights: {},
+      emailsResumo: [],
+      plataformas: {
+        P51: {
+          sigla: 'P51',
+          chave_norm: 'P51',
+          nome: 'Plataforma P-51',
+          un: 'UN-BS',
+          armador: '',
+          gerencia: 'UO-BS',
+          tipo: 'SS',
+          situacao: 'Mobilizada',
+          cadastro_pendente: false
+        }
+      },
+      pessoas: {},
+      profiles: {},
+      tecnicos: {
+        '10231': {
+          matricula: '10231',
+          nome: 'Carlos Eduardo Sintético',
+          funcao: 'Técnico de Automação'
+        }
+      },
+      carteira: [],
+      carteiraOperacoes: [],
+      confirmacoesSap: [],
+      hhMap: {},
+      justMap: {},
+      externalCoveredSet: new Set<string>(),
+      sharedOpsSet: new Set<string>(),
+      watermark: { ultima_data_hh: null, ultima_importacao_em: null },
+      latestFluxo: null,
+      isDemo: false,
+      demoReason: '',
+      ...overrides
+    });
+
+    it('não gera medição de setembro no modo "enc" quando há apenas embarque iniciado em setembro e encerrado em outubro', () => {
+      const hhMap: AppDataset['hhMap'] = {};
+      eachDay('2026-09-12', '2026-09-26', d => {
+        hhMap[`10231|${d}`] = {
+          matricula: '10231',
+          data: d,
+          plataforma_sigla: 'P51',
+          unidade_negocio: 'UN-BS',
+          horas_executadas: 11
+        };
+      });
+
+      const ds = createBaseDataset({
+        carteira: [
+          {
+            id: 'emb-1',
+            id_embarque: '55104',
+            matricula: '10231',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            data_inicio: '2026-09-12',
+            data_fim: '2026-09-26',
+            horas_programadas: 165,
+            operacao: '0010',
+            pe: 0.3,
+            ex: 0.7,
+            fonte: 'portal_offshore'
+          }
+        ],
+        hhMap,
+        watermark: { ultima_data_hh: '2026-10-18', ultima_importacao_em: null }
+      });
+
+      const avail = computeDatasetAvailability(ds, 21);
+      expect(avail.availablePeriods.map(o => o.value)).toEqual(['2026-10']);
+      expect(avail.availablePeriods.some(o => o.value === '2026-09')).toBe(false);
+    });
+
+    it('bloqueia recuo antes do primeiro dia com dados, faz clamp e resolve data dentro do período filtrado', () => {
+      const ds = createBaseDataset({
+        hhMap: {
+          '10231|2026-10-05': {
+            matricula: '10231',
+            data: '2026-10-05',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          },
+          '10231|2026-10-07': {
+            matricula: '10231',
+            data: '2026-10-07',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          },
+          '10231|2026-10-10': {
+            matricula: '10231',
+            data: '2026-10-10',
+            plataforma_sigla: 'P51',
+            unidade_negocio: 'UN-BS',
+            horas_executadas: 11
+          }
+        },
+        watermark: { ultima_data_hh: '2026-10-10', ultima_importacao_em: null }
+      });
+
+      const avail = computeDatasetAvailability(ds, 21);
+      const pOut = periodOf('2026-10', 21);
+
+      const boundsAtFirst = resolvePeriodDateBounds(pOut, '2026-10-05', avail, '2026-11-16');
+      expect(boundsAtFirst.minDate).toBe('2026-10-05');
+      expect(boundsAtFirst.maxDate).toBe('2026-10-10');
+      expect(boundsAtFirst.defaultDate).toBe('2026-10-10');
+      expect(boundsAtFirst.prevDateWithData).toBeNull();
+      expect(boundsAtFirst.nextDateWithData).toBe('2026-10-07');
+
+      // Clamp impede voltar antes de minDate ou cair em dias sem dados
+      expect(clampDateToPeriodBounds('2026-09-25', boundsAtFirst)).toBe('2026-10-05');
+      expect(clampDateToPeriodBounds('2026-10-08', boundsAtFirst)).toBe('2026-10-07');
+      expect(clampDateToPeriodBounds('2026-11-16', boundsAtFirst)).toBe('2026-10-10');
+
+      // Ao filtrar período de outubro, não mostra hoje (2026-11-16) e resolve para 2026-10-10
+      const resolvedDisplay = resolveDisplayDateForPeriod(
+        pOut,
+        { fDate: '2026-11-16', fReg: '', fPlat: '', fResp: '', fPer: '2026-10', cIni: '', cFim: '' },
+        ds,
+        avail,
+        '2026-11-16'
+      );
+      expect(resolvedDisplay).toBe('2026-10-10');
+
+      // No modo automático, se hoje (2026-11) não tem dados, cai na medição mais recente com dados (2026-10)
+      const effP = resolveEffectivePeriod(
+        { fDate: '2026-11-16', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' },
+        21,
+        avail,
+        '2026-11-16'
+      );
+      expect(effP.m).toBe('2026-10');
     });
   });
 });

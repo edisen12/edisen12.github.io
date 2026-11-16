@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Smartphone, Download, X, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Smartphone, Download, X, AlertTriangle, RefreshCw, Eye, RotateCcw, Users } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { TopHeader } from './TopHeader';
 import { StickyFilterBar } from './StickyFilterBar';
 import { ScopeBanner } from './ScopeBanner';
 import { PwaInstallModal } from '../modals/PwaInstallModal';
+import { ImpersonateUserModal } from '../modals/ImpersonateUserModal';
 import { useApp } from '../state/AppContext';
 import { usePwaInstall } from '../../utils/pwa';
+import { ROLES_LABEL } from '../../config/constants';
+import { resolvePersonUns } from '../../domain/calculations';
 
 export interface AppShellProps {
   children: React.ReactNode;
@@ -15,7 +18,17 @@ export interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pwaModalOpen, setPwaModalOpen] = useState(false);
-  const { isLoading, loadError, reloadDataset, activeTab } = useApp();
+  const {
+    isLoading,
+    loadError,
+    reloadDataset,
+    activeTab,
+    isImpersonating,
+    impersonatedTarget,
+    openImpersonateModal,
+    stopImpersonation,
+    pidx
+  } = useApp();
   const { isMobile, canShowInstallOption, bannerDismissed, triggerInstall, dismissBanner } = usePwaInstall();
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -42,6 +55,25 @@ export function AppShell({ children }: AppShellProps) {
     activeTab !== 'cfg' &&
     activeTab !== 'perfil';
 
+  const impersonatedSummary = (() => {
+    if (!impersonatedTarget) return '';
+    const role = impersonatedTarget.profile.role;
+    if (role === 'admin' || role === 'gestor') {
+      return 'Acesso Global ao Contrato';
+    }
+    const plats = impersonatedTarget.pessoa?.plats || [];
+    const uns = impersonatedTarget.pessoa ? resolvePersonUns(impersonatedTarget.pessoa, pidx) : [];
+    if (plats.length === 0 && uns.length === 0) {
+      return 'Carteira vazia (0 plataformas)';
+    }
+    const platPreview =
+      plats.length > 0
+        ? `${plats.length} plat. (${plats.slice(0, 4).join(', ')}${plats.length > 4 ? '…' : ''})`
+        : '';
+    const unPreview = uns.length > 0 ? `UNs: ${uns.join(', ')}` : '';
+    return [platPreview, unPreview].filter(Boolean).join(' · ');
+  })();
+
   return (
     <div className="app-shell">
       {/* Sidebar Lateral */}
@@ -55,6 +87,68 @@ export function AppShell({ children }: AppShellProps) {
         <TopHeader
           onToggleMobileMenu={() => setMobileMenuOpen(prev => !prev)}
         />
+
+        {/* Banner Permanente de Modo de Validação / Simulação de Usuário */}
+        {isImpersonating && impersonatedTarget && (
+          <div
+            role="status"
+            aria-label="Modo de validação de usuário ativo"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '10px',
+              padding: '8px 16px',
+              background: 'var(--warn-soft, #fef3c7)',
+              borderBottom: '2px solid var(--orange, #d97706)',
+              color: 'var(--ink)',
+              fontSize: '0.84rem',
+              flexShrink: 0
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <Eye size={16} style={{ color: 'var(--orange, #d97706)', flexShrink: 0 }} />
+              <span>
+                <strong>Modo de Validação Ativo:</strong> Visualizando e usando o sistema como{' '}
+                <strong>{impersonatedTarget.profile.nome}</strong> (
+                {ROLES_LABEL[impersonatedTarget.profile.role] || impersonatedTarget.profile.role})
+              </span>
+              {impersonatedSummary && (
+                <span
+                  className="pill"
+                  style={{
+                    background: 'var(--surface)',
+                    border: '1px solid var(--line)',
+                    fontSize: '0.76rem'
+                  }}
+                >
+                  {impersonatedSummary}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => openImpersonateModal?.()}
+                style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+              >
+                <Users size={14} />
+                <span>Trocar usuário</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => stopImpersonation?.()}
+              >
+                <RotateCcw size={14} />
+                <span>Voltar para Admin</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Banner Móvel Compacto de Instalação PWA */}
         {isMobile && canShowInstallOption && !bannerDismissed && (
@@ -167,6 +261,9 @@ export function AppShell({ children }: AppShellProps) {
         open={pwaModalOpen}
         onClose={() => setPwaModalOpen(false)}
       />
+
+      {/* Modal Administrativo: Ver e usar o sistema como outro usuário */}
+      <ImpersonateUserModal />
 
       <style>{`
         @keyframes loading-bar {

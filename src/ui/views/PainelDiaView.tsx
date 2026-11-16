@@ -27,6 +27,7 @@ import {
   statusOf
 } from '../../domain/calculations';
 import { buildDailyAlertText } from '../../domain/communications';
+import { resolveDisplayDateForPeriod } from '../../domain/periods';
 import { exportPainelDiaOrdensXlsx } from '../../services/excel.service';
 import { Briefcase, ExternalLink, AlertTriangle } from 'lucide-react';
 
@@ -34,6 +35,8 @@ export function PainelDiaView() {
   const {
     dataset,
     pidx,
+    availability,
+    activePeriod,
     filters,
     updateFilter,
     openFichaDrawer,
@@ -56,9 +59,12 @@ export function PainelDiaView() {
 
   const sapIndex = useMemo(() => buildSapIndex(dataset.confirmacoesSap), [dataset.confirmacoesSap]);
 
-  const D = filters.fDate;
   const TODAY = todayIso();
   const ontem = addDays(TODAY, -1);
+  const D = useMemo(
+    () => resolveDisplayDateForPeriod(activePeriod, filters, dataset, availability, TODAY),
+    [activePeriod, filters, dataset, availability, TODAY]
+  );
 
   // Linhas do dia filtradas pelo escopo
   const allRows = useMemo(() => {

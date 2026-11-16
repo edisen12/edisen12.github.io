@@ -23,7 +23,9 @@ import {
   ShieldCheck,
   Clock,
   Smartphone,
-  Download
+  Download,
+  Info,
+  RotateCcw
 } from 'lucide-react';
 import { useApp, type UserSettingsSection } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
@@ -66,6 +68,8 @@ export function UserSettingsView() {
     pessoaScope,
     pidx,
     isGlobal,
+    isImpersonating,
+    stopImpersonation,
     userPreferences,
     updateUserPreferences,
     userSettingsSection,
@@ -148,6 +152,10 @@ export function UserSettingsView() {
   // Manipuladores de ação
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isImpersonating) {
+      showToast('Encerre a simulação para editar o próprio perfil.', 'info');
+      return;
+    }
     const cleanNome = nomeInput.trim();
     if (!cleanNome) {
       showToast('O nome de exibição não pode ficar vazio.', 'error');
@@ -220,6 +228,13 @@ export function UserSettingsView() {
     e.preventDefault();
     setPasswordError('');
 
+    if (isImpersonating) {
+      const msg = 'Troca de senha bloqueada durante o modo de simulação.';
+      setPasswordError(msg);
+      showToast(msg, 'info');
+      return;
+    }
+
     if (!hasMinLength || !hasLetter || !hasNumber) {
       setPasswordError('A nova senha deve ter no mínimo 8 caracteres e conter letras e números.');
       return;
@@ -248,6 +263,39 @@ export function UserSettingsView() {
 
   return (
     <div className="view-user-settings" style={{ maxWidth: '1100px', margin: '0 auto' }}>
+      {/* Aviso de Salvaguarda durante Simulação de Usuário */}
+      {isImpersonating && (
+        <div
+          className="note note-warn"
+          role="status"
+          style={{
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.86rem' }}>
+            <Info size={18} style={{ color: 'var(--orange, #d97706)', flexShrink: 0 }} />
+            <span>
+              <strong>Modo de Validação:</strong> Exibindo o perfil e o escopo operacional de{' '}
+              <strong>{userProfile?.nome}</strong>. A edição de nome e a troca de senha própria ficam
+              bloqueadas durante a simulação para proteger a conta do Administrador.
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => stopImpersonation?.()}
+          >
+            <RotateCcw size={14} />
+            <span>Voltar para Admin</span>
+          </button>
+        </div>
+      )}
+
       {/* Card Cabeçalho do Perfil Compacto & Executivo */}
       <div
         className="card"
@@ -393,7 +441,7 @@ export function UserSettingsView() {
                   value={nomeInput}
                   onChange={e => setNomeInput(e.target.value)}
                   required
-                  disabled={savingProfile}
+                  disabled={savingProfile || Boolean(isImpersonating)}
                   placeholder="Seu nome completo"
                   style={{ width: '100%' }}
                 />
@@ -453,6 +501,7 @@ export function UserSettingsView() {
                   type="submit"
                   className="btn btn-primary"
                   disabled={
+                    Boolean(isImpersonating) ||
                     savingProfile ||
                     !nomeInput.trim() ||
                     nomeInput.trim() === userProfile?.nome
@@ -1155,7 +1204,7 @@ export function UserSettingsView() {
                     onChange={e => setNewPassword(e.target.value)}
                     autoComplete="new-password"
                     required
-                    disabled={passwordLoading}
+                    disabled={passwordLoading || Boolean(isImpersonating)}
                   />
                   <button
                     type="button"
@@ -1210,7 +1259,7 @@ export function UserSettingsView() {
                     onChange={e => setConfirmPassword(e.target.value)}
                     autoComplete="new-password"
                     required
-                    disabled={passwordLoading}
+                    disabled={passwordLoading || Boolean(isImpersonating)}
                   />
                   <button
                     type="button"
@@ -1369,7 +1418,7 @@ export function UserSettingsView() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={passwordLoading || !isPasswordFormValid}
+                  disabled={Boolean(isImpersonating) || passwordLoading || !isPasswordFormValid}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',

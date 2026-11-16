@@ -47,7 +47,15 @@ type AdminMainTab = 'audit' | 'users';
 type CategoryFilter = 'all' | 'usuarios' | 'seguranca' | 'configuracoes' | 'cadastros' | 'operacional';
 
 export const AdminAuditView: React.FC = () => {
-  const { dataset, isGlobal, isAdmin, userProfile, refreshData } = useApp();
+  const {
+    dataset,
+    isGlobal,
+    isAdmin,
+    isRealAdmin,
+    impersonateByProfile,
+    userProfile,
+    refreshData
+  } = useApp();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<AdminMainTab>('audit');
@@ -562,7 +570,7 @@ export const AdminAuditView: React.FC = () => {
                   <th style={{ width: '240px', minWidth: '220px' }}>E-mail de Acesso</th>
                   <th style={{ width: '140px', minWidth: '130px' }}>Status</th>
                   <th>Segurança & Credenciais</th>
-                  <th style={{ width: '180px', minWidth: '160px', textAlign: 'right' }}>Ações Administrativas</th>
+                  <th style={{ width: '200px', minWidth: '180px', textAlign: 'right' }}>Ações Administrativas</th>
                 </tr>
               </thead>
               <tbody>
@@ -637,6 +645,20 @@ export const AdminAuditView: React.FC = () => {
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', justifyContent: 'flex-end' }}>
+                            {/* Botão Ver e Usar o Sistema como Este Usuário */}
+                            {isRealAdmin && !isSelf && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-icon btn-ghost"
+                                title={`Ver e usar o sistema como ${u.nome}`}
+                                aria-label="Ver como este usuário"
+                                style={{ color: 'var(--orange, #d97706)' }}
+                                onClick={() => impersonateByProfile?.(u)}
+                              >
+                                <Eye size={16} />
+                              </button>
+                            )}
+
                             {/* Botão Redefinir Senha */}
                             <button
                               type="button"

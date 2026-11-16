@@ -20,6 +20,7 @@ import {
   statusOf
 } from '../../domain/calculations';
 import { addDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
+import { resolveDisplayDateForPeriod } from '../../domain/periods';
 import {
   calcPct,
   formatHours,
@@ -38,10 +39,22 @@ interface EmbarqueRowItem {
 }
 
 export function EmbarqueAtualView() {
-  const { dataset, pidx, filters, openFichaDrawer, openCarteiraModal } = useApp();
+  const {
+    dataset,
+    pidx,
+    availability,
+    activePeriod,
+    filters,
+    openFichaDrawer,
+    openCarteiraModal
+  } = useApp();
 
   const [statusFilter, setStatusFilter] = useState<'todos' | 'negativo' | 'ok'>('todos');
-  const D = filters.fDate || todayIso();
+  const TODAY = todayIso();
+  const D = useMemo(
+    () => resolveDisplayDateForPeriod(activePeriod, filters, dataset, availability, TODAY) || TODAY,
+    [activePeriod, filters, dataset, availability, TODAY]
+  );
 
   // Computa técnicos a bordo
   const rows = useMemo(() => {

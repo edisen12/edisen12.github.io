@@ -11,10 +11,25 @@ import type {
   UserPreferences,
   UserProfile
 } from '../../domain/types';
-import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES } from '../../config/constants';
+import { DEFAULT_CONFIG, DEFAULT_USER_PREFERENCES, ROLES_LABEL } from '../../config/constants';
 import { todayIso } from '../../utils/date';
-import { neededQueryWindow, resolveActivePeriod } from '../../domain/periods';
+import {
+  computeDatasetAvailability,
+  clampDateToPeriodBounds,
+  neededQueryWindow,
+  periodOf,
+  resolveEffectivePeriod,
+  resolvePeriodDateBounds,
+  type DatasetPeriodAvailability
+} from '../../domain/periods';
 import { buildPlatformIndex } from '../../domain/calculations';
+import {
+  buildImpersonationTargets,
+  resolveImpersonationFromPessoa,
+  resolveImpersonationFromProfile,
+  scopeDatasetForUser,
+  type ImpersonationTarget
+} from '../../utils/impersonation';
 import {
   fetchCurrentUserScope,
   saveOwnProfileAndPreferences,
@@ -54,6 +69,20 @@ export interface AppContextValue {
   refreshAuth: () => Promise<void>;
   logout: () => Promise<void>;
 
+  // Simulação de Usuário (Modo "Ver como outro usuário" para Administradores)
+  isRealAdmin: boolean;
+  realUserProfile: UserProfile | null;
+  isImpersonating: boolean;
+  impersonatedTarget: ImpersonationTarget | null;
+  fullDataset: AppDataset;
+  impersonateModalOpen: boolean;
+  openImpersonateModal: () => void;
+  closeImpersonateModal: () => void;
+  startImpersonation: (target: ImpersonationTarget) => void;
+  impersonateByPessoa: (pessoa: Pessoa) => void;
+  impersonateByProfile: (profile: UserProfile) => void;
+  stopImpersonation: () => void;
+
   // Preferências do Usuário & Tema
   userPreferences: UserPreferences;
   updateUserPreferences: (partial: Partial<UserPreferences>) => Promise<void>;
@@ -65,6 +94,7 @@ export interface AppContextValue {
   // Dados do Contrato
   dataset: AppDataset;
   pidx: Record<string, Plataforma>;
+  availability?: DatasetPeriodAvailability;
   activePeriod: PeriodWindow;
   isLoading: boolean;
   loadError?: string | null;
@@ -104,6 +134,8 @@ export interface AppContextValue {
   openCarteiraModal: (matricula: string, idEmbarque?: string, dataRef?: string) => void;
   closeCarteiraModal: () => void;
 }
+
+const IMPERSONATE_STORAGE_KEY = 'hhoff_impersonate_key';
 
 const INITIAL_DATASET: AppDataset = {
   config: DEFAULT_CONFIG,
@@ -171,11 +203,16 @@ function useOptionalShowToast(): ((message: string, type?: ToastVariant | 'warni
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const showToast = useOptionalShowToast();
 
-  // Autenticação, Onboarding e Usuário
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [userOnboarding, setUserOnboarding] = useState<UserOnboarding | null>(null);
-  const [pessoaScope, setPessoaScope] = useState<Pessoa | null>(null);
+  // Autenticação, Onboarding e Usuário Real
+  const [realUserProfile, setRealUserProfile] = useState<UserProfile | null>(null);
+  const [realUserOnboarding, setRealUserOnboarding] = useState<UserOnboarding | null>(null);
+  const [realPessoaScope, setRealPessoaScope] = useState<Pessoa | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
+
+  // Simulação de Usuário ("Ver como outro usuário")
+  const [impersonatedTarget, setImpersonatedTarget] = useState<ImpersonationTarget | null>(null);
+  const [impersonateModalOpen, setImpersonateModalOpen] = useState(false);
+  const restoredImpersonationRef = useRef(false);
 
   // Preferências do Usuário
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(readLocalPreferences);
@@ -219,6 +256,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return 'ger';
     }
   });
+  const activeTabRef = useRef<TabId>(activeTab);
+  activeTabRef.current = activeTab;
 
   const [userSettingsSection, setUserSettingsSection] = useState<UserSettingsSection>('perfil');
 
@@ -267,16 +306,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const updateFilter = useCallback((key: keyof FilterState, val: string) => {
-    setFilters(prev => ({ ...prev, [key]: val }));
-  }, [setFilters]);
-
-  const resetFilters = useCallback(() => {
-    setFilters(INITIAL_FILTERS);
-  }, [setFilters]);
-
-  // Dataset e Dados
-  const [dataset, setDataset] = useState<AppDataset>(INITIAL_DATASET);
+  // Dataset Bruto (da sessão autenticada real) e Dados Projetados
+  const [fullDataset, setFullDataset] = useState<AppDataset>(INITIAL_DATASET);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
@@ -315,7 +346,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const closeCarteiraModal = useCallback(() => setCarteiraModal(null), []);
 
-  // Escopo de Papel & Primeiro Login
+  // Escopo Real vs Simulado ("Ver como outro usuário")
+  const isRealAdmin = useMemo(() => {
+    return realUserProfile?.role === 'admin';
+  }, [realUserProfile]);
+
+  const realIsGlobal = useMemo(() => {
+    if (!realUserProfile) return true;
+    return realUserProfile.role === 'admin' || realUserProfile.role === 'gestor';
+  }, [realUserProfile]);
+
+  const activeImpersonation = isRealAdmin ? impersonatedTarget : null;
+  const isImpersonating = Boolean(activeImpersonation);
+
+  const userProfile = activeImpersonation ? activeImpersonation.profile : realUserProfile;
+  const pessoaScope = activeImpersonation ? activeImpersonation.pessoa : realPessoaScope;
+  const userOnboarding = useMemo(() => {
+    if (!activeImpersonation) return realUserOnboarding;
+    return fullDataset.onboardingMap?.[activeImpersonation.profile.id] ?? null;
+  }, [activeImpersonation, fullDataset.onboardingMap, realUserOnboarding]);
+
   const isGlobal = useMemo(() => {
     if (!userProfile) return true;
     return userProfile.role === 'admin' || userProfile.role === 'gestor';
@@ -325,39 +375,289 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return userProfile?.role === 'admin';
   }, [userProfile]);
 
+  // Primeiro login / troca obrigatória avaliada sempre sobre a conta real autenticada
   const requiresPasswordChange = useMemo(() => {
-    if (!userProfile || !userOnboarding) return false;
-    return Boolean(userOnboarding.primeiro_login || userOnboarding.obriga_troca_senha);
-  }, [userProfile, userOnboarding]);
+    if (!realUserProfile || !realUserOnboarding) return false;
+    return Boolean(realUserOnboarding.primeiro_login || realUserOnboarding.obriga_troca_senha);
+  }, [realUserProfile, realUserOnboarding]);
 
   const scopeLabel = useMemo(() => {
     if (isGlobal || !userProfile) return undefined;
     return `Carteira ${userProfile.nome}`;
   }, [isGlobal, userProfile]);
 
-  // Índice de Plataformas
+  // Índice global de plataformas + dataset projetado para o usuário efetivo
+  const fullPidx = useMemo(() => {
+    return buildPlatformIndex(fullDataset.plataformas);
+  }, [fullDataset.plataformas]);
+
+  const dataset = useMemo(() => {
+    if (activeImpersonation && isRealAdmin) {
+      return scopeDatasetForUser(fullDataset, activeImpersonation, fullPidx);
+    }
+    return fullDataset;
+  }, [fullDataset, activeImpersonation, isRealAdmin, fullPidx]);
+
+  // Índice de Plataformas do escopo efetivo
   const pidx = useMemo(() => {
     return buildPlatformIndex(dataset.plataformas);
   }, [dataset.plataformas]);
 
-  // Período de Medição Ativo
-  const activePeriod = useMemo(() => {
-    return resolveActivePeriod(filters, dataset.config.dia_corte_medicao, todayIso());
-  }, [filters, dataset.config.dia_corte_medicao]);
+  // Disponibilidade real de períodos e datas com dados
+  const availability = useMemo(() => {
+    return computeDatasetAvailability(dataset, dataset.config.dia_corte_medicao, filters.fPer);
+  }, [dataset, filters.fPer]);
 
-  // Janela de Consulta Calculada
+  // Período de Medição Ativo (considera períodos com dados reais no modo automático)
+  const activePeriod = useMemo(() => {
+    return resolveEffectivePeriod(filters, dataset.config.dia_corte_medicao, availability, todayIso());
+  }, [filters, dataset.config.dia_corte_medicao, availability]);
+
+  // Janela de Consulta Calculada (monotônica para não encolher dados já carregados ao trocar de período)
+  const queryScopeRef = useRef<string>('');
+  const minQueryIniRef = useRef<string>('');
+  const maxQueryFimRef = useRef<string>('');
+
   const queryWindow = useMemo(() => {
-    return neededQueryWindow(activePeriod, filters.fDate || todayIso());
-  }, [activePeriod, filters.fDate]);
+    const currentScope = `${realUserProfile?.id || ''}|${realIsGlobal}`;
+    if (queryScopeRef.current !== currentScope) {
+      queryScopeRef.current = currentScope;
+      minQueryIniRef.current = '';
+      maxQueryFimRef.current = '';
+    }
+
+    const today = todayIso();
+    const wm = dataset.watermark.ultima_data_hh || '';
+    const fDate = filters.fDate || today;
+    let refMax = today;
+    if (fDate > refMax) refMax = fDate;
+    if (wm && wm > refMax) refMax = wm;
+
+    const rawWin = neededQueryWindow(activePeriod, refMax);
+    const nextIni =
+      minQueryIniRef.current && minQueryIniRef.current < rawWin.queryIni
+        ? minQueryIniRef.current
+        : rawWin.queryIni;
+    const nextFim =
+      maxQueryFimRef.current && maxQueryFimRef.current > rawWin.queryFim
+        ? maxQueryFimRef.current
+        : rawWin.queryFim;
+
+    minQueryIniRef.current = nextIni;
+    maxQueryFimRef.current = nextFim;
+
+    return { queryIni: nextIni, queryFim: nextFim };
+  }, [activePeriod, filters.fDate, dataset.watermark.ultima_data_hh, realUserProfile?.id, realIsGlobal]);
+
+  const updateFilter = useCallback((key: keyof FilterState, val: string) => {
+    setFilters(prev => {
+      const next: FilterState = { ...prev, [key]: val };
+      const diaCorte = dataset.config.dia_corte_medicao;
+
+      if (key === 'fPer') {
+        const nextAvail =
+          val && val !== 'custom' && /^\d{4}-\d{2}$/.test(val)
+            ? computeDatasetAvailability(dataset, diaCorte, val)
+            : availability;
+        const nextP =
+          val === 'custom' && next.cIni && next.cFim && next.cIni <= next.cFim
+            ? resolveEffectivePeriod(next, diaCorte, nextAvail, todayIso())
+            : val === ''
+              ? (nextAvail.availablePeriods[0]?.window ||
+                resolveEffectivePeriod(next, diaCorte, nextAvail, todayIso()))
+              : val !== 'custom'
+                ? periodOf(val, diaCorte)
+                : activePeriod;
+        const bounds = resolvePeriodDateBounds(nextP, prev.fDate, nextAvail, todayIso());
+        next.fDate = bounds.defaultDate;
+        return next;
+      }
+
+      if (
+        (key === 'cIni' || key === 'cFim') &&
+        next.fPer === 'custom' &&
+        next.cIni &&
+        next.cFim &&
+        next.cIni <= next.cFim
+      ) {
+        const nextP = resolveEffectivePeriod(next, diaCorte, availability, todayIso());
+        if (
+          !prev.fDate ||
+          prev.fDate < nextP.ini ||
+          prev.fDate > nextP.fim ||
+          (availability.datesWithData.size > 0 && !availability.datesWithData.has(prev.fDate))
+        ) {
+          const bounds = resolvePeriodDateBounds(nextP, prev.fDate, availability, todayIso());
+          next.fDate = bounds.defaultDate;
+        }
+        return next;
+      }
+
+      if (key === 'fDate' && availability.datesWithData.size > 0) {
+        const targetPeriod = resolveEffectivePeriod(next, diaCorte, availability, todayIso());
+        const bounds = resolvePeriodDateBounds(targetPeriod, prev.fDate, availability, todayIso());
+        next.fDate = clampDateToPeriodBounds(val, bounds);
+      }
+
+      return next;
+    });
+  }, [setFilters, dataset, availability, activePeriod]);
+
+  const resetFilters = useCallback(() => {
+    const latestDate =
+      availability.maxDatasetDate ||
+      dataset.watermark.ultima_data_hh ||
+      todayIso();
+    setFilters({
+      ...INITIAL_FILTERS,
+      fDate: latestDate
+    });
+  }, [setFilters, availability.maxDatasetDate, dataset.watermark.ultima_data_hh]);
+
+  // Ações de Simulação de Usuário
+  const openImpersonateModal = useCallback(() => {
+    if (!isRealAdmin) return;
+    setImpersonateModalOpen(true);
+  }, [isRealAdmin]);
+
+  const closeImpersonateModal = useCallback(() => {
+    setImpersonateModalOpen(false);
+  }, []);
+
+  const stopImpersonation = useCallback(() => {
+    restoredImpersonationRef.current = true;
+    setImpersonatedTarget(null);
+    setImpersonateModalOpen(false);
+    try {
+      sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
+    } catch {
+      // Ignora erro local
+    }
+    setFilters(prev => ({ ...prev, fResp: '', fPlat: '', fReg: '' }));
+    setJustModal(null);
+    setFichaMat(null);
+    setEmailModal(null);
+    setCarteiraModal(null);
+    showToast?.('Retornado à visualização de Administrador.', 'success');
+  }, [setFilters, showToast]);
+
+  const startImpersonation = useCallback((target: ImpersonationTarget) => {
+    if (!isRealAdmin) return;
+    restoredImpersonationRef.current = true;
+
+    if (realUserProfile && target.profile.id === realUserProfile.id) {
+      stopImpersonation();
+      return;
+    }
+
+    setImpersonatedTarget(target);
+    setImpersonateModalOpen(false);
+    try {
+      sessionStorage.setItem(IMPERSONATE_STORAGE_KEY, target.key);
+    } catch {
+      // Ignora erro local
+    }
+    setFilters(prev => ({ ...prev, fResp: '', fPlat: '', fReg: '' }));
+    setJustModal(null);
+    setFichaMat(null);
+    setEmailModal(null);
+    setCarteiraModal(null);
+
+    const targetIsGlobal = target.profile.role === 'admin' || target.profile.role === 'gestor';
+    if (
+      !targetIsGlobal &&
+      (activeTabRef.current === 'pes' ||
+        activeTabRef.current === 'imp' ||
+        activeTabRef.current === 'cfg' ||
+        activeTabRef.current === 'adm')
+    ) {
+      setActiveTab('ger');
+    }
+
+    const roleName = ROLES_LABEL[target.profile.role] || target.profile.role;
+    showToast?.(
+      `Modo de validação ativo: visualizando como ${target.profile.nome} (${roleName}).`,
+      'info'
+    );
+  }, [isRealAdmin, realUserProfile, stopImpersonation, setFilters, setActiveTab, showToast]);
+
+  const impersonateByPessoa = useCallback((pessoa: Pessoa) => {
+    if (!isRealAdmin) return;
+    const target = resolveImpersonationFromPessoa(pessoa, fullDataset);
+    startImpersonation(target);
+  }, [isRealAdmin, fullDataset, startImpersonation]);
+
+  const impersonateByProfile = useCallback((profile: UserProfile) => {
+    if (!isRealAdmin) return;
+    const target = resolveImpersonationFromProfile(profile, fullDataset);
+    startImpersonation(target);
+  }, [isRealAdmin, fullDataset, startImpersonation]);
+
+  // Sincroniza ou restaura simulação com os dados atualizados do contrato
+  useEffect(() => {
+    if (!authInitialized) return;
+    if (!isRealAdmin) {
+      if (impersonatedTarget) setImpersonatedTarget(null);
+      try {
+        sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
+      } catch {
+        // Ignora
+      }
+      return;
+    }
+
+    const hasDirectoryData =
+      Object.keys(fullDataset.pessoas || {}).length > 0 ||
+      Object.keys(fullDataset.profiles || {}).length > 0;
+    if (!hasDirectoryData) return;
+
+    const allTargets = buildImpersonationTargets(fullDataset, realUserProfile?.id);
+
+    if (impersonatedTarget) {
+      const refreshed = allTargets.find(t => t.key === impersonatedTarget.key);
+      if (!refreshed) {
+        setImpersonatedTarget(null);
+        try {
+          sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
+        } catch {
+          // Ignora
+        }
+      } else if (
+        refreshed.profile !== impersonatedTarget.profile ||
+        refreshed.pessoa !== impersonatedTarget.pessoa ||
+        refreshed.hasLoginAccount !== impersonatedTarget.hasLoginAccount
+      ) {
+        setImpersonatedTarget(refreshed);
+      }
+      return;
+    }
+
+    if (!restoredImpersonationRef.current) {
+      restoredImpersonationRef.current = true;
+      try {
+        const savedKey = sessionStorage.getItem(IMPERSONATE_STORAGE_KEY);
+        if (savedKey) {
+          const restored = allTargets.find(t => t.key === savedKey);
+          if (restored) {
+            setImpersonatedTarget(restored);
+          } else {
+            sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
+          }
+        }
+      } catch {
+        // Ignora
+      }
+    }
+  }, [authInitialized, isRealAdmin, fullDataset, realUserProfile?.id, impersonatedTarget]);
 
   // Carrega Autenticação Inicial e Preferências do Servidor
   const refreshAuth = useCallback(async () => {
     try {
       const scope = await fetchCurrentUserScope();
       if (scope) {
-        setUserProfile(scope.profile);
-        setPessoaScope(scope.pessoa);
-        setUserOnboarding(scope.onboarding);
+        setRealUserProfile(scope.profile);
+        setRealPessoaScope(scope.pessoa);
+        setRealUserOnboarding(scope.onboarding);
 
         const mergedPrefs: UserPreferences = {
           ...DEFAULT_USER_PREFERENCES,
@@ -373,15 +673,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Ignora erro local
         }
       } else {
-        setUserProfile(null);
-        setPessoaScope(null);
-        setUserOnboarding(null);
+        setRealUserProfile(null);
+        setRealPessoaScope(null);
+        setRealUserOnboarding(null);
       }
     } catch (err) {
       console.warn('Não foi possível carregar usuário ativo:', err);
-      setUserProfile(null);
-      setPessoaScope(null);
-      setUserOnboarding(null);
+      setRealUserProfile(null);
+      setRealPessoaScope(null);
+      setRealUserOnboarding(null);
     } finally {
       setAuthInitialized(true);
     }
@@ -392,16 +692,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await signOut();
     } finally {
       lastQueryRef.current = '';
+      queryScopeRef.current = '';
+      minQueryIniRef.current = '';
+      maxQueryFimRef.current = '';
+      restoredImpersonationRef.current = false;
       try {
         sessionStorage.removeItem('hhoff_session_tab');
+        sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
       } catch {
         // Ignora
       }
-      setDataset(INITIAL_DATASET);
+      setFullDataset(INITIAL_DATASET);
       setLoadError(null);
-      setUserProfile(null);
-      setPessoaScope(null);
-      setUserOnboarding(null);
+      setImpersonatedTarget(null);
+      setImpersonateModalOpen(false);
+      setRealUserProfile(null);
+      setRealPessoaScope(null);
+      setRealUserOnboarding(null);
       setRealtimeStatus('disconnected');
       setJustModal(null);
       setFichaMat(null);
@@ -421,14 +728,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userProfile, isGlobal, activeTab, setActiveTab]);
 
-  // Atualização de Preferências (persiste localmente + no Supabase user_onboarding)
+  // Atualização de Preferências (persiste localmente + no Supabase user_onboarding, exceto durante simulação)
   const updateUserPreferences = useCallback(async (partial: Partial<UserPreferences>) => {
     const next: UserPreferences = {
       ...userPreferences,
       ...partial
     };
     setUserPreferences(next);
-    setUserOnboarding(prev => (prev ? { ...prev, preferencias: next } : prev));
+    if (!isImpersonating) {
+      setRealUserOnboarding(prev => (prev ? { ...prev, preferencias: next } : prev));
+    }
     try {
       localStorage.setItem('hhoff_prefs', JSON.stringify(next));
       localStorage.setItem('hhoff_theme', next.themeMode === 'dark' ? 'dark' : 'light');
@@ -436,10 +745,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Ignora erro local
     }
 
-    if (userProfile) {
-      await saveOwnProfileAndPreferences(userProfile.nome, next);
+    if (realUserProfile && !isImpersonating) {
+      await saveOwnProfileAndPreferences(realUserProfile.nome, next);
     }
-  }, [userPreferences, userProfile]);
+  }, [userPreferences, realUserProfile, isImpersonating]);
 
   const setThemeMode = useCallback(async (mode: ThemeMode) => {
     await updateUserPreferences({ themeMode: mode });
@@ -450,28 +759,66 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateUserPreferences({ themeMode: nextMode }).catch(err => console.warn('Falha ao persistir tema:', err));
   }, [theme, updateUserPreferences]);
 
-  // Carregamento de Dados com Janelamento Automático (somente autenticado E com senha definitiva trocada)
+  // Carregamento de Dados com Janelamento Automático (usa a sessão real autenticada)
   const lastQueryRef = useRef<string>('');
 
   const reloadDataset = useCallback(async (): Promise<boolean> => {
-    if (!userProfile || requiresPasswordChange) return false;
+    if (!realUserProfile || requiresPasswordChange) return false;
     setIsLoading(true);
     setLoadError(null);
     try {
-      const ds = await loadAppDataset(queryWindow.queryIni, queryWindow.queryFim, isGlobal);
-      setDataset(ds);
+      const ds = await loadAppDataset(queryWindow.queryIni, queryWindow.queryFim, realIsGlobal);
+      setFullDataset(ds);
 
-      if (ds.watermark.ultima_data_hh) {
-        setFiltersState(prev => {
-          if (!prev.fDate || prev.fDate > ds.watermark.ultima_data_hh!) {
-            return {
-              ...prev,
-              fDate: ds.watermark.ultima_data_hh!
-            };
-          }
+      const avail = computeDatasetAvailability(ds, ds.config.dia_corte_medicao, '');
+      setFiltersState(prev => {
+        const effAvail =
+          prev.fPer && /^\d{4}-\d{2}$/.test(prev.fPer)
+            ? computeDatasetAvailability(ds, ds.config.dia_corte_medicao, prev.fPer)
+            : avail;
+        let nextPer = prev.fPer;
+        if (
+          nextPer &&
+          nextPer !== 'custom' &&
+          avail.datesWithData.size > 0 &&
+          !avail.availablePeriods.some(opt => opt.value === nextPer)
+        ) {
+          nextPer = '';
+        }
+        const activeAvail = nextPer ? effAvail : avail;
+        const nextFiltersBase: FilterState = { ...prev, fPer: nextPer };
+        const targetPeriod = resolveEffectivePeriod(
+          nextFiltersBase,
+          ds.config.dia_corte_medicao,
+          activeAvail,
+          todayIso()
+        );
+        const bounds = resolvePeriodDateBounds(
+          targetPeriod,
+          prev.fDate,
+          activeAvail,
+          todayIso()
+        );
+        const needsDateAdjust =
+          !prev.fDate ||
+          prev.fDate < bounds.minDate ||
+          prev.fDate > bounds.maxDate ||
+          (avail.datesWithData.size > 0 && !avail.datesWithData.has(prev.fDate));
+
+        if (!needsDateAdjust && nextPer === prev.fPer) {
           return prev;
-        });
-      }
+        }
+        const updated: FilterState = {
+          ...nextFiltersBase,
+          fDate: needsDateAdjust ? bounds.defaultDate : prev.fDate
+        };
+        try {
+          localStorage.setItem('hhoff_filters', JSON.stringify(updated));
+        } catch {
+          // Ignora erro de cota local
+        }
+        return updated;
+      });
       return true;
     } catch (err: any) {
       console.error('Erro ao carregar dataset do contrato:', err);
@@ -485,24 +832,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [userProfile, requiresPasswordChange, queryWindow.queryIni, queryWindow.queryFim, isGlobal, showToast]);
+  }, [realUserProfile, requiresPasswordChange, queryWindow.queryIni, queryWindow.queryFim, realIsGlobal, showToast]);
 
   useEffect(() => {
-    if (!authInitialized || !userProfile || requiresPasswordChange) {
+    if (!authInitialized || !realUserProfile || requiresPasswordChange) {
       lastQueryRef.current = '';
       return;
     }
 
-    const queryKey = `${userProfile.id}|${queryWindow.queryIni}|${queryWindow.queryFim}|${isGlobal}`;
+    const queryKey = `${realUserProfile.id}|${queryWindow.queryIni}|${queryWindow.queryFim}|${realIsGlobal}`;
     if (lastQueryRef.current !== queryKey) {
       lastQueryRef.current = queryKey;
       reloadDataset();
     }
-  }, [queryWindow.queryIni, queryWindow.queryFim, isGlobal, authInitialized, userProfile, requiresPasswordChange, reloadDataset]);
+  }, [queryWindow.queryIni, queryWindow.queryFim, realIsGlobal, authInitialized, realUserProfile, requiresPasswordChange, reloadDataset]);
 
   // Sincronização Realtime (somente após conclusão do primeiro login)
   useEffect(() => {
-    if (!authInitialized || !userProfile || requiresPasswordChange) return;
+    if (!authInitialized || !realUserProfile || requiresPasswordChange) return;
 
     setRealtimeStatus('connected');
     const unsubscribe = subscribeToRealtimeUpdates(() => {
@@ -512,7 +859,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => {
       unsubscribe();
     };
-  }, [authInitialized, userProfile, requiresPasswordChange, reloadDataset]);
+  }, [authInitialized, realUserProfile, requiresPasswordChange, reloadDataset]);
 
   const value = useMemo<AppContextValue>(() => ({
     authInitialized,
@@ -525,6 +872,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     scopeLabel,
     refreshAuth,
     logout,
+    isRealAdmin,
+    realUserProfile,
+    isImpersonating,
+    impersonatedTarget: activeImpersonation,
+    fullDataset,
+    impersonateModalOpen,
+    openImpersonateModal,
+    closeImpersonateModal,
+    startImpersonation,
+    impersonateByPessoa,
+    impersonateByProfile,
+    stopImpersonation,
     userPreferences,
     updateUserPreferences,
     themeMode: userPreferences.themeMode,
@@ -533,6 +892,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleTheme,
     dataset,
     pidx,
+    availability,
     activePeriod,
     isLoading,
     loadError,
@@ -571,6 +931,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     scopeLabel,
     refreshAuth,
     logout,
+    isRealAdmin,
+    realUserProfile,
+    isImpersonating,
+    activeImpersonation,
+    fullDataset,
+    impersonateModalOpen,
+    openImpersonateModal,
+    closeImpersonateModal,
+    startImpersonation,
+    impersonateByPessoa,
+    impersonateByProfile,
+    stopImpersonation,
     userPreferences,
     updateUserPreferences,
     setThemeMode,
@@ -578,6 +950,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleTheme,
     dataset,
     pidx,
+    availability,
     activePeriod,
     isLoading,
     loadError,

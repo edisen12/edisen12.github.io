@@ -49,7 +49,6 @@ type CategoryFilter = 'all' | 'usuarios' | 'seguranca' | 'configuracoes' | 'cada
 export const AdminAuditView: React.FC = () => {
   const {
     dataset,
-    isGlobal,
     isAdmin,
     isRealAdmin,
     impersonateByProfile,
@@ -257,8 +256,8 @@ export const AdminAuditView: React.FC = () => {
     }
   };
 
-  // Verificação de Restrição
-  if (!isGlobal && !isAdmin) {
+  // Verificação de Restrição: trilha de auditoria e governança são exclusivas do Administrador
+  if (!isAdmin) {
     return (
       <div className="card note note-bad" style={{ margin: '24px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

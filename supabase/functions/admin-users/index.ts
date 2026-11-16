@@ -35,6 +35,16 @@ interface CallerProfile {
   ativo: boolean;
 }
 
+function validateProvisionalPassword(password: unknown): string | null {
+  if (typeof password !== 'string' || password.length < 8) {
+    return 'A senha provisória deve conter no mínimo 8 caracteres.';
+  }
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    return 'A senha provisória deve combinar letras e números.';
+  }
+  return null;
+}
+
 Deno.serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -201,9 +211,10 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      if (typeof password !== 'string' || password.length < 8) {
+      const pwdErr = validateProvisionalPassword(password);
+      if (pwdErr) {
         return new Response(
-          JSON.stringify({ ok: false, message: 'A senha provisória deve conter no mínimo 8 caracteres.' }),
+          JSON.stringify({ ok: false, message: pwdErr }),
           { status: 400, headers: corsHeaders }
         );
       }
@@ -477,6 +488,13 @@ Deno.serve(async (req: Request) => {
       if (!userId || typeof newPassword !== 'string' || newPassword.length < 8) {
         return new Response(
           JSON.stringify({ ok: false, message: 'Usuário inválido ou nova senha com menos de 8 caracteres.' }),
+          { status: 400, headers: corsHeaders }
+        );
+      }
+      const pwdErr = validateProvisionalPassword(newPassword);
+      if (pwdErr) {
+        return new Response(
+          JSON.stringify({ ok: false, message: pwdErr }),
           { status: 400, headers: corsHeaders }
         );
       }

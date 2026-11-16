@@ -23,6 +23,7 @@ import { useToast } from '../components/ToastContext';
 import { adminManageUser } from '../../services/auth.service';
 import { deleteUserAccount, logSystemEvent } from '../../services/data.service';
 import { ROLES_LABEL } from '../../config/constants';
+import { validateStrongPasswordPolicy } from '../../utils/lgpd';
 import type { UserProfile } from '../../domain/types';
 
 // ==============================================================================
@@ -51,8 +52,9 @@ export const NovoAdminModal: React.FC<NovoAdminModalProps> = ({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!nome.trim() || !email.trim() || password.length < 8) {
-      setErrorMsg('Preencha todos os campos obrigatórios. A senha deve ter no mínimo 8 caracteres.');
+    const pwdErr = validateStrongPasswordPolicy(password);
+    if (!nome.trim() || !email.trim() || pwdErr) {
+      setErrorMsg(pwdErr || 'Preencha nome completo e e-mail válidos.');
       return;
     }
 
@@ -240,8 +242,9 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
 
   const handleResetPassword = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (password.length < 8) {
-      setErrorMsg('A senha provisória deve conter no mínimo 8 caracteres.');
+    const pwdErr = validateStrongPasswordPolicy(password);
+    if (pwdErr) {
+      setErrorMsg(pwdErr);
       return;
     }
 

@@ -1297,5 +1297,202 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       expect(totalRow[1]).toBeCloseTo(3.95, 5);
       expect(diffRow[1]).toBe(0);
     });
+
+    it('exportUsoffXlsx e exportUsoffPortalOffshoreXlsx incluem HCD (Diária), HC + HCD e (HC + HCD) ÷ HD sem duplicar unidades com carteira', async () => {
+      const capturedBlobs: Blob[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-hcd';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      const base = createTestDataset();
+      const dsHcd = createTestDataset({
+        config: {
+          ...mockContractConfig,
+          hh_dia: 11,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70,
+          med_criterio: 'enc'
+        },
+        plataformas: {
+          ...base.plataformas,
+          UMPT: {
+            sigla: 'UMPT',
+            chave_norm: 'umpt',
+            nome: 'UMPT',
+            un: 'UMPT',
+            armador: 'Armador Teste',
+            gerencia: '',
+            tipo: 'UMS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          },
+          URC1: {
+            sigla: 'URC1',
+            chave_norm: 'urc1',
+            nome: 'Base Urucu',
+            un: 'Urucu (UN-AM)',
+            armador: '',
+            gerencia: 'UN-AM',
+            tipo: 'Onshore',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          }
+        },
+        usoffUnWeights: {
+          ...base.usoffUnWeights,
+          UMPT: { unidade_negocio: 'UMPT', pe: 0, ex: 0, tipo_medicao: 'diaria' },
+          'Urucu (UN-AM)': { unidade_negocio: 'Urucu (UN-AM)', pe: 0.30, ex: 0.70, tipo_medicao: 'diaria' }
+        },
+        carteira: [
+          {
+            id: 'emb-umpt-x',
+            id_embarque: '96001',
+            matricula: '1001',
+            plataforma_sigla: 'UMPT',
+            unidade_negocio: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 0,
+            hh_carteira: 0,
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'emb-urc-x',
+            id_embarque: '96002',
+            matricula: '1002',
+            plataforma_sigla: 'URC1',
+            unidade_negocio: 'Urucu (UN-AM)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 60,
+            hh_carteira: 60,
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-umpt-x',
+            portal_id: '96001',
+            id_embarque: '96001',
+            matricula: '1001',
+            chave_petrobras: 'CH1',
+            nome: 'Tecnico Teste',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UMPT',
+            unidade_negocio: 'UMPT',
+            plataforma_sigla: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: 'ORD-UMPT-X',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Sem Apontamento',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'op-urc-x',
+            portal_id: '96002',
+            id_embarque: '96002',
+            matricula: '1002',
+            chave_petrobras: 'CH2',
+            nome: 'Tecnico Urucu',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-AM',
+            unidade_negocio: 'Urucu (UN-AM)',
+            plataforma_sigla: 'URC1',
+            unidade_negocio_origem: undefined,
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: 'ORD-URC-X',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 60,
+            hh_confirmado: 50,
+            hh_confirmado_sap: 50,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          } as any
+        ],
+        confirmacoesSap: [
+          {
+            id: 'sap-urc-x',
+            matricula: '1002',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: 'ORD-URC-X',
+            operacao: '0010',
+            horas_confirmadas: 50,
+            contador_confirmacao: 1,
+            id_embarque: '96002',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      const period: PeriodWindow = { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' };
+      const emptyFilters = { fDate: '', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' };
+
+      // 1. exportUsoffXlsx
+      await exportUsoffXlsx(dsHcd, period);
+      expect(capturedBlobs).toHaveLength(1);
+      const wb1 = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      const resumoUsoff = XLSX.utils.sheet_to_json<any[]>(wb1.Sheets['Resumo USOFF'], { header: 1 });
+      const hcdRow = resumoUsoff.find(r => String(r[0]).startsWith('HCD'))!;
+      const totalConfRow = resumoUsoff.find(r => String(r[0]).startsWith('HC + HCD'))!;
+      const pctDispRow = resumoUsoff.find(r => r[0] === '(HC + HCD) ÷ HD')!;
+      expect(hcdRow[1]).toBe(100);
+      expect(totalConfRow[1]).toBe(150);
+      expect(pctDispRow[1]).toBeCloseTo(150 / 220, 3);
+
+      const embUsoffAoa = XLSX.utils.sheet_to_json<any[]>(wb1.Sheets['Por embarque'], { header: 1 });
+      expect(embUsoffAoa[0]).toContain('HCD (Diária)');
+      expect(embUsoffAoa[0]).toContain('(HC + HCD) ÷ HD');
+
+      // 2. exportUsoffPortalOffshoreXlsx
+      await exportUsoffPortalOffshoreXlsx(dsHcd, period, emptyFilters);
+      expect(capturedBlobs).toHaveLength(2);
+      const wb2 = XLSX.read(await capturedBlobs[1].arrayBuffer(), { type: 'array' });
+      const aba2Aoa = XLSX.utils.sheet_to_json<any[]>(wb2.Sheets['Por Embarque (ID)'], { header: 1 });
+      const aba2Head = aba2Aoa[0];
+      const hcdIdx = aba2Head.indexOf('HCD (Diária)');
+      const hcHcdIdx = aba2Head.indexOf('HC + HCD');
+      const pctIdx = aba2Head.indexOf('(HC + HCD) ÷ HD (%)');
+      expect(hcdIdx).toBeGreaterThan(-1);
+      expect(hcHcdIdx).toBeGreaterThan(-1);
+      expect(pctIdx).toBeGreaterThan(-1);
+
+      const rowUmpt = aba2Aoa.slice(1).find(r => r[0] === '96001')!;
+      const rowUrc = aba2Aoa.slice(1).find(r => r[0] === '96002')!;
+      expect(rowUmpt[hcdIdx]).toBe(100);
+      expect(rowUmpt[hcHcdIdx]).toBe(100);
+      expect(rowUrc[hcdIdx]).toBe(0);
+      expect(rowUrc[hcHcdIdx]).toBe(50);
+
+      const aba3Aoa = XLSX.utils.sheet_to_json<any[]>(wb2.Sheets['Resumo Validação'], { header: 1 });
+      expect(aba3Aoa.find(r => r[0] === 'Diferença (Painel − Soma da Aba 1)')![1]).toBe(0);
+      expect(aba3Aoa.find(r => String(r[0]).startsWith('HCD'))![1]).toBe(100);
+      expect(aba3Aoa.find(r => r[0] === 'HC + HCD · confirmado total')![1]).toBe(150);
+    });
   });
 });

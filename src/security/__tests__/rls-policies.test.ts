@@ -24,6 +24,10 @@ import {
   mockOnboardings,
   createInitialMockDatabaseState
 } from '../../test/testFixtures';
+import {
+  collectVisibleTecnicoMatriculas,
+  filterScopedConfirmacoesSap
+} from '../../utils/lgpd';
 
 // ------------------------------------------------------------------------------
 // Lista Exaustiva das 18 Tabelas Públicas do Sistema com RLS Obrigatório
@@ -195,8 +199,19 @@ export function evaluateRlsSelect(
       return userPessoas.includes(row.pessoa_id);
     }
 
-    case 'tecnicos':
-      return true; // auth_is_active() já validado no topo
+    case 'tecnicos': {
+      if (isGlobal) return true;
+      const allowedPlats = auth_allowed_platforms(state, uid);
+      const allowedUns = auth_allowed_uns(state, uid);
+      const matchPlace = (r: any) =>
+        allowedPlats.includes(r.plataforma_sigla) || allowedUns.includes(r.unidade_negocio);
+      const visibleMats = collectVisibleTecnicoMatriculas(
+        (state.tables.carteira_embarques || []).filter(matchPlace),
+        (state.tables.carteira_operacoes || []).filter(matchPlace),
+        (state.tables.apontamentos_hh || []).filter(matchPlace)
+      );
+      return visibleMats.has(row.matricula);
+    }
 
     case 'carteira_embarques':
       return (
@@ -216,15 +231,15 @@ export function evaluateRlsSelect(
       if (isGlobal) return true;
       const allowedPlats = auth_allowed_platforms(state, uid);
       const allowedUns = auth_allowed_uns(state, uid);
-      return (state.tables.carteira_embarques || []).some(
-        (ce: any) =>
-          ce.matricula === row.matricula &&
-          (allowedPlats.includes(ce.plataforma_sigla) || allowedUns.includes(ce.unidade_negocio))
-      );
+      const matchPlace = (r: any) =>
+        allowedPlats.includes(r.plataforma_sigla) || allowedUns.includes(r.unidade_negocio);
+      const scopedCart = (state.tables.carteira_embarques || []).filter(matchPlace);
+      const scopedOps = (state.tables.carteira_operacoes || []).filter(matchPlace);
+      return filterScopedConfirmacoesSap([row], scopedCart, scopedOps).length > 0;
     }
 
     case 'system_audit_logs':
-      return isGlobal; // Restrito exclusivamente a perfis globais (admin/gestor)
+      return auth_is_admin(state, uid); // Migration 029: restrito exclusivamente a administradores ativos
 
     case 'apontamentos_hh':
       return (
@@ -1135,11 +1150,15 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(evaluateRlsUpdate('profiles', profileRow, { nome: 'X' }, dbState, mockUsers.admin.id).allowed).toBe(true);
     });
 
-    it('tecnicos: qualquer usuário ativo pode consultar, mas escrita é exclusiva de admin/gestor', async () => {
+    it('tecnicos: preposto lê apenas técnicos de suas plataformas/UNs (minimização LGPD) e escrita é exclusiva de admin/gestor', async () => {
       const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
       const selTec = await prepostoClient.from('tecnicos').select('*');
       expect(selTec.error).toBeNull();
-      expect(selTec.data.length).toBeGreaterThan(0);
+      const visibleMats = selTec.data.map((t: any) => t.matricula);
+      expect(visibleMats).toContain('1001'); // P50 (escopo do preposto)
+      expect(visibleMats).toContain('1002'); // P74 (escopo do preposto)
+      expect(visibleMats).not.toContain('1003'); // P25 (fora do escopo)
+      expect(visibleMats).not.toContain('1004'); // sem registro no escopo
 
       const insTec = await prepostoClient.from('tecnicos').insert({
         matricula: '9999',
@@ -1198,15 +1217,25 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(insRes.error.message).toContain('restrita a perfis globais');
     });
 
-    it('confirmacoes_sap: preposto lê apenas confirmações de técnicos presentes em sua carteira, escrita restrita a globais', async () => {
+    it('confirmacoes_sap: preposto lê apenas confirmações do id_embarque ou janela [início, fim+4d] em sua carteira, bloqueando vazamento cruzado da mesma matrícula em outra plataforma', async () => {
       dbState.tables.carteira_embarques = [
         {
           id: 'emb-p50',
+          id_embarque: '55101',
           matricula: '1001',
           plataforma_sigla: 'P50',
           unidade_negocio: 'UN-RIO',
           data_inicio: '2026-10-01',
           data_fim: '2026-10-14'
+        },
+        {
+          id: 'emb-p25',
+          id_embarque: '55202',
+          matricula: '1001',
+          plataforma_sigla: 'P25',
+          unidade_negocio: 'Bacia de Campos (UN-BC)',
+          data_inicio: '2026-10-20',
+          data_fim: '2026-10-30'
         }
       ];
 
@@ -1214,13 +1243,29 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
         {
           id: 'sap-1',
           matricula: '1001',
+          id_embarque: '55101',
+          data_lancamento: '2026-10-05',
+          data_fim_real: '2026-10-05',
           ordem: 'ORD-1',
           operacao: 'OP-1',
           horas_confirmadas: 10
         },
         {
+          id: 'sap-cross-plat',
+          matricula: '1001', // Mesmo técnico em outra plataforma (P25)
+          id_embarque: '55202',
+          data_lancamento: '2026-10-22',
+          data_fim_real: '2026-10-22',
+          ordem: 'ORD-P25',
+          operacao: 'OP-P25',
+          horas_confirmadas: 12
+        },
+        {
           id: 'sap-2',
           matricula: '1003', // Técnico de P25 fora do escopo
+          id_embarque: '',
+          data_lancamento: '2026-10-12',
+          data_fim_real: '2026-10-12',
           ordem: 'ORD-2',
           operacao: 'OP-2',
           horas_confirmadas: 10
@@ -1230,21 +1275,17 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
       const { data, error } = await prepostoClient.from('confirmacoes_sap').select('*');
       expect(error).toBeNull();
-      expect(data.length).toBe(1);
-      expect(data[0].id).toBe('sap-1');
+      expect(data.map((r: any) => r.id)).toEqual(['sap-1']);
 
       const updRes = await prepostoClient.from('confirmacoes_sap').update({ horas_confirmadas: 20 }).eq('id', 'sap-1');
       expect(updRes.error).not.toBeNull();
       expect(updRes.error.message).toContain('restrita a perfis globais');
     });
 
-    it('system_audit_logs: WORM absoluto (INSERT permitido, UPDATE/DELETE terminantemente bloqueados)', async () => {
+    it('system_audit_logs: WORM absoluto e leitura restrita exclusivamente a Administradores (bloqueado para preposto e gestor)', async () => {
       const adminClient = createRlsClient(dbState, { id: mockUsers.admin.id, email: mockUsers.admin.email });
+      const gestorClient = createRlsClient(dbState, { id: mockUsers.gestor.id, email: mockUsers.gestor.email });
       const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
-
-      // Preposto recebe 0 linhas ao consultar logs
-      const prepostoSel = await prepostoClient.from('system_audit_logs').select('*');
-      expect(prepostoSel.data).toEqual([]);
 
       // Sessão autenticada pode inserir log de auditoria
       const insRes = await prepostoClient.from('system_audit_logs').insert({
@@ -1253,6 +1294,16 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
         category: 'seguranca'
       });
       expect(insRes.error).toBeNull();
+
+      // Preposto e Gestor recebem 0 linhas ao consultar logs (Migration 029: adminOnly)
+      const prepostoSel = await prepostoClient.from('system_audit_logs').select('*');
+      expect(prepostoSel.data).toEqual([]);
+      const gestorSel = await gestorClient.from('system_audit_logs').select('*');
+      expect(gestorSel.data).toEqual([]);
+
+      // Somente Administrador lê a trilha completa
+      const adminSel = await adminClient.from('system_audit_logs').select('*');
+      expect(adminSel.data.length).toBeGreaterThan(0);
 
       // UPDATE é bloqueado pela política WORM até para Administrador
       const updRes = await adminClient.from('system_audit_logs').update({ action: 'tampered' }).eq('id', 'log-test-1');
@@ -1433,6 +1484,41 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(sql).toMatch(/u\.data_fim_real\s*<=\s*sib\.emb_data_fim/i);
       expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) FROM PUBLIC, anon/i);
       expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.reconciliar_confirmacoes_sap\(\) TO authenticated/i);
+    });
+
+    it('Migration 029: endurece RLS LGPD (tecnicos, confirmacoes_sap, audit_logs apenas admin), corrige fn_audit_tecnicos e cria RPC anonimizar_tecnico_lgpd', () => {
+      const sql = readMigration('029_lgpd_hardening.sql');
+      expect(sql).toMatch(/CREATE POLICY "tecnicos_select_policy" ON public\.tecnicos/i);
+      expect(sql).toMatch(/CREATE POLICY "confirmacoes_sap_select_policy" ON public\.confirmacoes_sap/i);
+      expect(sql).toMatch(/CREATE POLICY system_audit_logs_select_policy ON public\.system_audit_logs/i);
+      expect(sql).toMatch(/CREATE POLICY justificativas_audit_log_select ON public\.justificativas_audit_log/i);
+      expect(sql).toMatch(/auth_is_admin\(\)/i);
+      expect(sql).toMatch(/fn_get_current_actor_context\(\)/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.anonimizar_tecnico_lgpd\(p_matricula text\)/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public, pg_catalog/i);
+      expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.anonimizar_tecnico_lgpd\(text\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.anonimizar_tecnico_lgpd\(text\) TO authenticated, service_role/i);
+    });
+
+    it('Migration 030: remove política legada "tecnicos_select" e revoga EXECUTE de funções exclusivamente de trigger', () => {
+      const sql = readMigration('030_drop_legacy_tecnicos_select_and_harden_triggers.sql');
+      expect(sql).toMatch(/DROP POLICY IF EXISTS "tecnicos_select" ON public\.tecnicos/i);
+      expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.fn_normalize_carteira_operacoes_ids\(\) FROM PUBLIC, anon, authenticated/i);
+      expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.fn_sanitize_carteira_plataforma\(\) FROM PUBLIC, anon, authenticated/i);
+      expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.sync_carteira_embarques_from_operacoes\(\) FROM PUBLIC, anon, authenticated/i);
+    });
+
+    it('Migration 031: cria índice FK em justificativas_audit_log, otimiza RLS, reforça CHECK constraints e cria RPCs atômicas', () => {
+      const sql = readMigration('031_atomic_rpcs_constraints_and_advisors.sql');
+      expect(sql).toMatch(/idx_just_audit_log_modificado_por/i);
+      expect(sql).toMatch(/\(SELECT auth\.role\(\)\)/i);
+      expect(sql).toMatch(/chk_configuracoes_valores_positivos/i);
+      expect(sql).toMatch(/chk_carteira_embarques_hh_nao_negativo/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.save_pessoa_with_scopes\(/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.delete_tecnico_atomic\(/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.save_pessoa_with_scopes/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.delete_tecnico_atomic/i);
     });
   });
 });

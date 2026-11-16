@@ -431,7 +431,12 @@ describe('Shell Responsivo & UI de Instalação PWA', () => {
       localStorage.setItem('hhoff_sidebar_collapsed', 'true');
       const onCloseMobile = vi.fn();
       const setActiveTab = vi.fn();
-      setupMockApp({ setActiveTab, isGlobal: true });
+      setupMockApp({
+        setActiveTab,
+        isGlobal: true,
+        isAdmin: true,
+        userProfile: { ...MOCK_USER, role: 'admin' }
+      });
 
       const { container } = render(
         <Sidebar mobileOpen={true} onCloseMobile={onCloseMobile} />

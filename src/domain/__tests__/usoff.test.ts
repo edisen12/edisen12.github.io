@@ -1756,4 +1756,443 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       expect(summary.us).toBeCloseTo(3.95, 5);
     });
   });
+
+  describe('8. HCD (Confirmação por Diária) e percentual real (HC + HCD) ÷ HD com antiduplicidade', () => {
+    it('calcula HCD = dias * 10 apenas para Diária sem carteira/HP e sem confirmação SAP (ex.: UMPT)', () => {
+      const dataset = createBaseDataset({
+        plataformas: {
+          UMPT: {
+            sigla: 'UMPT',
+            chave_norm: 'umpt',
+            nome: 'Unidade Marítima UMPT',
+            un: 'UMPT',
+            armador: 'Armador Teste',
+            gerencia: '',
+            tipo: 'UMS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          }
+        },
+        usoffUnWeights: {
+          UMPT: { unidade_negocio: 'UMPT', pe: 0, ex: 0, tipo_medicao: 'diaria' }
+        },
+        carteira: [
+          {
+            id: 'emb-umpt',
+            id_embarque: '71001',
+            matricula: '1001',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'UMPT',
+            unidade_negocio: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 0
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-umpt-1',
+            portal_id: '71001',
+            id_embarque: '71001',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'UMPT',
+            unidade_negocio: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: 'ORD-UMPT-1',
+            operacao: 'OP-0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      expect(embarques).toHaveLength(1);
+      const emb = embarques[0];
+      expect(emb.dias).toBe(14);
+      expect(emb.hd).toBe(154); // 14 * 11
+      expect(emb.hp).toBe(0);
+      expect(emb.hc).toBe(0); // HC permanece estritamente SAP
+      expect(emb.hDiaria).toBe(140); // 14 * 10
+      expect(emb.hcComDiaria).toBe(140);
+      expect(emb.pD).toBeCloseTo((140 / 154) * 100, 4);
+      expect(emb.pP).toBeNull();
+      expect(emb.us).toBe(140);
+    });
+
+    it('mantém HC ÷ HP inalterado e calcula (HC + HCD) ÷ HD em carteira mista com HH + UMPT/UMTJ + Urucu (antiduplicidade)', () => {
+      const dataset = createBaseDataset({
+        config: {
+          ...DEFAULT_CONFIG,
+          us_pe_padrao: 0.3,
+          us_ex_padrao: 0.7,
+          med_criterio: 'enc'
+        },
+        plataformas: {
+          P58: {
+            sigla: 'P58',
+            chave_norm: 'p58',
+            nome: 'P-58',
+            un: 'Espírito Santo (UN-ES)',
+            armador: 'Petrobras',
+            gerencia: '',
+            tipo: 'UEP',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          },
+          UMPT: {
+            sigla: 'UMPT',
+            chave_norm: 'umpt',
+            nome: 'UMPT',
+            un: 'UMPT',
+            armador: 'Armador Teste',
+            gerencia: '',
+            tipo: 'UMS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          },
+          UMTJ: {
+            sigla: 'UMTJ',
+            chave_norm: 'umtj',
+            nome: 'UMTJ',
+            un: 'UMTJ',
+            armador: 'Armador Teste',
+            gerencia: '',
+            tipo: 'UMS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          },
+          URC1: {
+            sigla: 'URC1',
+            chave_norm: 'urc1',
+            nome: 'Base Urucu',
+            un: 'Urucu (UN-AM)',
+            armador: '',
+            gerencia: 'UN-AM',
+            tipo: 'Onshore',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          }
+        },
+        usoffUnWeights: {
+          UMPT: { unidade_negocio: 'UMPT', pe: 0, ex: 0, tipo_medicao: 'diaria' },
+          UMTJ: { unidade_negocio: 'UMTJ', pe: 0, ex: 0, tipo_medicao: 'diaria' },
+          'Urucu (UN-AM)': { unidade_negocio: 'Urucu (UN-AM)', pe: 0.3, ex: 0.7, tipo_medicao: 'diaria' }
+        },
+        carteira: [
+          {
+            id: 'emb-hh',
+            id_embarque: '81001',
+            matricula: '1001',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 100
+          },
+          {
+            id: 'emb-umpt',
+            id_embarque: '81002',
+            matricula: '1002',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'UMPT',
+            unidade_negocio: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 0
+          },
+          {
+            id: 'emb-umtj',
+            id_embarque: '81003',
+            matricula: '1003',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'UMTJ',
+            unidade_negocio: 'UMTJ',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-05',
+            horas_programadas: 0
+          },
+          {
+            id: 'emb-urucu-exec',
+            id_embarque: '81004',
+            matricula: '1004',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'URC1',
+            unidade_negocio: 'Urucu (UN-AM)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            horas_programadas: 60
+          },
+          {
+            id: 'emb-urucu-sem-sap',
+            id_embarque: '81005',
+            matricula: '1005',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'URC1',
+            unidade_negocio: 'Urucu (UN-AM)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-05',
+            horas_programadas: 40
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-hh',
+            portal_id: '81001',
+            id_embarque: '81001',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Técnico Um',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: 'ORD-1',
+            operacao: 'OP-1',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 100,
+            hh_confirmado: 92,
+            hh_confirmado_sap: 92,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-umpt',
+            portal_id: '81002',
+            id_embarque: '81002',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Técnico Dois',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'UMPT',
+            unidade_negocio: 'UMPT',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: 'ORD-2',
+            operacao: 'OP-2',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Sem Apontamento',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-umtj',
+            portal_id: '81003',
+            id_embarque: '81003',
+            matricula: '1003',
+            chave_petrobras: '',
+            nome: 'Técnico Três',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'UMTJ',
+            unidade_negocio: 'UMTJ',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-05',
+            ordem: 'ORD-3',
+            operacao: 'OP-3',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Sem Apontamento',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-urc-1',
+            portal_id: '81004',
+            id_embarque: '81004',
+            matricula: '1004',
+            chave_petrobras: '',
+            nome: 'Técnico Quatro',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'URC1',
+            unidade_negocio: 'Urucu (UN-AM)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-10',
+            ordem: 'ORD-4',
+            operacao: 'OP-4',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 60,
+            hh_confirmado: 50,
+            hh_confirmado_sap: 50,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          },
+          {
+            id: 'op-urc-2',
+            portal_id: '81005',
+            id_embarque: '81005',
+            matricula: '1005',
+            chave_petrobras: '',
+            nome: 'Técnico Cinco',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'URC1',
+            unidade_negocio: 'Urucu (UN-AM)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-05',
+            ordem: 'ORD-5',
+            operacao: 'OP-5',
+            status_processamento: 'Pendente',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 40,
+            hh_confirmado: 0,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 0,
+            status_divergencia: 'Não Apontado',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      const byId = (id: string) => embarques.find(e => e.id_embarque === id)!;
+
+      // UMPT (10d) e UMTJ (5d) sem carteira/SAP recebem HCD = dias * 10
+      expect(byId('81002').hDiaria).toBe(100);
+      expect(byId('81003').hDiaria).toBe(50);
+      // HH comum não recebe HCD
+      expect(byId('81001').hDiaria).toBe(0);
+      // Urucu (Diária COM carteira/HP > 0) nunca entra em HCD para evitar duplicidade
+      expect(byId('81004').hDiaria).toBe(0);
+      expect(byId('81005').hDiaria).toBe(0);
+
+      const summary = summarizeUsoff(embarques);
+      expect(summary.n).toBe(5);
+      expect(summary.hp).toBe(200); // 100 + 60 + 40
+      expect(summary.hc).toBe(142); // 92 + 50 (HC estritamente SAP)
+      expect(summary.hDiaria).toBe(150); // 100 + 50
+      expect(summary.hcComDiaria).toBe(292); // 142 + 150
+      expect(summary.hd).toBe(440); // (10 + 10 + 5 + 10 + 5) * 11 = 440
+      expect(summary.pP).toBeCloseTo((142 / 200) * 100, 4); // HC ÷ HP intacto (71%)
+      expect(summary.pD).toBeCloseTo((292 / 440) * 100, 4); // (HC + HCD) ÷ HD real
+    });
+
+    it('não duplica HCD em unidade Diária sem carteira quando já existe confirmação SAP (ex.: HFAB)', () => {
+      const dataset = createBaseDataset({
+        plataformas: {
+          HFAB: {
+            sigla: 'HFAB',
+            chave_norm: 'hfab',
+            nome: 'B/A Far Saga',
+            un: 'Armador',
+            armador: 'Farstad',
+            gerencia: '',
+            tipo: 'AHTS',
+            situacao: 'Mobilizada',
+            cadastro_pendente: false
+          }
+        },
+        carteira: [
+          {
+            id: 'cart-hfab-antidup',
+            id_embarque: '56299',
+            matricula: '1002',
+            operacao: '',
+            pe: null,
+            ex: null,
+            fonte: 'portal',
+            plataforma_sigla: 'HFAB',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-07',
+            horas_programadas: 0
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-hfab-sap',
+            portal_id: '56299',
+            id_embarque: '56299',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Técnico Dois',
+            empresa: 'Infotec Brasil',
+            estrutura: '',
+            plataforma_sigla: 'HFAB',
+            unidade_negocio: 'Armador',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-07',
+            ordem: 'ORD-HFAB',
+            operacao: 'OP-1',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Fora da carteira',
+            hh_programado: 0,
+            hh_confirmado: 70,
+            hh_confirmado_sap: 70,
+            divergencia_sap: 0,
+            status_divergencia: 'OK',
+            recursos: 1,
+            fonte: 'portal'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      expect(embarques).toHaveLength(1);
+      expect(embarques[0].hc).toBe(70);
+      expect(embarques[0].hDiaria).toBe(0);
+      expect(embarques[0].hcComDiaria).toBe(70);
+    });
+  });
 });

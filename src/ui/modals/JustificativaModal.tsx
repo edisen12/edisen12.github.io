@@ -5,6 +5,10 @@ import { useToast } from '../components/ToastContext';
 import { Modal } from '../components/Modal';
 import { MOTIVOS_JUSTIFICATIVA, ROLES_LABEL } from '../../config/constants';
 import {
+  containsSensitiveHealthTerms,
+  isHealthJustificationMotivo
+} from '../../utils/lgpd';
+import {
   accumulateEmbarkation,
   inferEmbarkation,
   resolveLocation,
@@ -86,6 +90,7 @@ export function JustificativaModal() {
 
   const nomeTecnico = resolveTechName(mat, dataset);
   const isGw = motivo === 'Gangway desconectada';
+  const isHealthMotivo = isHealthJustificationMotivo(motivo);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,6 +103,13 @@ export function JustificativaModal() {
 
     if (motivo === 'Outro' && !descricao.trim()) {
       setErrorMsg('A descrição é obrigatória quando o motivo for "Outro".');
+      return;
+    }
+
+    if (containsSensitiveHealthTerms(descricao)) {
+      setErrorMsg(
+        'Conformidade LGPD (Art. 11): não registre código CID, diagnóstico médico, exames ou sintomas na descrição operacional. Informe apenas o enquadramento contratual/operacional (ex.: "Afastamento documentado via RH").'
+      );
       return;
     }
 
@@ -225,8 +237,19 @@ export function JustificativaModal() {
                   {m}
                 </option>
               ))}
+              {motivo && !MOTIVOS_JUSTIFICATIVA.includes(motivo as (typeof MOTIVOS_JUSTIFICATIVA)[number]) && (
+                <option value={motivo}>{motivo} (legado)</option>
+              )}
             </select>
           </label>
+
+          {isHealthMotivo && (
+            <div className="note note-warn" role="alert" style={{ fontSize: '0.82rem', lineHeight: 1.4 }}>
+              <b>Proteção de Dados Sensíveis (LGPD Art. 11):</b> não informe CID, diagnóstico clínico,
+              sintomas ou anexos médicos na descrição abaixo. Registre apenas a condição operacional
+              (ex.: &quot;Afastamento comunicado ao RH — dia não trabalhado&quot;).
+            </div>
+          )}
 
           {isGw && (
             <label className="fld">
@@ -277,12 +300,16 @@ export function JustificativaModal() {
           <label className="fld">
             <span>
               <span>Descrição {motivo === 'Outro' ? <strong style={{ color: 'var(--bad)' }}>(obrigatória para &quot;Outro&quot;)</strong> : '(opcional)'}</span>
-              <span className="fld-hint">Detalhes operacionais</span>
+              <span className="fld-hint">Somente fatos operacionais — proibido CID ou diagnóstico (LGPD)</span>
             </span>
             <textarea
               value={descricao}
               onChange={e => setDescricao(e.target.value)}
-              placeholder="O que aconteceu no dia…"
+              placeholder={
+                isHealthMotivo
+                  ? 'Ex.: Afastamento comunicado ao RH (sem informar CID ou detalhes clínicos)…'
+                  : 'O que aconteceu no dia…'
+              }
               rows={3}
               className="form-textarea"
             />

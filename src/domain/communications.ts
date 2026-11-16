@@ -365,11 +365,17 @@ export const buildDailyAlertText = (
 export const buildMailLinks = (
   to: string[] | string,
   subject: string,
-  body: string
+  body: string,
+  options?: { omitBodyInWebUrl?: boolean }
 ): { mailtoUrl: string; outlookWebUrl: string } => {
   const toStr = Array.isArray(to) ? to.join('; ') : to;
   const su = encodeURIComponent(subject);
   const bo = encodeURIComponent(body);
+  const webBody = options?.omitBodyInWebUrl
+    ? encodeURIComponent(
+        'Conteúdo operacional copiado para a área de transferência (omitido da URL por política LGPD).'
+      )
+    : bo;
 
   // Sanitiza cada endereço de e-mail contra Header/Query Injection (?, &, #, ", quebras de linha)
   const toClean = toStr
@@ -382,6 +388,6 @@ export const buildMailLinks = (
     mailtoUrl: `mailto:${toClean}?subject=${su}&body=${bo}`,
     outlookWebUrl: `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(
       toClean
-    )}&subject=${su}&body=${bo}`
+    )}&subject=${su}&body=${webBody}`
   };
 };

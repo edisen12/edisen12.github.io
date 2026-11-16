@@ -167,7 +167,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(screen.getByRole('button', { name: /Configurações do usuário/i })).not.toBeNull();
     });
 
-    it('Gestor tem acesso a todas as 10 abas do sistema + perfil no rodapé', () => {
+    it('Gestor tem acesso às abas globais (pes/imp/cfg) e bloqueio do Painel do Administrador (adm é exclusivo de admin)', () => {
       vi.mocked(useApp).mockReturnValue({
         activeTab: 'ger' as TabId,
         setActiveTab: mockSetActiveTab,
@@ -189,7 +189,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(screen.getByText('Pessoas, plataformas e acessos')).not.toBeNull();
       expect(screen.getByText('Importar dados')).not.toBeNull();
       expect(screen.getByText('Configurações')).not.toBeNull();
-      expect(screen.getByText('Painel do Administrador')).not.toBeNull();
+      expect(screen.queryByText('Painel do Administrador')).toBeNull();
       expect(screen.getByText('Administração')).not.toBeNull();
     });
 
@@ -275,7 +275,11 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
   // ----------------------------------------------------------------------------
   describe('3. Roteamento Seguro e Confinamento de Rotas Restritas', () => {
     // Simulação determinística da lógica do ActiveTabRouter de src/App.tsx
-    function simulateActiveTabRouter(activeTab: TabId, isGlobal: boolean): string {
+    function simulateActiveTabRouter(
+      activeTab: TabId,
+      isGlobal: boolean,
+      isAdmin = isGlobal
+    ): string {
       switch (activeTab) {
         case 'ger':
           return 'VisaoGeralView';
@@ -296,7 +300,7 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
         case 'cfg':
           return isGlobal ? 'ConfiguracoesView' : 'VisaoGeralView';
         case 'adm':
-          return isGlobal ? 'AdminAuditView' : 'VisaoGeralView';
+          return isAdmin ? 'AdminAuditView' : 'VisaoGeralView';
         case 'perfil':
           return 'UserSettingsView';
         default:
@@ -319,9 +323,10 @@ describe('Segurança & RBAC: Matriz Completa de Permissões das 4 Roles', () => 
       expect(simulateActiveTabRouter('cfg', true)).toBe('ConfiguracoesView');
     });
 
-    it('Bloqueia acesso a "adm" para não-globais redirecionando para VisaoGeralView', () => {
-      expect(simulateActiveTabRouter('adm', false)).toBe('VisaoGeralView');
-      expect(simulateActiveTabRouter('adm', true)).toBe('AdminAuditView');
+    it('Bloqueia acesso a "adm" para não-administradores (inclusive gestor), liberando apenas admin', () => {
+      expect(simulateActiveTabRouter('adm', false, false)).toBe('VisaoGeralView');
+      expect(simulateActiveTabRouter('adm', true, false)).toBe('VisaoGeralView');
+      expect(simulateActiveTabRouter('adm', true, true)).toBe('AdminAuditView');
     });
 
     it('Garante acesso seguro às abas operacionais para todos os papéis', () => {

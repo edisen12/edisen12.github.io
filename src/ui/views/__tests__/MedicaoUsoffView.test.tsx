@@ -289,7 +289,7 @@ describe('MedicaoUsoffView - Medição USOFF & Visualização por Embarque', () 
     const btn = screen.getByRole('button', { name: /Exportar Portal Offshore \+ USOFF \(Excel\)/i });
     fireEvent.click(btn);
 
-    await waitFor(() => {
+      await waitFor(() => {
       expect(exportUsoffPortalOffshoreXlsx).toHaveBeenCalledWith(
         ds,
         MOCK_PERIOD,
@@ -297,5 +297,165 @@ describe('MedicaoUsoffView - Medição USOFF & Visualização por Embarque', () 
         'Carteira Teste'
       );
     });
+  });
+
+  it('exibe HCD e (HC + HCD) ÷ HD para Diária sem carteira mantendo antiduplicidade para unidade híbrida (ex.: Urucu)', () => {
+    const base = createMockDataset();
+    const hybridPlatforms: Record<string, Plataforma> = {
+      ...MOCK_PLATFORMS,
+      UMPT: {
+        sigla: 'UMPT',
+        chave_norm: 'UMPT',
+        nome: 'Unidade Marítima UMPT',
+        un: 'UMPT',
+        armador: 'Armador Teste',
+        gerencia: '',
+        tipo: 'UMS',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      },
+      URC1: {
+        sigla: 'URC1',
+        chave_norm: 'URC1',
+        nome: 'Base Urucu',
+        un: 'Urucu (UN-AM)',
+        armador: '',
+        gerencia: 'UN-AM',
+        tipo: 'Onshore',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    };
+
+    const dsHybrid: AppDataset = {
+      ...base,
+      plataformas: hybridPlatforms,
+      usoffUnWeights: {
+        UMPT: { unidade_negocio: 'UMPT', pe: 0, ex: 0, tipo_medicao: 'diaria' },
+        'Urucu (UN-AM)': { unidade_negocio: 'Urucu (UN-AM)', pe: 0.3, ex: 0.7, tipo_medicao: 'diaria' }
+      },
+      tecnicos: {
+        ...base.tecnicos,
+        '1002': { matricula: '1002', nome: 'Técnico Diária', funcao: 'Instrumentação' },
+        '1003': { matricula: '1003', nome: 'Técnico Urucu', funcao: 'Elétrica' }
+      },
+      carteira: [
+        ...base.carteira,
+        {
+          id: 'cart-umpt',
+          id_embarque: '55200',
+          matricula: '1002',
+          operacao: '',
+          pe: null,
+          ex: null,
+          fonte: 'portal',
+          plataforma_sigla: 'UMPT',
+          unidade_negocio: 'UMPT',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-10',
+          horas_programadas: 0
+        },
+        {
+          id: 'cart-urc',
+          id_embarque: '55300',
+          matricula: '1003',
+          operacao: '',
+          pe: null,
+          ex: null,
+          fonte: 'portal',
+          plataforma_sigla: 'URC1',
+          unidade_negocio: 'Urucu (UN-AM)',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-10',
+          horas_programadas: 80
+        }
+      ],
+      carteiraOperacoes: [
+        ...(base.carteiraOperacoes || []),
+        {
+          id: 'op-umpt',
+          portal_id: '55200',
+          id_embarque: '55200',
+          matricula: '1002',
+          chave_petrobras: '',
+          nome: 'Técnico Diária',
+          empresa: 'Infotec Brasil',
+          estrutura: '',
+          plataforma_sigla: 'UMPT',
+          unidade_negocio: 'UMPT',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-10',
+          ordem: 'ORD-UMPT',
+          operacao: 'OP-0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Regular',
+          status_programacao: 'Fora da carteira',
+          hh_programado: 0,
+          hh_confirmado: 0,
+          hh_confirmado_sap: 0,
+          divergencia_sap: 0,
+          status_divergencia: 'Sem Apontamento',
+          recursos: 1,
+          fonte: 'portal'
+        },
+        {
+          id: 'op-urc',
+          portal_id: '55300',
+          id_embarque: '55300',
+          matricula: '1003',
+          chave_petrobras: '',
+          nome: 'Técnico Urucu',
+          empresa: 'Infotec Brasil',
+          estrutura: '',
+          plataforma_sigla: 'URC1',
+          unidade_negocio: 'Urucu (UN-AM)',
+          data_inicio: '2026-10-01',
+          data_fim: '2026-10-10',
+          ordem: 'ORD-URC',
+          operacao: 'OP-0010',
+          status_processamento: 'Confirmado',
+          prioridade: 'Regular',
+          status_programacao: 'Carteira',
+          hh_programado: 80,
+          hh_confirmado: 70,
+          hh_confirmado_sap: 70,
+          divergencia_sap: 0,
+          status_divergencia: 'OK',
+          recursos: 1,
+          fonte: 'portal'
+        }
+      ]
+    };
+
+    (useApp as any).mockReturnValue({
+      dataset: dsHybrid,
+      pidx: buildPlatformIndex(hybridPlatforms),
+      activePeriod: MOCK_PERIOD,
+      filters: MOCK_FILTERS,
+      openFichaDrawer: mockOpenFichaDrawer,
+      openCarteiraModal: mockOpenCarteiraModal,
+      scopeLabel: undefined,
+      isGlobal: true,
+      refreshData: mockRefreshData
+    });
+
+    render(
+      <ToastProvider>
+        <MedicaoUsoffView />
+      </ToastProvider>
+    );
+
+    // KPIs: HC = 80,0 h (10 + 70), HCD = 100,0 h (apenas UMPT 10d * 10; Urucu não duplica), HC + HCD = 180,0 h
+    const hcLabel = screen.getByText('HC · executado confirmado');
+    const hcdLabel = screen.getByText('HCD · confirmação por diária');
+    const hcHcdLabel = screen.getByText('HC + HCD · confirmado total');
+    expect(screen.getByText('(HC + HCD) ÷ HD (sobre disponível)')).not.toBeNull();
+    expect(hcLabel.parentElement?.textContent).toContain('80,0 h');
+    expect(hcdLabel.parentElement?.textContent).toContain('100,0 h');
+    expect(hcHcdLabel.parentElement?.textContent).toContain('180,0 h');
+
+    // Cabeçalhos das tabelas incluem HCD (Diária) e (HC + HCD) ÷ HD
+    expect(screen.getByRole('columnheader', { name: 'HCD (Diária)' })).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: '(HC + HCD) ÷ HD' })).not.toBeNull();
   });
 });

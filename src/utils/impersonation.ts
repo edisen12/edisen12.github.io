@@ -14,7 +14,12 @@ import type {
   UsoffUnWeight
 } from '../domain/types';
 import { lookupPlatform, resolvePersonUns } from '../domain/calculations';
-import { normalizeSapCode, platformKey, sanitizePlatformCode } from './format';
+import { platformKey, sanitizePlatformCode } from './format';
+import {
+  collectVisibleTecnicoMatriculas,
+  filterScopedConfirmacoesSap,
+  filterTecnicosMapByMatriculas
+} from './lgpd';
 
 export interface ImpersonationTarget {
   key: string; // 'pessoa:<id>' | 'profile:<id>'
@@ -275,19 +280,11 @@ export function scopeDatasetForUser(
     isPlaceInScope(co.plataforma_sigla, co.unidade_negocio)
   );
 
-  // 5. Confirmações SAP (RLS: técnicos presentes na carteira visível)
-  const visibleCartMats = new Set<string>();
-  const visibleCartNormMats = new Set<string>();
-  scopedCarteira.forEach(c => {
-    if (c.matricula) {
-      visibleCartMats.add(c.matricula);
-      visibleCartNormMats.add(normalizeSapCode(c.matricula));
-    }
-  });
-  const scopedConfirmacoesSap = (fullDataset.confirmacoesSap || []).filter(
-    cs =>
-      visibleCartMats.has(cs.matricula) ||
-      visibleCartNormMats.has(normalizeSapCode(cs.matricula))
+  // 5. Confirmações SAP (escopo por id_embarque ou janela [início, fim + 4d], igual à RLS 029)
+  const scopedConfirmacoesSap = filterScopedConfirmacoesSap(
+    fullDataset.confirmacoesSap || [],
+    scopedCarteira,
+    scopedCarteiraOperacoes
   );
 
   // 6. Apontamentos HH
@@ -339,6 +336,16 @@ export function scopeDatasetForUser(
     });
   }
 
+  const visibleTechMats = collectVisibleTecnicoMatriculas(
+    scopedCarteira,
+    scopedCarteiraOperacoes,
+    Object.values(scopedHhMap)
+  );
+  const scopedTecnicos = filterTecnicosMapByMatriculas(
+    fullDataset.tecnicos || {},
+    visibleTechMats
+  );
+
   return {
     ...fullDataset,
     usoffUnWeights: scopedUsoffUnWeights,
@@ -347,6 +354,7 @@ export function scopeDatasetForUser(
     pessoas: scopedPessoas,
     profiles: scopedProfiles,
     onboardingMap: scopedOnboardingMap,
+    tecnicos: scopedTecnicos,
     carteira: scopedCarteira,
     carteiraOperacoes: scopedCarteiraOperacoes,
     confirmacoesSap: scopedConfirmacoesSap,

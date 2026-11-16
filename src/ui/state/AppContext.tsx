@@ -37,6 +37,7 @@ import {
 } from '../../services/auth.service';
 import { loadAppDataset } from '../../services/data.service';
 import { subscribeToRealtimeUpdates } from '../../services/realtime.service';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 import { useToast, type ToastVariant } from '../components/ToastContext';
 
 export interface EmailModalState {
@@ -189,15 +190,60 @@ function readLocalPreferences(): UserPreferences {
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 function useOptionalShowToast(): ((message: string, type?: ToastVariant | 'warning') => void) | null {
+  let rawShowToast: ((msg: string, variant?: ToastVariant) => void) | null = null;
   try {
-    const { showToast } = useToast();
-    return (message: string, type?: ToastVariant | 'warning') => {
-      const variant: ToastVariant = type === 'warning' ? 'warn' : (type || 'info');
-      showToast(message, variant);
-    };
+    rawShowToast = useToast().showToast;
   } catch {
-    return null;
+    rawShowToast = null;
   }
+  const ref = useRef(rawShowToast);
+  ref.current = rawShowToast;
+
+  return useCallback((message: string, type?: ToastVariant | 'warning') => {
+    if (!ref.current) return;
+    const variant: ToastVariant = type === 'warning' ? 'warn' : (type || 'info');
+    ref.current(message, variant);
+  }, []);
+}
+
+function isSameImpersonationTarget(
+  a: ImpersonationTarget | null | undefined,
+  b: ImpersonationTarget | null | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.key !== b.key || a.hasLoginAccount !== b.hasLoginAccount) return false;
+  if (
+    a.profile.id !== b.profile.id ||
+    a.profile.nome !== b.profile.nome ||
+    a.profile.email !== b.profile.email ||
+    a.profile.role !== b.profile.role ||
+    a.profile.ativo !== b.profile.ativo
+  ) {
+    return false;
+  }
+  const pa = a.pessoa;
+  const pb = b.pessoa;
+  if (pa === pb) return true;
+  if (!pa || !pb) return false;
+  if (
+    pa.id !== pb.id ||
+    pa.nome !== pb.nome ||
+    pa.papel !== pb.papel ||
+    pa.email !== pb.email ||
+    pa.user_id !== pb.user_id ||
+    pa.plats.length !== pb.plats.length ||
+    pa.uns.length !== pb.uns.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < pa.plats.length; i++) {
+    if (pa.plats[i] !== pb.plats[i]) return false;
+  }
+  for (let i = 0; i < pa.uns.length; i++) {
+    if (pa.uns[i] !== pb.uns[i]) return false;
+  }
+  return true;
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -211,6 +257,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Simulação de Usuário ("Ver como outro usuário")
   const [impersonatedTarget, setImpersonatedTarget] = useState<ImpersonationTarget | null>(null);
+  const impersonatedTargetRef = useRef<ImpersonationTarget | null>(null);
+  impersonatedTargetRef.current = impersonatedTarget;
   const [impersonateModalOpen, setImpersonateModalOpen] = useState(false);
   const restoredImpersonationRef = useRef(false);
 
@@ -525,6 +573,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const stopImpersonation = useCallback(() => {
+    const prevTarget = impersonatedTargetRef.current;
     restoredImpersonationRef.current = true;
     setImpersonatedTarget(null);
     setImpersonateModalOpen(false);
@@ -538,6 +587,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFichaMat(null);
     setEmailModal(null);
     setCarteiraModal(null);
+    if (prevTarget) {
+      void emitAuditEventBestEffort({
+        action: 'impersonation_stopped',
+        category: 'seguranca',
+        target_id: prevTarget.profile.id,
+        target_label: `${prevTarget.profile.nome} (${prevTarget.profile.role})`,
+        details: { targetKey: prevTarget.key, targetRole: prevTarget.profile.role }
+      });
+    }
     showToast?.('Retornado à visualização de Administrador.', 'success');
   }, [setFilters, showToast]);
 
@@ -564,15 +622,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCarteiraModal(null);
 
     const targetIsGlobal = target.profile.role === 'admin' || target.profile.role === 'gestor';
+    const targetIsAdmin = target.profile.role === 'admin';
     if (
-      !targetIsGlobal &&
-      (activeTabRef.current === 'pes' ||
-        activeTabRef.current === 'imp' ||
-        activeTabRef.current === 'cfg' ||
-        activeTabRef.current === 'adm')
+      (!targetIsGlobal &&
+        (activeTabRef.current === 'pes' ||
+          activeTabRef.current === 'imp' ||
+          activeTabRef.current === 'cfg' ||
+          activeTabRef.current === 'adm')) ||
+      (!targetIsAdmin && activeTabRef.current === 'adm')
     ) {
       setActiveTab('ger');
     }
+
+    void emitAuditEventBestEffort({
+      action: 'impersonation_started',
+      category: 'seguranca',
+      target_id: target.profile.id,
+      target_label: `${target.profile.nome} (${target.profile.role})`,
+      details: {
+        targetKey: target.key,
+        targetRole: target.profile.role,
+        hasLoginAccount: target.hasLoginAccount
+      }
+    });
 
     const roleName = ROLES_LABEL[target.profile.role] || target.profile.role;
     showToast?.(
@@ -596,8 +668,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Sincroniza ou restaura simulação com os dados atualizados do contrato
   useEffect(() => {
     if (!authInitialized) return;
+    const currentTarget = impersonatedTargetRef.current;
+
     if (!isRealAdmin) {
-      if (impersonatedTarget) setImpersonatedTarget(null);
+      if (currentTarget) setImpersonatedTarget(null);
       try {
         sessionStorage.removeItem(IMPERSONATE_STORAGE_KEY);
       } catch {
@@ -613,8 +687,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const allTargets = buildImpersonationTargets(fullDataset, realUserProfile?.id);
 
-    if (impersonatedTarget) {
-      const refreshed = allTargets.find(t => t.key === impersonatedTarget.key);
+    if (currentTarget) {
+      const refreshed = allTargets.find(t => t.key === currentTarget.key);
       if (!refreshed) {
         setImpersonatedTarget(null);
         try {
@@ -622,11 +696,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // Ignora
         }
-      } else if (
-        refreshed.profile !== impersonatedTarget.profile ||
-        refreshed.pessoa !== impersonatedTarget.pessoa ||
-        refreshed.hasLoginAccount !== impersonatedTarget.hasLoginAccount
-      ) {
+      } else if (!isSameImpersonationTarget(refreshed, currentTarget)) {
+        // Comparação por valor evita loop infinito para perfis virtuais sem login (hasLoginAccount = false)
         setImpersonatedTarget(refreshed);
       }
       return;
@@ -648,7 +719,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Ignora
       }
     }
-  }, [authInitialized, isRealAdmin, fullDataset, realUserProfile?.id, impersonatedTarget]);
+  }, [authInitialized, isRealAdmin, fullDataset, realUserProfile?.id]);
 
   // Carrega Autenticação Inicial e Preferências do Servidor
   const refreshAuth = useCallback(async () => {
@@ -725,8 +796,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (userProfile && !isGlobal && (activeTab === 'pes' || activeTab === 'imp' || activeTab === 'cfg' || activeTab === 'adm')) {
       setActiveTab('ger');
+    } else if (userProfile && !isAdmin && activeTab === 'adm') {
+      setActiveTab('ger');
     }
-  }, [userProfile, isGlobal, activeTab, setActiveTab]);
+  }, [userProfile, isGlobal, isAdmin, activeTab, setActiveTab]);
+
+  // Encerramento automático por inatividade (30 min) em estações compartilhadas (Art. 46 LGPD)
+  const lastActivityRef = useRef<number>(Date.now());
+  useEffect(() => {
+    if (!authInitialized || !realUserProfile || !realUserProfile.ativo) return;
+
+    const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleTimer = () => {
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(() => {
+        void logout();
+        showToast?.(
+          'Sessão encerrada automaticamente após 30 minutos de inatividade para proteção dos dados.',
+          'info'
+        );
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityRef.current >= 5000) {
+        lastActivityRef.current = now;
+        scheduleTimer();
+      }
+    };
+
+    lastActivityRef.current = Date.now();
+    scheduleTimer();
+
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'scroll',
+      'touchstart'
+    ];
+    events.forEach(ev => window.addEventListener(ev, handleActivity, { passive: true }));
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      events.forEach(ev => window.removeEventListener(ev, handleActivity));
+    };
+  }, [authInitialized, realUserProfile, logout, showToast]);
 
   // Atualização de Preferências (persiste localmente + no Supabase user_onboarding, exceto durante simulação)
   const updateUserPreferences = useCallback(async (partial: Partial<UserPreferences>) => {

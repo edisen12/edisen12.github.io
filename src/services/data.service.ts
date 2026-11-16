@@ -28,6 +28,7 @@ import type {
   SavePessoaInput
 } from '../ports/data.port';
 import { getClientDatabaseProvider } from './provider.registry';
+import { maskHealthDescriptionForExport } from '../utils/lgpd';
 
 /**
  * Carrega o dataset completo da aplicação para a janela de datas informada.
@@ -240,6 +241,14 @@ export async function logSystemEvent(event: Partial<SystemAuditLog>): Promise<vo
  * Exporta snapshot JSON seguro para contingência offline (operação 100% no navegador).
  */
 export function exportJsonSnapshot(dataset: AppDataset): void {
+  const sanitizedJustMap: typeof dataset.justMap = {};
+  Object.entries(dataset.justMap || {}).forEach(([k, j]) => {
+    sanitizedJustMap[k] = {
+      ...j,
+      descricao: maskHealthDescriptionForExport(j.motivo, j.descricao)
+    };
+  });
+
   const cleanSnapshot = {
     exportedAt: new Date().toISOString(),
     config: dataset.config,
@@ -248,7 +257,7 @@ export function exportJsonSnapshot(dataset: AppDataset): void {
     tecnicos: dataset.tecnicos,
     carteira: dataset.carteira,
     hhMap: dataset.hhMap,
-    justMap: dataset.justMap,
+    justMap: sanitizedJustMap,
     watermark: dataset.watermark
   };
 
@@ -263,4 +272,14 @@ export function exportJsonSnapshot(dataset: AppDataset): void {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+
+  void logSystemEvent({
+    action: 'export_json_snapshot',
+    category: 'operacional',
+    target_label: `Backup JSON Contingência (${dateStr})`,
+    details: {
+      carteiraCount: dataset.carteira.length,
+      tecnicosCount: Object.keys(dataset.tecnicos || {}).length
+    }
+  }).catch(() => {});
 }

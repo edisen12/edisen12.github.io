@@ -27,6 +27,7 @@ import {
   plural
 } from '../../utils/format';
 import { exportTecnicoXlsx } from '../../services/excel.service';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 
 interface FichaDayItem {
   D: string;
@@ -175,6 +176,12 @@ export function FichaTecnicoDrawer() {
     setIsExporting(true);
     try {
       await exportTecnicoXlsx(mat, dataset, P, scopeLabel);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_tecnico',
+        category: 'operacional',
+        target_id: mat,
+        target_label: `Ficha técnica ${P.ini}..${P.fim}`
+      });
       showToast(`Relatório do técnico ${mat} exportado com sucesso!`, 'success');
     } catch (err: any) {
       console.error(err);

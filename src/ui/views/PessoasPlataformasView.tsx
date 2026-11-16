@@ -50,6 +50,7 @@ import { findResponsiblePeople, isArmadorPlatform, resolvePersonUns } from '../.
 import { PAPEIS_LABEL, ROLES_LABEL, SITUACOES_PLATAFORMA } from '../../config/constants';
 import type { ImportKind, PapelOperacional, Pessoa, Plataforma, SystemRole, UserOnboarding, UserProfile } from '../../domain/types';
 import { normalizeText, platformKey } from '../../utils/format';
+import { validateStrongPasswordPolicy } from '../../utils/lgpd';
 import { Modal } from '../components/Modal';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl, type SegmentedOption } from '../components/SegmentedControl';
@@ -1906,8 +1907,9 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
       setErrorMsg('Informe um e-mail válido.');
       return;
     }
-    if (!password || password.length < 8) {
-      setErrorMsg('A senha inicial deve ter no mínimo 8 caracteres.');
+    const pwdErr = validateStrongPasswordPolicy(password);
+    if (pwdErr) {
+      setErrorMsg(pwdErr);
       return;
     }
 
@@ -1952,8 +1954,9 @@ const UserLoginModal: React.FC<UserLoginModalProps> = ({
   const handleResetPassword = async () => {
     if (!profile) return;
     setErrorMsg('');
-    if (!password || password.length < 8) {
-      setErrorMsg('A nova senha deve ter no mínimo 8 caracteres.');
+    const pwdErr = validateStrongPasswordPolicy(password);
+    if (pwdErr) {
+      setErrorMsg(pwdErr);
       return;
     }
 

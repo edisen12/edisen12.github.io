@@ -976,7 +976,7 @@ export const ConfiguracoesView: React.FC = () => {
                 )}
               </div>
               <div style={{ fontSize: '0.84rem', color: 'var(--ink)' }}>
-                Embarques em unidades ou plataformas identificadas por <b>Diária</b> apuram o USOFF pela fórmula contratual <b>dias × 10</b>, considerando a diária mesmo se houver horas de HH apontadas no período. A grade abaixo permite sinalizar toda uma Unidade de Negócio como Diária, ou você pode marcar plataformas específicas na tela de Plataformas.
+                Embarques em unidades ou plataformas identificadas por <b>Diária</b> apuram o USOFF pela fórmula contratual <b>dias × 10</b>. No indicador sobre o disponível <b>(HC + HCD) ÷ HD</b>, unidades de Diária <b>sem</b> carteira/HP programado e sem confirmação SAP contabilizam <b>dias × 10 h</b> em <b>HCD</b> (confirmação por diária); unidades híbridas com carteira/HP ou SAP apontado (ex.: Urucu) mantêm apenas HP/HC para evitar duplicidade. A grade abaixo permite sinalizar toda uma Unidade de Negócio como Diária, ou você pode marcar plataformas específicas na tela de Plataformas.
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '4px' }}>
                 <span className="sub" style={{ fontSize: '0.78rem', fontWeight: 600 }}>Plataformas em Regime de Diária ({plataformasDiariaList.length}):</span>
@@ -1320,7 +1320,7 @@ export const ConfiguracoesView: React.FC = () => {
               <div className="card note note-info" style={{ margin: 0 }}>
                 <h4 style={{ margin: '0 0 6px', fontSize: '0.95rem' }}>4. Ponderação Contratual USOFF</h4>
                 <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.45' }}>
-                  Fórmula por operação: <code>US = &Sigma; [(PE &times; HP) + (EX &times; HC)]</code>, onde <b>HP</b> = HH Programado, <b>HC</b> = HH Executado, e os fatores PE e EX são resolvidos pela hierarquia (Linha &rarr; UN &rarr; Padrão Global).
+                  Fórmula por operação: <code>US = &Sigma; [(PE &times; HP) + (EX &times; HC)]</code>, onde <b>HP</b> = HH Programado, <b>HC</b> = HH Executado, e os fatores PE e EX são resolvidos pela hierarquia (Linha &rarr; UN &rarr; Padrão Global). No aproveitamento sobre o disponível <code>(HC + HCD) &divide; HD</code>, embarques em unidades por Diária sem carteira/HP e sem SAP recebem <code>HCD = dias &times; 10</code> (evitando duplicidade quando já há programação/SAP).
                 </p>
               </div>
 

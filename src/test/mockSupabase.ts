@@ -1130,6 +1130,122 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
           return { data: logId, error: null };
         }
 
+        case 'save_pessoa_with_scopes': {
+          if (!state.currentUser) {
+            return { data: null, error: new Error('Acesso negado.') };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && (prof.ativo === false || (prof.role !== 'admin' && prof.role !== 'gestor'))) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas Administradores e Gestores ativos podem gerenciar pessoas e escopos.')
+            };
+          }
+
+          const pId = params?.p_id ? String(params.p_id) : '';
+          const pNome = String(params?.p_nome ?? '').trim();
+          const pPapel = String(params?.p_papel ?? 'preposto');
+          const pEmail = String(params?.p_email ?? '').trim().toLowerCase();
+          const pSlug = String(params?.p_slug ?? '').trim();
+          const pPlats: string[] = Array.isArray(params?.p_plats) ? params.p_plats : [];
+          const pUns: string[] = Array.isArray(params?.p_uns) ? params.p_uns : [];
+
+          if (!pNome) {
+            return { data: null, error: new Error('O nome da pessoa é obrigatório.') };
+          }
+
+          if (!state.tables.pessoas) state.tables.pessoas = [];
+          if (!state.tables.pessoa_plataformas) state.tables.pessoa_plataformas = [];
+          if (!state.tables.pessoa_unidades) state.tables.pessoa_unidades = [];
+
+          let targetId = pId;
+          let targetUserId: string | null = null;
+          let targetSlug = pSlug;
+
+          if (targetId) {
+            const idx = state.tables.pessoas.findIndex((p: any) => p.id === targetId);
+            if (idx < 0) {
+              return { data: null, error: new Error('Pessoa não encontrada para atualização.') };
+            }
+            state.tables.pessoas[idx] = {
+              ...state.tables.pessoas[idx],
+              nome: pNome,
+              papel: pPapel,
+              email: pEmail,
+              updated_at: new Date().toISOString()
+            };
+            targetUserId = state.tables.pessoas[idx].user_id ?? null;
+            targetSlug = state.tables.pessoas[idx].slug ?? pSlug;
+          } else {
+            targetId = `pes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            state.tables.pessoas.push({
+              id: targetId,
+              slug: targetSlug,
+              nome: pNome,
+              papel: pPapel,
+              email: pEmail,
+              user_id: null
+            });
+          }
+
+          state.tables.pessoa_plataformas = state.tables.pessoa_plataformas.filter(
+            (pp: any) => pp.pessoa_id !== targetId
+          );
+          for (const sigla of Array.from(new Set(pPlats)).filter(Boolean)) {
+            state.tables.pessoa_plataformas.push({ pessoa_id: targetId, plataforma_sigla: sigla });
+          }
+
+          state.tables.pessoa_unidades = state.tables.pessoa_unidades.filter(
+            (pu: any) => pu.pessoa_id !== targetId
+          );
+          for (const un of Array.from(new Set(pUns)).filter(Boolean)) {
+            state.tables.pessoa_unidades.push({ pessoa_id: targetId, unidade_negocio: un });
+          }
+
+          return {
+            data: { id: targetId, slug: targetSlug, user_id: targetUserId },
+            error: null
+          };
+        }
+
+        case 'delete_tecnico_atomic': {
+          if (!state.currentUser) {
+            return { data: null, error: new Error('Acesso negado.') };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && (prof.ativo === false || (prof.role !== 'admin' && prof.role !== 'gestor'))) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas Administradores e Gestores ativos podem excluir técnicos.')
+            };
+          }
+          const mat = String(params?.p_matricula ?? '').trim();
+          const cascade = Boolean(params?.p_cascade);
+          if (!mat) {
+            return { data: null, error: new Error('Matrícula inválida para exclusão.') };
+          }
+          if (!cascade) {
+            const hasChild =
+              (state.tables.justificativas || []).some((r: any) => r.matricula === mat) ||
+              (state.tables.carteira_operacoes || []).some((r: any) => r.matricula === mat) ||
+              (state.tables.carteira_embarques || []).some((r: any) => r.matricula === mat) ||
+              (state.tables.apontamentos_hh || []).some((r: any) => r.matricula === mat);
+            if (hasChild) {
+              const fkErr = new Error('violates foreign key constraint') as Error & { code?: string };
+              fkErr.code = '23503';
+              return { data: null, error: fkErr };
+            }
+          } else {
+            state.tables.justificativas = (state.tables.justificativas || []).filter((r: any) => r.matricula !== mat);
+            state.tables.carteira_operacoes = (state.tables.carteira_operacoes || []).filter((r: any) => r.matricula !== mat);
+            state.tables.carteira_embarques = (state.tables.carteira_embarques || []).filter((r: any) => r.matricula !== mat);
+            state.tables.apontamentos_hh = (state.tables.apontamentos_hh || []).filter((r: any) => r.matricula !== mat);
+            state.tables.confirmacoes_sap = (state.tables.confirmacoes_sap || []).filter((r: any) => r.matricula !== mat);
+          }
+          state.tables.tecnicos = (state.tables.tecnicos || []).filter((r: any) => r.matricula !== mat);
+          return { data: null, error: null };
+        }
+
         default:
           return { data: null, error: new Error(`RPC desconhecida: ${name}`) };
       }

@@ -29,6 +29,7 @@ import {
 import { buildDailyAlertText } from '../../domain/communications';
 import { resolveDisplayDateForPeriod } from '../../domain/periods';
 import { exportPainelDiaOrdensXlsx } from '../../services/excel.service';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 import { Briefcase, ExternalLink, AlertTriangle } from 'lucide-react';
 
 export function PainelDiaView() {
@@ -123,7 +124,7 @@ export function PainelDiaView() {
     try {
       const text = buildDailyAlertText(D, dataset, filters, pidx);
       await navigator.clipboard.writeText(text);
-      showToast('Alerta copiado. Cole no e-mail ou no WhatsApp.', 'success');
+      showToast('Alerta copiado. Utilize exclusivamente o e-mail corporativo (não encaminhe listas nominais por aplicativos pessoais).', 'success');
     } catch {
       showToast('Não foi possível copiar automaticamente para a área de transferência.', 'warn');
     }
@@ -139,6 +140,12 @@ export function PainelDiaView() {
         dataset,
         rows: allRows,
         scopeLabel: isGlobal ? undefined : scopeLabel
+      });
+      void emitAuditEventBestEffort({
+        action: 'export_excel_painel_dia',
+        category: 'operacional',
+        target_label: `Painel do dia ${D}`,
+        details: { rows: allRows.length, scoped: !isGlobal }
       });
       showToast(`Apontamentos e ordens de ${formatBr(D)} exportados com sucesso!`, 'success');
     } catch (err: any) {

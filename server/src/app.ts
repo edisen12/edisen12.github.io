@@ -142,7 +142,7 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
 
         const cookieHeader = buildSessionCookie(result.sessionId, {
           secure: secureCookies,
-          maxAgeSeconds: 7 * 24 * 60 * 60
+          maxAgeSeconds: engine.getSessionTtlSeconds()
         });
 
         return sendJson(

@@ -41,6 +41,12 @@ import {
 } from './crypto';
 
 import type { RealtimeSseHub } from './realtime-hub';
+import {
+  collectVisibleTecnicoMatriculas,
+  filterScopedConfirmacoesSap,
+  isJustificativaInScope,
+  validateStrongPasswordPolicy
+} from '../../../src/utils/lgpd';
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   themeMode: 'light',
@@ -205,10 +211,23 @@ export interface RawDatasetResponse {
 }
 
 export class SelfHostedDomainEngine {
+  private readonly sessionTtlSeconds: number;
+
   constructor(
     private readonly storage: UniversalStorageDriverPort,
-    private readonly realtimeHub?: RealtimeSseHub
-  ) {}
+    private readonly realtimeHub?: RealtimeSseHub,
+    options?: { sessionTtlHours?: number }
+  ) {
+    const envHours = Number(process.env.SESSION_TTL_HOURS || '12');
+    const rawHours = options?.sessionTtlHours ?? envHours;
+    const clampedHours =
+      Number.isFinite(rawHours) && rawHours >= 1 && rawHours <= 24 ? rawHours : 12;
+    this.sessionTtlSeconds = Math.round(clampedHours * 60 * 60);
+  }
+
+  getSessionTtlSeconds(): number {
+    return this.sessionTtlSeconds;
+  }
 
   // ============================================================================
   // BOOTSTRAP INICIAL
@@ -317,8 +336,8 @@ export class SelfHostedDomainEngine {
     const sessionId = generateRandomToken(32);
     const csrfToken = generateRandomToken(32);
     const nowIso = new Date().toISOString();
-    // 7 dias de validade
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Validade configurável (SESSION_TTL_HOURS, padrão 12 h alinhado ao cookie HttpOnly)
+    const expiresAt = new Date(Date.now() + this.sessionTtlSeconds * 1000).toISOString();
 
     const session: AuthSessionRow = {
       id: sessionId,
@@ -598,6 +617,12 @@ export class SelfHostedDomainEngine {
     }
   }
 
+  private assertAdminRole(actor: AuthenticatedActor): void {
+    if (actor.role !== 'admin') {
+      throw new Error('Acesso negado: operação restrita exclusivamente a Administradores.');
+    }
+  }
+
   private async resolveUserScope(actor: AuthenticatedActor): Promise<{
     isGlobal: boolean;
     allowedUNs: Set<string>;
@@ -668,11 +693,16 @@ export class SelfHostedDomainEngine {
       ? allPlats
       : allPlats.filter(p => scope.allowedPlatforms.has(p.sigla));
 
-    // 4. Pessoas
-    const pessoaRows = await this.storage.findMany<Pessoa>('pessoas');
+    // 4. Pessoas (não-globais enxergam apenas seu próprio vínculo cadastral)
+    const allPessoaRows = await this.storage.findMany<Pessoa>('pessoas');
+    const pessoaRows = scope.isGlobal
+      ? allPessoaRows
+      : scope.pessoa
+        ? [scope.pessoa]
+        : allPessoaRows.filter(p => p.user_id === actor.id);
 
-    // 5. Técnicos
-    const tecnicoRows = await this.storage.findMany<Tecnico>('tecnicos', {
+    // 5. Técnicos (filtrados posteriormente ao escopo efetivo de plataformas/UNs)
+    const allTecnicoRows = await this.storage.findMany<Tecnico>('tecnicos', {
       orderBy: { field: 'matricula', direction: 'asc' }
     });
 
@@ -710,16 +740,14 @@ export class SelfHostedDomainEngine {
             (co.unidade_negocio && scope.allowedUNs.has(co.unidade_negocio))
         );
 
-    // 6.2. Confirmações do SAP vinculadas a embarques
+    // 6.2. Confirmações do SAP vinculadas a embarques ou janela [início, fim + 4d]
     const allSapRows = await this.storage.findMany<ConfirmacaoSAP>('confirmacoes_sap', {
       orderBy: { field: 'data_fim_real', direction: 'desc' }
     });
 
-    let confirmacaoSapRows = allSapRows;
-    if (!scope.isGlobal) {
-      const visibleCartMats = new Set<string>(carteiraRows.map(c => c.matricula));
-      confirmacaoSapRows = allSapRows.filter(cs => visibleCartMats.has(cs.matricula));
-    }
+    const confirmacaoSapRows = scope.isGlobal
+      ? allSapRows
+      : filterScopedConfirmacoesSap(allSapRows, carteiraRows, carteiraOperacaoRows);
 
     // 7. Apontamentos HH
     const allHhRows = await this.storage.findMany<ApontamentoHH>('apontamentos_hh', {
@@ -737,6 +765,15 @@ export class SelfHostedDomainEngine {
             (h.unidade_negocio && scope.allowedUNs.has(h.unidade_negocio))
         );
 
+    const visibleTechMats = collectVisibleTecnicoMatriculas(
+      carteiraRows,
+      carteiraOperacaoRows,
+      hhRows
+    );
+    const tecnicoRows = scope.isGlobal
+      ? allTecnicoRows
+      : allTecnicoRows.filter(t => visibleTechMats.has(t.matricula));
+
     // 8. Justificativas
     const allJustRows = await this.storage.findMany<Justificativa>('justificativas', {
       filter: {
@@ -747,16 +784,10 @@ export class SelfHostedDomainEngine {
 
     let justificativaRows: Justificativa[] = allJustRows;
     if (!scope.isGlobal) {
-      // Filtra justificativas que pertençam a técnicos/dias presentes na carteira ou HH visíveis
-      const visibleTechDays = new Set<string>();
-      for (const c of carteiraRows) {
-        visibleTechDays.add(c.matricula);
-      }
-      for (const h of hhRows) {
-        visibleTechDays.add(`${h.matricula}|${h.data}`);
-      }
-      justificativaRows = allJustRows.filter(
-        j => visibleTechDays.has(`${j.matricula}|${j.data}`) || visibleTechDays.has(j.matricula)
+      // Filtra justificativas estritamente pelos dias/embarques visíveis (sem vazar outras plataformas)
+      const visibleHhKeys = new Set<string>(hhRows.map(h => `${h.matricula}|${h.data}`));
+      justificativaRows = allJustRows.filter(j =>
+        isJustificativaInScope(j, visibleHhKeys, carteiraRows)
       );
     }
 
@@ -2145,7 +2176,7 @@ export class SelfHostedDomainEngine {
     actor: AuthenticatedActor,
     options?: { limit?: number; search?: string }
   ): Promise<SystemAuditLog[]> {
-    this.assertGlobalRole(actor);
+    this.assertAdminRole(actor);
 
     const logs = await this.storage.findMany<SystemAuditLog>('system_audit_logs', {
       orderBy: { field: 'created_at', direction: 'desc' },
@@ -2228,7 +2259,7 @@ export class SelfHostedDomainEngine {
       const cleanEmail = (payload.email || '').trim().toLowerCase();
       const cleanNome = (payload.nome || '').trim();
       const role = payload.role || 'preposto';
-      const password = payload.password;
+      const password = payload.password || '';
 
       if (!cleanEmail || !cleanEmail.includes('@')) {
         throw new Error('E-mail inválido ou não informado.');
@@ -2236,8 +2267,9 @@ export class SelfHostedDomainEngine {
       if (!cleanNome) {
         throw new Error('Nome completo obrigatório.');
       }
-      if (!password || password.length < 8) {
-        throw new Error('A senha provisória deve conter no mínimo 8 caracteres.');
+      const pwdErr = validateStrongPasswordPolicy(password);
+      if (pwdErr) {
+        throw new Error(pwdErr);
       }
 
       // Regra: Somente admin cria outro admin
@@ -2421,8 +2453,12 @@ export class SelfHostedDomainEngine {
     // --------------------------------------------------------------------------
     if (action === 'reset-password') {
       const { userId, newPassword, forceChange = true } = payload;
-      if (!userId || !newPassword || newPassword.length < 8) {
-        throw new Error('Usuário inválido ou nova senha com menos de 8 caracteres.');
+      if (!userId || !newPassword) {
+        throw new Error('Usuário ou nova senha não informados.');
+      }
+      const pwdErr = validateStrongPasswordPolicy(newPassword);
+      if (pwdErr) {
+        throw new Error(pwdErr);
       }
 
       const target = await this.storage.findOne<UserProfile>('profiles', { id: userId });

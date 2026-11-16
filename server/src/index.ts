@@ -22,7 +22,10 @@ async function bootstrap(): Promise<void> {
   console.log(`[SelfHostedServer] Driver de armazenamento inicializado: ${storageDriver.driverId}`);
 
   const realtimeHub = new RealtimeSseHub();
-  const engine = new SelfHostedDomainEngine(storageDriver, realtimeHub);
+  const parsedTtlHours = Number(process.env.SESSION_TTL_HOURS || '12');
+  const engine = new SelfHostedDomainEngine(storageDriver, realtimeHub, {
+    sessionTtlHours: Number.isFinite(parsedTtlHours) ? parsedTtlHours : 12
+  });
 
   // Bootstrap opcional de primeiro administrador via variáveis de ambiente
   if (process.env.INITIAL_ADMIN_EMAIL && process.env.INITIAL_ADMIN_PASSWORD) {

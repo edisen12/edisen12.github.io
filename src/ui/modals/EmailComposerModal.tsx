@@ -77,9 +77,9 @@ export function EmailComposerModal() {
     }
   }, [initialData]);
 
-  // Links do Outlook Web e Desktop
+  // Links do Outlook Web (sem corpo nominal na querystring para conformidade LGPD) e Desktop
   const mailLinks = useMemo(() => {
-    return buildMailLinks(toInput, subjectInput, bodyInput);
+    return buildMailLinks(toInput, subjectInput, bodyInput, { omitBodyInWebUrl: true });
   }, [toInput, subjectInput, bodyInput]);
 
   if (!emailModal || !initialData) return null;
@@ -160,6 +160,12 @@ export function EmailComposerModal() {
               rel="noopener noreferrer"
               className="btn btn-accent"
               style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => {
+                void handleCopy(
+                  bodyInput,
+                  'Texto do e-mail (cole com Ctrl+V no Outlook Web — corpo omitido da URL por LGPD)'
+                );
+              }}
             >
               <ExternalLink size={15} />
               Abrir no Outlook Web

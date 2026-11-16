@@ -54,7 +54,7 @@ const GROUPS_META: GroupMeta[] = [
 ];
 
 export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
-  const { activeTab, setActiveTab, isGlobal, userProfile, openUserSettings, logout } = useApp();
+  const { activeTab, setActiveTab, isGlobal, isAdmin, userProfile, openUserSettings, logout } = useApp();
   const { canShowInstallOption, triggerInstall } = usePwaInstall();
   const [pwaModalOpen, setPwaModalOpen] = useState(false);
 
@@ -93,10 +93,11 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
     });
   };
 
-  // Filtra itens por permissão global / perfil de administrador
+  // Filtra itens por permissão global / perfil exclusivo de administrador
+  const effectiveIsAdmin = Boolean(isAdmin || userProfile?.role === 'admin');
   const visibleTabs = NAV_TABS.filter(tab => {
-    if (tab.id === 'adm') {
-      return isGlobal || userProfile?.role === 'admin';
+    if (tab.adminOnly || tab.id === 'adm') {
+      return effectiveIsAdmin;
     }
     return !tab.globalOnly || isGlobal;
   });

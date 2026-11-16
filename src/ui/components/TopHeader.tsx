@@ -137,20 +137,34 @@ export function TopHeader({ onToggleMobileMenu }: TopHeaderProps) {
       <div className="header-actions">
         {/* Botão Administrativo: Ver e usar o sistema como outro usuário */}
         {isRealAdmin && (
-          <button
-            type="button"
-            className={`btn btn-sm ${isImpersonating ? 'btn-accent' : 'btn-ghost'}`}
-            onClick={() => openImpersonateModal?.()}
-            title="Ver e usar o sistema como outro usuário para validação"
-            aria-label="Ver como outro usuário"
-          >
-            <Eye size={14} />
-            <span className="hide-mobile">
-              {isImpersonating && impersonatedTarget
-                ? `Simulando: ${impersonatedTarget.profile.nome.trim().split(' ')[0]}`
-                : 'Ver como usuário'}
-            </span>
-          </button>
+          <>
+            <button
+              type="button"
+              className={`btn btn-sm ${isImpersonating ? 'btn-accent' : 'btn-ghost'}`}
+              onClick={() => openImpersonateModal?.()}
+              title="Ver e usar o sistema como outro usuário para validação"
+              aria-label="Ver como outro usuário"
+            >
+              <Eye size={14} />
+              <span className="hide-mobile">
+                {isImpersonating && impersonatedTarget
+                  ? `Simulando: ${impersonatedTarget.profile.nome.trim().split(' ')[0]}`
+                  : 'Ver como usuário'}
+              </span>
+            </button>
+            {isImpersonating && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => stopImpersonation?.()}
+                title="Encerrar simulação e voltar para sua conta de Administrador"
+                aria-label="Encerrar simulação"
+              >
+                <RotateCcw size={14} />
+                <span className="hide-mobile">Voltar p/ Admin</span>
+              </button>
+            )}
+          </>
         )}
 
         {/* Botão de Instalação PWA */}

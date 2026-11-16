@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { ToastProvider } from '../ToastContext';
 import { AppProvider, useApp } from '../../state/AppContext';
+import { App } from '../../../App';
 import { AppShell } from '../AppShell';
 import { UserSettingsView } from '../../views/UserSettingsView';
 import * as authService from '../../../services/auth.service';
@@ -244,5 +245,163 @@ describe('Fluxo de Simulação Administrativa ("Ver como outro usuário")', () =
     });
 
     expect(screen.queryByRole('button', { name: 'Ver como outro usuário' })).toBeNull();
+  });
+
+  it('simula pessoa sem conta de login sem entrar em loop de render e volta para Admin pelo cabeçalho e pelo modal', async () => {
+    const base = buildMockDataset();
+    const semContaPessoa = {
+      ...prepostoPessoa,
+      id: 'pessoa-sem-conta-teste',
+      user_id: null,
+      nome: 'Operador Sem Conta Teste',
+      email: 'operador.semconta@teste.local',
+      plats: ['P50']
+    };
+    const datasetSemConta: AppDataset = {
+      ...base,
+      pessoas: {
+        ...base.pessoas,
+        [semContaPessoa.id]: semContaPessoa
+      }
+    };
+
+    vi.mocked(authService.fetchCurrentUserScope).mockResolvedValue({
+      profile: adminUser,
+      pessoa: null,
+      onboarding: normalOnboarding
+    });
+    vi.mocked(dataService.loadAppDataset).mockResolvedValue(datasetSemConta);
+
+    let renderCount = 0;
+    function CountingWorkspace() {
+      renderCount += 1;
+      return <TestWorkspace />;
+    }
+
+    render(
+      <ToastProvider>
+        <AppProvider>
+          <AppShell>
+            <CountingWorkspace />
+          </AppShell>
+        </AppProvider>
+      </ToastProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('effective-user-name').textContent).toBe(adminUser.nome);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver como outro usuário' }));
+    const dialog1 = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog1).getByLabelText('Buscar usuário para simular'), {
+      target: { value: 'Operador Sem Conta Teste' }
+    });
+    fireEvent.click(within(dialog1).getByRole('button', { name: 'Ver como este usuário' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('effective-user-name').textContent).toBe('Operador Sem Conta Teste');
+    });
+    expect(screen.getByRole('status', { name: 'Modo de validação de usuário ativo' })).toBeTruthy();
+    expect(renderCount).toBeLessThan(20);
+
+    // 1. Retorno pelo botão rápido no cabeçalho (Encerrar simulação)
+    fireEvent.click(screen.getByRole('button', { name: 'Encerrar simulação' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('effective-user-name').textContent).toBe(adminUser.nome);
+    });
+    expect(screen.getByTestId('effective-is-global').textContent).toBe('true');
+
+    // 2. Reentra em simulação e volta pelo card da própria conta no filtro Admins do modal
+    fireEvent.click(screen.getByRole('button', { name: 'Ver como outro usuário' }));
+    const dialog2 = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog2).getByLabelText('Buscar usuário para simular'), {
+      target: { value: 'Operador Sem Conta Teste' }
+    });
+    fireEvent.click(within(dialog2).getByRole('button', { name: 'Ver como este usuário' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('effective-user-name').textContent).toBe('Operador Sem Conta Teste');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trocar usuário' }));
+    const dialog3 = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog3).getByRole('tab', { name: /Admins/i }));
+    fireEvent.click(within(dialog3).getByRole('button', { name: 'Retornar à conta Admin' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('effective-user-name').textContent).toBe(adminUser.nome);
+    });
+    expect(
+      screen.queryByRole('status', { name: 'Modo de validação de usuário ativo' })
+    ).toBeNull();
+  });
+
+  it('mantém AppGate autenticado quando Admin simula conta inativa e permite voltar para Admin', async () => {
+    const base = buildMockDataset();
+    const inativoPessoa = {
+      ...prepostoPessoa,
+      id: 'pessoa-inativa-teste',
+      user_id: 'user-inativo-teste',
+      nome: 'Preposto Inativo Teste',
+      email: 'inativo@teste.local',
+      ativo: false,
+      plats: ['P50']
+    };
+    const inativoProfile = {
+      ...prepostoUser,
+      id: 'user-inativo-teste',
+      nome: 'Preposto Inativo Teste',
+      email: 'inativo@teste.local',
+      ativo: false,
+      pessoa_id: inativoPessoa.id
+    };
+    const datasetComInativo: AppDataset = {
+      ...base,
+      pessoas: {
+        ...base.pessoas,
+        [inativoPessoa.id]: inativoPessoa
+      },
+      profiles: {
+        ...base.profiles,
+        [inativoProfile.id]: inativoProfile
+      }
+    };
+
+    vi.mocked(authService.fetchCurrentUserScope).mockResolvedValue({
+      profile: adminUser,
+      pessoa: null,
+      onboarding: normalOnboarding
+    });
+    vi.mocked(dataService.loadAppDataset).mockResolvedValue(datasetComInativo);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Ver como outro usuário' })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver como outro usuário' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Buscar usuário para simular'), {
+      target: { value: 'Preposto Inativo Teste' }
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Ver como este usuário' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: 'Modo de validação de usuário ativo' })).toBeTruthy();
+    });
+    // AppGate NÃO derrubou o Admin para a tela de login e indica conta inativa
+    expect(screen.queryByRole('button', { name: /^Entrar$/i })).toBeNull();
+    const banner = screen.getByRole('status', { name: 'Modo de validação de usuário ativo' });
+    expect(within(banner).getByText('Conta inativa')).toBeTruthy();
+
+    fireEvent.click(within(banner).getByRole('button', { name: 'Voltar para Admin' }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('status', { name: 'Modo de validação de usuário ativo' })
+      ).toBeNull();
+    });
+    expect(screen.getByRole('button', { name: 'Painel do Administrador' })).toBeTruthy();
   });
 });

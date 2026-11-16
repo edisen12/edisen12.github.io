@@ -312,8 +312,13 @@ describe('impersonation utilities (Ver como outro usuário)', () => {
     expect(scoped.carteira.map(c => c.id)).toEqual(['cart-001', 'cart-002']);
     expect(scoped.carteiraOperacoes?.map(co => co.portal_id)).toEqual(['55101']);
 
-    // Confirmações SAP filtradas pelos técnicos presentes na carteira visível
+    // Confirmações SAP filtradas pelo id_embarque / janela da carteira visível
     expect(scoped.confirmacoesSap?.map(cs => cs.id)).toEqual(['sap-1']);
+
+    // Técnicos filtrados estritamente ao escopo visível (minimização LGPD)
+    expect(scoped.tecnicos['1001']).toBeDefined();
+    expect(scoped.tecnicos['1002']).toBeDefined();
+    expect(scoped.tecnicos['1003']).toBeUndefined();
 
     // Apontamentos HH filtrados (exclui o apontamento 1001|2026-10-04 em P25)
     expect(scoped.hhMap['1001|2026-10-01']).toBeDefined();

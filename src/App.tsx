@@ -21,7 +21,7 @@ import { EmailComposerModal } from './ui/modals/EmailComposerModal';
 import { CarteiraEmbarqueModal } from './ui/modals/CarteiraEmbarqueModal';
 
 function ActiveTabRouter() {
-  const { activeTab, isGlobal } = useApp();
+  const { activeTab, isGlobal, isAdmin } = useApp();
 
   switch (activeTab) {
     case 'ger':
@@ -43,7 +43,7 @@ function ActiveTabRouter() {
     case 'cfg':
       return isGlobal ? <ConfiguracoesView /> : <VisaoGeralView />;
     case 'adm':
-      return isGlobal ? <AdminAuditView /> : <VisaoGeralView />;
+      return isAdmin ? <AdminAuditView /> : <VisaoGeralView />;
     case 'perfil':
       return <UserSettingsView />;
     default:
@@ -52,7 +52,8 @@ function ActiveTabRouter() {
 }
 
 function AppGate() {
-  const { authInitialized, userProfile, requiresPasswordChange } = useApp();
+  const { authInitialized, userProfile, realUserProfile, isImpersonating, requiresPasswordChange } = useApp();
+  const sessionProfile = isImpersonating ? (realUserProfile ?? userProfile) : userProfile;
 
   if (!authInitialized) {
     return (
@@ -73,7 +74,7 @@ function AppGate() {
     );
   }
 
-  if (!userProfile || !userProfile.ativo) {
+  if (!sessionProfile || !sessionProfile.ativo) {
     return <LoginView />;
   }
 

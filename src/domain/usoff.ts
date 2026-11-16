@@ -127,6 +127,9 @@ export const computeUsoffOperations = (
         hpAte: 0,
         hd: 0,
         hc: 0,
+        isDiaria: false,
+        hDiaria: 0,
+        hcComDiaria: 0,
         peHp: 0,
         exHc: 0,
         pes: new Set<number>(),
@@ -170,6 +173,7 @@ export const computeUsoffOperations = (
     }
 
     if (isDiaria) {
+      o.isDiaria = true;
       // Regra contratual para unidades por Diária (Armador / afretadas / UMS):
       // Fórmula: quantidade de dias * 10
       if (groupBy === 'embarque') {
@@ -432,12 +436,21 @@ export const computeUsoffOperations = (
   }
 
   return Object.values(ops)
-    .map(o => ({
-      ...o,
-      us: o.falta ? null : o.peHp + o.exHc,
-      pD: calcPct(o.hc, o.hd),
-      pP: calcPct(o.hc, o.hpAte)
-    }))
+    .map(o => {
+      // Confirmação estimada por diária (HCD = dias * 10):
+      // Aplica-se exclusivamente a unidades/plataformas de Diária SEM carteira/HP programado
+      // e SEM confirmação SAP (evita duplicidade em unidades híbridas como Urucu/AM ou HFAB).
+      const hDiaria = o.isDiaria && o.hp <= 0 && o.hc <= 0 ? o.dias * 10 : 0;
+      const hcComDiaria = o.hc + hDiaria;
+      return {
+        ...o,
+        hDiaria,
+        hcComDiaria,
+        us: o.falta ? null : o.peHp + o.exHc,
+        pD: calcPct(hcComDiaria, o.hd),
+        pP: calcPct(o.hc, o.hpAte)
+      };
+    })
     .sort((a, b) => (a.pP ?? 999) - (b.pP ?? 999));
 };
 
@@ -450,18 +463,23 @@ export const summarizeUsoff = (list: UsoffOperationRow[]): UsoffSummary => {
     hpAte: 0,
     hd: 0,
     hc: 0,
+    hDiaria: 0,
+    hcComDiaria: 0,
     peHp: 0,
     exHc: 0,
     falta: 0
   };
 
   list.forEach(o => {
+    const rowHDiaria = o.hDiaria ?? 0;
     t.hp += o.hp;
     t.hpCarteira += o.hpCarteira ?? o.hp;
     t.hpForaCarteira += o.hpForaCarteira ?? 0;
     t.hpAte += o.hpAte;
     t.hd += o.hd;
     t.hc += o.hc;
+    t.hDiaria += rowHDiaria;
+    t.hcComDiaria += o.hcComDiaria ?? (o.hc + rowHDiaria);
     if (o.falta) {
       t.falta++;
     } else {
@@ -471,7 +489,7 @@ export const summarizeUsoff = (list: UsoffOperationRow[]): UsoffSummary => {
   });
 
   const us = t.falta ? null : t.peHp + t.exHc;
-  const pD = calcPct(t.hc, t.hd);
+  const pD = calcPct(t.hcComDiaria, t.hd);
   const pP = calcPct(t.hc, t.hpAte);
 
   return {

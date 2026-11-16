@@ -26,6 +26,7 @@ import {
 } from '../../services/excel.service';
 import { formatBr, diffDays } from '../../utils/date';
 import { formatHours } from '../../utils/format';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 import type { ConfirmacaoSAP, ImportKind, TabId } from '../../domain/types';
 import { ManualHHModal, ManualCartModal } from '../modals/ManualEntryModals';
 
@@ -65,6 +66,11 @@ export const ImportarDadosView: React.FC = () => {
   const handleExportModelo = async (kind: 'cad' | 'cart' | 'hh' | 'sap') => {
     try {
       await exportModeloXlsx(kind, dataset);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_modelo',
+        category: 'operacional',
+        target_label: `Modelo ${kind}`
+      });
       showToast('Planilha modelo baixada com sucesso!', 'success');
     } catch (err: any) {
       showToast('Erro ao baixar modelo de planilha: ' + (err?.message || 'Falha'), 'error');

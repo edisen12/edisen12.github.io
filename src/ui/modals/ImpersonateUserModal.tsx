@@ -97,6 +97,15 @@ export function ImpersonateUserModal() {
     });
   }, [allTargets, roleFilter, searchTerm, fullPidx]);
 
+  const showSelfAdminCard = useMemo(() => {
+    if (!isImpersonating || !realUserProfile) return false;
+    if (roleFilter !== 'todos' && roleFilter !== 'admin') return false;
+    const q = normalizeText(searchTerm);
+    if (!q) return true;
+    const searchable = `${realUserProfile.nome} ${realUserProfile.email} admin administrador voltar minha conta`;
+    return normalizeText(searchable).includes(q);
+  }, [isImpersonating, realUserProfile, roleFilter, searchTerm]);
+
   if (!isRealAdmin || !impersonateModalOpen) {
     return null;
   }
@@ -196,7 +205,51 @@ export function ImpersonateUserModal() {
             paddingRight: '2px'
           }}
         >
-          {filteredTargets.length === 0 ? (
+          {showSelfAdminCard && realUserProfile && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--orange, #d97706)',
+                background: 'var(--warn-soft, #fef3c7)'
+              }}
+            >
+              <div style={{ minWidth: '220px', flex: '1 1 280px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: '0.94rem', color: 'var(--ink)' }}>
+                    {realUserProfile.nome}
+                  </strong>
+                  <span className="pill pill-ok">Administrador</span>
+                  <span className="pill pill-info" style={{ fontSize: '0.72rem' }}>
+                    Sua conta real
+                  </span>
+                </div>
+                <div
+                  className="sub"
+                  style={{ fontSize: '0.8rem', marginTop: '3px', fontFamily: 'monospace' }}
+                >
+                  {realUserProfile.email}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={stopImpersonation}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <RotateCcw size={15} />
+                <span>Retornar à conta Admin</span>
+              </button>
+            </div>
+          )}
+
+          {filteredTargets.length === 0 && !showSelfAdminCard ? (
             <div
               style={{
                 textAlign: 'center',

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, Eye, EyeOff, Smartphone } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Eye, EyeOff, Smartphone, ShieldCheck } from 'lucide-react';
 import { signInWithPassword } from '../../services/auth.service';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { usePwaInstall } from '../../utils/pwa';
 import { PwaInstallModal } from '../modals/PwaInstallModal';
+import { PrivacyNoticeModal } from '../modals/PrivacyNoticeModal';
 
 export function LoginView() {
   const { refreshAuth } = useApp();
@@ -17,6 +18,7 @@ export function LoginView() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [pwaModalOpen, setPwaModalOpen] = useState(false);
+  const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
 
   const handlePwaInstall = () => {
     setPwaModalOpen(true);
@@ -208,12 +210,34 @@ export function LoginView() {
         >
           Infotec Brasil · Gestão de Contratos Offshore
           <div style={{ marginTop: '2px', fontStyle: 'italic' }}>Criado por Luanna de Abreu Teixeira</div>
+          <div style={{ marginTop: '8px' }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPrivacyModalOpen(true)}
+              style={{
+                fontSize: '0.76rem',
+                padding: '4px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <ShieldCheck size={13} color="var(--blue)" />
+              Aviso de Privacidade e LGPD
+            </button>
+          </div>
         </div>
       </div>
 
       <PwaInstallModal
         open={pwaModalOpen}
         onClose={() => setPwaModalOpen(false)}
+      />
+
+      <PrivacyNoticeModal
+        open={privacyModalOpen}
+        onClose={() => setPrivacyModalOpen(false)}
       />
     </div>
   );

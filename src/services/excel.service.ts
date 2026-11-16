@@ -30,6 +30,10 @@ import {
   parseIdEmbarque,
   slugify
 } from '../utils/format';
+import {
+  maskHealthDescriptionForExport,
+  maskPetrobrasKey
+} from '../utils/lgpd';
 import { eachDay, periodDisplayName, periodFileSlug } from '../domain/periods';
 import {
   accumulateEmbarkation,
@@ -250,6 +254,7 @@ function applyPercentageFormatting(XLSX: any, wb: any) {
             val === 'Execução sem gangway' ||
             val === '% justificado' ||
             val === 'HC ÷ HD' ||
+            val === '(HC + HCD) ÷ HD' ||
             val.startsWith('HC ÷ HP') ||
             val === '%'
           ) {
@@ -277,10 +282,18 @@ function applyPercentageFormatting(XLSX: any, wb: any) {
       const b11 = ws['B11'];
       if (b11 && typeof b11.v === 'number') b11.z = '0.0%';
     } else if (sheetName === 'Resumo USOFF') {
-      const b11 = ws['B11'];
-      if (b11 && typeof b11.v === 'number') b11.z = '0.0%';
-      const b12 = ws['B12'];
-      if (b12 && typeof b12.v === 'number') b12.z = '0.0%';
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const labelCell = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+        const valueCell = ws[XLSX.utils.encode_cell({ r, c: 1 })];
+        const label = labelCell && typeof labelCell.v === 'string' ? labelCell.v.trim() : '';
+        if (
+          valueCell &&
+          typeof valueCell.v === 'number' &&
+          (label === 'HC ÷ HD' || label === '(HC + HCD) ÷ HD' || label.startsWith('HC ÷ HP'))
+        ) {
+          valueCell.z = '0.0%';
+        }
+      }
     }
   });
 }
@@ -912,7 +925,7 @@ export async function exportPeriodoXlsx(
         rp(pc),
         x.j ? x.j.motivo : '',
         x.j ? r1(x.j.horas_gangway) : '',
-        x.j ? x.j.descricao || '' : '',
+        x.j ? maskHealthDescriptionForExport(x.j.motivo, x.j.descricao) : '',
         x.j ? x.j.responsavel_nome || '' : '',
         (x.sem ? 'Sem HH executado informado · ' : '') +
           (need ? (x.j ? 'Justificado' : 'Pendente') : 'Na meta'),
@@ -985,7 +998,9 @@ export async function exportUsoffXlsx(
     ['HP Fora da carteira (< 12 dias)', r1(T.hpForaCarteira ?? 0)],
     ['HD · horas disponíveis', r1(T.hd)],
     ['HC · horas confirmadas (executadas)', r1(T.hc)],
-    ['HC ÷ HD', rp(T.pD)],
+    ['HCD · confirmação por diária (10 h/dia sem carteira/SAP)', r1(T.hDiaria ?? 0)],
+    ['HC + HCD · confirmado total', r1(T.hcComDiaria ?? T.hc)],
+    ['(HC + HCD) ÷ HD', rp(T.pD)],
     [`HC ÷ HP (até ${formatBr(ate)})`, rp(T.pP)],
     ['Σ PE × HP', T.falta ? 'falta PE/EX' : r1(T.peHp)],
     ['Σ EX × HC', T.falta ? 'falta PE/EX' : r1(T.exHc)],
@@ -993,7 +1008,7 @@ export async function exportUsoffXlsx(
     [],
     ['Criado por Luanna de Abreu Teixeira']
   ];
-  XLSX.utils.book_append_sheet(wb, createSheet(XLSX, resumoRows, [42, 20]), 'Resumo USOFF');
+  XLSX.utils.book_append_sheet(wb, createSheet(XLSX, resumoRows, [52, 20]), 'Resumo USOFF');
 
   // Aba 2: Por embarque (ID)
   const embRows: any[][] = [
@@ -1016,7 +1031,9 @@ export async function exportUsoffXlsx(
       `HP até ${formatBr(ate)}`,
       'HD',
       'HC',
-      'HC ÷ HD',
+      'HCD (Diária)',
+      'HC + HCD',
+      '(HC + HCD) ÷ HD',
       'HC ÷ HP',
       'PE',
       'EX',
@@ -1043,6 +1060,8 @@ export async function exportUsoffXlsx(
       r1(x.hpAte),
       r1(x.hd),
       r1(x.hc),
+      r1(x.hDiaria ?? 0),
+      r1(x.hcComDiaria ?? x.hc),
       rp(x.pD),
       rp(x.pP),
       x.falta ? '' : Array.from(x.pes).join(' / '),
@@ -1054,7 +1073,7 @@ export async function exportUsoffXlsx(
   ];
   XLSX.utils.book_append_sheet(
     wb,
-    createSheet(XLSX, embRows, [14, 18, 14, 14, 30, 16, 22, 12, 12, 6, 10, 16, 10, 16, 14, 12, 10, 10, 9, 9, 8, 8, 10, 10, 10]),
+    createSheet(XLSX, embRows, [14, 18, 14, 14, 30, 16, 22, 12, 12, 6, 10, 16, 10, 16, 14, 12, 10, 10, 12, 12, 16, 12, 8, 8, 10, 10, 10]),
     'Por embarque'
   );
 
@@ -1593,7 +1612,7 @@ export async function exportUsoffPortalOffshoreXlsx(
         embFim,
         id: embId,
         mat: op.matricula,
-        chave: op.chave_petrobras || '',
+        chave: maskPetrobrasKey(op.chave_petrobras),
         nome: op.nome || resolveTechName(op.matricula, dataset),
         empresa: op.empresa || '',
         estrutura: op.estrutura || op.unidade_negocio || '',
@@ -1874,6 +1893,10 @@ export async function exportUsoffPortalOffshoreXlsx(
     'HC Portal',
     'HH Confirmado (SAP)',
     'HC Considerado (USOFF)',
+    'HCD (Diária)',
+    'HC + HCD',
+    'HD (Disponível)',
+    '(HC + HCD) ÷ HD (%)',
     'Divergência (Portal − SAP)',
     'PE',
     'EX',
@@ -1886,7 +1909,7 @@ export async function exportUsoffPortalOffshoreXlsx(
 
   const embSheetRows: any[][] = sortedEmbarques.map(e => {
     const agg = embAggMap.get(e.key);
-    const isDiaria = e.fonte.includes('Diária');
+    const isDiaria = Boolean(e.isDiaria) || e.fonte.includes('Diária');
     const hcPortal = agg ? agg.hcPortal : 0;
     const hcSap = agg ? agg.hcSap : 0;
     const pesArr = Array.from(e.pes);
@@ -1916,6 +1939,10 @@ export async function exportUsoffPortalOffshoreXlsx(
       round4(hcPortal),
       round4(hcSap),
       round4(e.hc),
+      round4(e.hDiaria ?? 0),
+      round4(e.hcComDiaria ?? e.hc),
+      round4(e.hd),
+      e.pD != null ? Number(e.pD.toFixed(1)) : '—',
       round4(hcPortal - hcSap),
       isDiaria ? 'Diária' : e.falta ? 'Falta' : pesArr.length === 1 ? pesArr[0] : pesArr.join(' / '),
       isDiaria ? 'Diária' : e.falta ? 'Falta' : exsArr.length === 1 ? exsArr[0] : exsArr.join(' / '),
@@ -1930,9 +1957,14 @@ export async function exportUsoffPortalOffshoreXlsx(
   const wsPorEmb = createSheet(
     XLSX,
     [...bannerRows, embSheetHeaders, ...embSheetRows],
-    [14, 16, 14, 14, 28, 16, 22, 10, 14, 14, 8, 14, 18, 18, 12, 16, 14, 12, 18, 20, 20, 9, 9, 12, 12, 14, 18, 12]
+    [14, 16, 14, 14, 28, 16, 22, 10, 14, 14, 8, 14, 18, 18, 12, 16, 14, 12, 18, 20, 14, 14, 16, 18, 20, 9, 9, 12, 12, 14, 18, 12]
   );
-  applyDecimalFormatting(XLSX, wsPorEmb, [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27], sheet1StartDataRow);
+  applyDecimalFormatting(
+    XLSX,
+    wsPorEmb,
+    [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    sheet1StartDataRow
+  );
   XLSX.utils.book_append_sheet(wb, wsPorEmb, 'Por Embarque (ID)');
 
   // Aba 3: Resumo de Validação (Painel vs Soma das Linhas)
@@ -1961,6 +1993,15 @@ export async function exportUsoffPortalOffshoreXlsx(
     ['Embarques considerados no painel', summary.n],
     ['Total de linhas exportadas na Aba 1', dataRows.length],
     [],
+    ['Indicadores de Disponibilidade e Diárias (Painel)', 'Valor'],
+    ['HP · horas programadas', round4(summary.hp)],
+    ['HD · horas disponíveis', round4(summary.hd)],
+    ['HC · horas confirmadas (SAP)', round4(summary.hc)],
+    ['HCD · confirmação por diária (10 h/dia sem carteira/SAP)', round4(summary.hDiaria ?? 0)],
+    ['HC + HCD · confirmado total', round4(summary.hcComDiaria ?? summary.hc)],
+    ['(HC + HCD) ÷ HD (%)', summary.pD != null ? Number(summary.pD.toFixed(1)) : '—'],
+    ['HC ÷ HP (%)', summary.pP != null ? Number(summary.pP.toFixed(1)) : '—'],
+    [],
     ['Classificação / Regra', 'Linhas', 'HH Programado', 'HH Conf. Portal', 'HH Conf. SAP', 'HC Considerado', 'PE × HP', 'EX × HC', 'USoff'],
     ...bucketOrder
       .filter(name => buckets.has(name))
@@ -1980,11 +2021,15 @@ export async function exportUsoffPortalOffshoreXlsx(
       })
   ];
 
-  const wsResumo = createSheet(XLSX, resumoRows, [46, 12, 16, 16, 16, 18, 14, 14, 14]);
+  const wsResumo = createSheet(XLSX, resumoRows, [54, 14, 16, 16, 16, 18, 14, 14, 14]);
   const confrontoStartRow = resumoRows.findIndex(r => r[0] === 'Total USoff apresentado no painel');
+  const hcdStartRow = resumoRows.findIndex(r => r[0] === 'HP · horas programadas');
   const bucketStartRow = resumoRows.findIndex(r => r[0] === 'Classificação / Regra') + 1;
   if (confrontoStartRow >= 0) {
     applyDecimalFormatting(XLSX, wsResumo, [1], confrontoStartRow, '#,##0.00', confrontoStartRow + 6);
+  }
+  if (hcdStartRow >= 0) {
+    applyDecimalFormatting(XLSX, wsResumo, [1], hcdStartRow, '#,##0.00', hcdStartRow + 6);
   }
   if (bucketStartRow > 0) {
     applyDecimalFormatting(XLSX, wsResumo, [2, 3, 4, 5, 6, 7, 8], bucketStartRow, '#,##0.00');
@@ -2113,7 +2158,7 @@ export async function exportTecnicoXlsx(
         acc ? r1(acc.saldo) : '',
         just ? just.motivo : '',
         just ? r1(just.horas_gangway) : '',
-        just ? just.descricao || '' : '',
+        just ? maskHealthDescriptionForExport(just.motivo, just.descricao) : '',
         just ? just.responsavel_nome || '' : '',
         rec.e >= rec.d - 0.001 ? 'Sim' : 'Não'
       ]);
@@ -2489,6 +2534,11 @@ export async function exportPainelDiaOrdensXlsx(params: {
   ];
 
   const dataRows: any[][] = [];
+  const formatPainelJust = (j: { motivo: string; descricao?: string | null } | null) => {
+    if (!j) return '';
+    const maskedDesc = maskHealthDescriptionForExport(j.motivo, j.descricao);
+    return `${j.motivo}${maskedDesc ? ' - ' + maskedDesc : ''}`;
+  };
 
   rows.forEach(r => {
     const key = `${r.mat}|${date}`;
@@ -2515,7 +2565,7 @@ export async function exportPainelDiaOrdensXlsx(params: {
           r.e,
           r.d,
           r.st.toUpperCase(),
-          r.j ? `${r.j.motivo}${r.j.descricao ? ' - ' + r.j.descricao : ''}` : ''
+          formatPainelJust(r.j)
         ]);
       });
     } else {
@@ -2534,7 +2584,7 @@ export async function exportPainelDiaOrdensXlsx(params: {
         r.e,
         r.d,
         r.st.toUpperCase(),
-        r.j ? `${r.j.motivo}${r.j.descricao ? ' - ' + r.j.descricao : ''}` : ''
+        formatPainelJust(r.j)
       ]);
     }
   });

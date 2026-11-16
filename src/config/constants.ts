@@ -49,7 +49,8 @@ export const MOTIVOS_JUSTIFICATIVA = [
   'Parada ou restrição da plataforma',
   'Treinamento, reunião ou simulado',
   'Problema de ordem de manutenção (OM)',
-  'Atestado ou desembarque antecipado',
+  'Desembarque antecipado (operacional)',
+  'Afastamento / Atestado (sem detalhes clínicos)',
   'Deslocamento ou transbordo',
   'Outro'
 ] as const;
@@ -78,6 +79,7 @@ export interface NavSectionItem {
   label: string;
   group: 'operacao' | 'medicao' | 'admin';
   globalOnly?: boolean;
+  adminOnly?: boolean;
 }
 
 export const NAV_TABS: NavSectionItem[] = [
@@ -90,7 +92,7 @@ export const NAV_TABS: NavSectionItem[] = [
   { id: 'pes', label: 'Pessoas, plataformas e acessos', group: 'admin', globalOnly: true },
   { id: 'imp', label: 'Importar dados', group: 'admin', globalOnly: true },
   { id: 'cfg', label: 'Configurações', group: 'admin', globalOnly: true },
-  { id: 'adm', label: 'Painel do Administrador', group: 'admin', globalOnly: true }
+  { id: 'adm', label: 'Painel do Administrador', group: 'admin', globalOnly: true, adminOnly: true }
 ];
 
 export const TAB_TITLES: Record<TabId, string> = {

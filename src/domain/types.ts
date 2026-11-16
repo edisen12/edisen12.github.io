@@ -357,6 +357,11 @@ export interface UsoffOperationRow {
   hpAte: number;
   hd: number;
   hc: number;
+  isDiaria?: boolean;
+  /** Horas de confirmação estimada por diária (dias × 10) para unidades Diária sem carteira/programação e sem confirmação SAP. */
+  hDiaria?: number;
+  /** Soma HC + hDiaria usada no indicador real sobre disponibilidade ((HC + HCD) ÷ HD). */
+  hcComDiaria?: number;
   peHp: number;
   exHc: number;
   pes: Set<number>;
@@ -376,6 +381,8 @@ export interface UsoffSummary {
   hpAte: number;
   hd: number;
   hc: number;
+  hDiaria?: number;
+  hcComDiaria?: number;
   peHp: number;
   exHc: number;
   falta: number;

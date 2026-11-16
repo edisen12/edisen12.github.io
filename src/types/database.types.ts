@@ -827,8 +827,28 @@ export type Database = {
         Args: { p_embarque_ids: string[]; p_keep_ops: Json }
         Returns: Json
       }
+      anonimizar_tecnico_lgpd: {
+        Args: { p_matricula: string }
+        Returns: Json
+      }
+      delete_tecnico_atomic: {
+        Args: { p_matricula: string; p_cascade?: boolean }
+        Returns: undefined
+      }
       reconciliar_confirmacoes_sap: { Args: never; Returns: Json }
       reset_carteira_embarques: { Args: never; Returns: Json }
+      save_pessoa_with_scopes: {
+        Args: {
+          p_id?: string | null
+          p_slug?: string
+          p_nome?: string
+          p_papel?: string
+          p_email?: string
+          p_plats?: string[]
+          p_uns?: string[]
+        }
+        Returns: Json
+      }
       update_own_profile: {
         Args: { p_nome: string; p_preferencias?: Json }
         Returns: undefined

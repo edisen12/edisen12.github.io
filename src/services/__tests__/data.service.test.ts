@@ -621,19 +621,19 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
       }
     });
 
-    it('lança erro em savePessoa quando a limpeza de pessoa_plataformas falha', async () => {
-      const originalFrom = mockClient.from.bind(mockClient);
-      const fromSpy = vi.spyOn(mockClient, 'from').mockImplementation(((table: any) => {
-        if (table === 'pessoa_plataformas') {
-          return {
-            delete: () => ({
-              eq: vi.fn().mockResolvedValue({ error: new Error('Deadlock ao limpar escopo') })
-            })
-          } as any;
+    it('lança erro em savePessoa quando a RPC transacional falha e preserva tabelas íntegras', async () => {
+      const originalRpc = mockClient.rpc.bind(mockClient);
+      const rpcSpy = vi.spyOn(mockClient, 'rpc').mockImplementation(((name: string, params?: any) => {
+        if (name === 'save_pessoa_with_scopes') {
+          return Promise.resolve({
+            data: null,
+            error: new Error('Deadlock ao limpar escopo')
+          });
         }
-        return originalFrom(table);
+        return originalRpc(name, params);
       }) as any);
 
+      const prevPessoasLen = mockClient.__mockState.tables.pessoas.length;
       try {
         const input = {
           id: 'pes-1',
@@ -644,8 +644,9 @@ describe('Data Service - Consultas Janeladas, RLS, Batch UPSERT e Persistência'
           uns: []
         };
         await expect(savePessoa(input)).rejects.toThrow('Deadlock ao limpar escopo');
+        expect(mockClient.__mockState.tables.pessoas.length).toBe(prevPessoasLen);
       } finally {
-        fromSpy.mockRestore();
+        rpcSpy.mockRestore();
       }
     });
   });

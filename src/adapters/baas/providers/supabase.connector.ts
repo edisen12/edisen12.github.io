@@ -549,77 +549,32 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
     plats: string[];
     uns: string[];
   }): Promise<Pessoa> {
-    let pessoaId = input.id;
+    const uniquePlats = Array.from(new Set(input.plats || [])).filter(Boolean);
+    const uniqueUns = Array.from(new Set(input.uns || [])).filter(Boolean);
 
-    if (pessoaId) {
-      const { error: updErr } = await supabase
-        .from('pessoas')
-        .update({
-          nome: input.nome,
-          papel: input.papel,
-          email: input.email,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', pessoaId);
+    // Transação ACID única no PostgreSQL (Migration 031) evitando perda parcial de escopo em falha de rede
+    const { data, error } = await supabase.rpc('save_pessoa_with_scopes', {
+      p_id: input.id || null,
+      p_slug: input.slug,
+      p_nome: input.nome,
+      p_papel: input.papel,
+      p_email: input.email,
+      p_plats: uniquePlats,
+      p_uns: uniqueUns
+    });
 
-      if (updErr) throw updErr;
-    } else {
-      const { data: insData, error: insErr } = await supabase
-        .from('pessoas')
-        .insert({
-          nome: input.nome,
-          slug: input.slug,
-          papel: input.papel,
-          email: input.email
-        })
-        .select('id')
-        .single();
-
-      if (insErr) throw insErr;
-      pessoaId = insData.id;
-    }
-
-    // Correção da dívida de erros silenciosos: checa erro na limpeza e inserção de escopos de plataformas
-    const { error: delPlatErr } = await supabase
-      .from('pessoa_plataformas')
-      .delete()
-      .eq('pessoa_id', pessoaId);
-    if (delPlatErr) throw delPlatErr;
-
-    if (input.plats && input.plats.length > 0) {
-      const rowsPlat = Array.from(new Set(input.plats)).map(sigla => ({
-        pessoa_id: pessoaId!,
-        plataforma_sigla: sigla
-      }));
-      const { error: plErr } = await supabase.from('pessoa_plataformas').insert(rowsPlat);
-      if (plErr) throw plErr;
-    }
-
-    // Correção da dívida de erros silenciosos: checa erro na limpeza e inserção de escopos de UNs
-    const { error: delUnErr } = await supabase
-      .from('pessoa_unidades')
-      .delete()
-      .eq('pessoa_id', pessoaId);
-    if (delUnErr) throw delUnErr;
-
-    if (input.uns && input.uns.length > 0) {
-      const rowsUn = Array.from(new Set(input.uns)).map(un => ({
-        pessoa_id: pessoaId!,
-        unidade_negocio: un
-      }));
-      const { error: unErr } = await supabase.from('pessoa_unidades').insert(rowsUn);
-      if (unErr) throw unErr;
-    }
+    if (error) throw error;
+    const saved = (data || {}) as { id?: string; slug?: string; user_id?: string | null };
 
     return {
-      id: pessoaId!,
-      slug: input.slug,
+      id: saved.id || input.id || '',
+      slug: saved.slug || input.slug,
       nome: input.nome,
       papel: input.papel,
       email: input.email,
-      user_id: null,
-      plats: input.plats || [],
-      uns: input.uns || []
+      user_id: saved.user_id ?? null,
+      plats: uniquePlats,
+      uns: uniqueUns
     };
   },
 
@@ -676,17 +631,16 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
   },
 
   async deleteTecnico(matricula: string, cascade: boolean = false): Promise<void> {
-    if (cascade) {
-      // Exclusão em cascata: remove dependências referenciais filhas antes do técnico mestre
-      await supabase.from('justificativas').delete().eq('matricula', matricula);
-      await supabase.from('carteira_operacoes').delete().eq('matricula', matricula);
-      await supabase.from('carteira_embarques').delete().eq('matricula', matricula);
-      await supabase.from('apontamentos_hh').delete().eq('matricula', matricula);
-      await supabase.from('confirmacoes_sap').delete().eq('matricula', matricula);
-    }
-    const { error } = await supabase.from('tecnicos').delete().eq('matricula', matricula);
+    // Exclusão em transação ACID única no PostgreSQL (Migration 031)
+    const { error } = await supabase.rpc('delete_tecnico_atomic', {
+      p_matricula: matricula,
+      p_cascade: cascade
+    });
     if (error) {
-      if ((error as any).code === '23503') {
+      if (
+        (error as any).code === '23503' ||
+        String(error.message || '').includes('violates foreign key constraint')
+      ) {
         throw new Error(
           'Este colaborador possui histórico operacional vinculado (apontamentos ou embarques). Marque a opção de exclusão em cascata para confirmar a remoção.'
         );

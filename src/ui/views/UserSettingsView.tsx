@@ -36,6 +36,7 @@ import { resolvePersonUns } from '../../domain/calculations';
 import type { ThemeMode, TableDensity, TabId } from '../../domain/types';
 import { usePwaInstall } from '../../utils/pwa';
 import { PwaInstallModal } from '../modals/PwaInstallModal';
+import { PrivacyNoticeModal } from '../modals/PrivacyNoticeModal';
 
 function getInitials(name?: string): string {
   if (!name || !name.trim()) return 'IB';
@@ -81,6 +82,7 @@ export function UserSettingsView() {
   const { showToast } = useToast();
   const { isStandalone, isInstalled, canPromptDirectly, triggerInstall } = usePwaInstall();
   const [pwaModalOpen, setPwaModalOpen] = useState(false);
+  const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
 
   // Estados locais da aba Perfil
   const [nomeInput, setNomeInput] = useState(userProfile?.nome || '');
@@ -1455,7 +1457,18 @@ export function UserSettingsView() {
                 <div style={{ fontSize: '0.84rem', lineHeight: 1.4 }}>
                   <b>Acesso Seguro e Auditado:</b> Toda alteração de dados, importações e
                   justificativas offshore são rastreadas com carimbo de auditoria em conformidade
-                  com as normas da Petrobras e LGPD.
+                  com as normas da Petrobras e LGPD (desconexão automática após 30 min sem atividade).
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setPrivacyModalOpen(true)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <ShieldCheck size={14} color="var(--blue)" />
+                      Ler Aviso de Privacidade e Direitos LGPD
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1533,6 +1546,10 @@ export function UserSettingsView() {
 
       {pwaModalOpen && (
         <PwaInstallModal open={pwaModalOpen} onClose={() => setPwaModalOpen(false)} />
+      )}
+
+      {privacyModalOpen && (
+        <PrivacyNoticeModal open={privacyModalOpen} onClose={() => setPrivacyModalOpen(false)} />
       )}
     </div>
   );

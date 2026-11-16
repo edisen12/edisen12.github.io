@@ -23,6 +23,7 @@ import {
 } from '../../domain/calculations';
 import { periodDisplayName } from '../../domain/periods';
 import { exportPeriodoXlsx, exportTecnicoXlsx } from '../../services/excel.service';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 
 export function MedicaoRelatoriosView() {
   const {
@@ -114,6 +115,12 @@ export function MedicaoRelatoriosView() {
     setIsExportingAll(true);
     try {
       await exportPeriodoXlsx(dataset, P, scopeLabel, userProfile?.nome);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_periodo',
+        category: 'operacional',
+        target_label: `Medição período ${P.ini}..${P.fim}`,
+        details: { scoped: Boolean(scopeLabel) }
+      });
       showToast('Relatório de medição do período exportado com sucesso!', 'success');
     } catch (err: any) {
       console.error(err);
@@ -128,6 +135,12 @@ export function MedicaoRelatoriosView() {
     setExportingTecMat(mat);
     try {
       await exportTecnicoXlsx(mat, dataset, P, scopeLabel);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_tecnico',
+        category: 'operacional',
+        target_id: mat,
+        target_label: `Medição técnico ${P.ini}..${P.fim}`
+      });
       showToast(`Relatório do técnico ${mat} exportado com sucesso!`, 'success');
     } catch (err: any) {
       console.error(err);

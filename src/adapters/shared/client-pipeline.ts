@@ -372,7 +372,8 @@ export function prepareBatchCarteira(
         portal_id: cleanId,
         id_embarque: cleanId,
         matricula: mat,
-        chave_petrobras: String(r.chave || '').trim(),
+        // Minimização LGPD (Art. 6º III): chave pessoal de acesso Petrobras não é retida em banco
+        chave_petrobras: '',
         nome: String(r.nome || '').trim(),
         empresa: String(r.empresa || '').trim(),
         estrutura: String(r.reg || '').trim(),
@@ -842,7 +843,7 @@ export function planSmartCarteiraImport(
       hp: r.hp != null ? Number(r.hp) : 0,
       hcPortal: r.hc_portal != null ? Number(r.hc_portal) : 0,
       recursos: parseInt(String(r.recursos || '1'), 10) || 1,
-      chavePetrobras: String(r.chave || '').trim(),
+      chavePetrobras: '',
       empresa: String(r.empresa || '').trim(),
       estrutura: String(r.reg || '').trim()
     });

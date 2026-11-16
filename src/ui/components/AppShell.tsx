@@ -114,6 +114,11 @@ export function AppShell({ children }: AppShellProps) {
                 <strong>{impersonatedTarget.profile.nome}</strong> (
                 {ROLES_LABEL[impersonatedTarget.profile.role] || impersonatedTarget.profile.role})
               </span>
+              {!impersonatedTarget.profile.ativo && (
+                <span className="pill pill-bad" style={{ fontSize: '0.72rem' }}>
+                  Conta inativa
+                </span>
+              )}
               {impersonatedSummary && (
                 <span
                   className="pill"

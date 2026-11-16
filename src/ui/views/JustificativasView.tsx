@@ -104,11 +104,17 @@ export function JustificativasView() {
     });
   }, [daysBelow, dataset.pessoas, dataset.config, TODAY]);
 
-  // Pior preposto em cobrança
-  const worstResp = useMemo(() => {
-    return rowsResp
-      .filter(r => (r.p.papel || 'preposto') === 'preposto' && r.M.venc > 0)
-      .sort((a, b) => b.M.venc - a.M.venc)[0];
+  // Resumo agregado de pendências vencidas (sem ranking individual punitivo — LGPD/BOAS PRÁTICAS)
+  const overdueSummary = useMemo(() => {
+    const overdueList = rowsResp.filter(r => r.M.venc > 0);
+    const totalVenc = overdueList.reduce((acc, r) => acc + r.M.venc, 0);
+    const oldest =
+      overdueList
+        .map(r => r.M.oldest)
+        .filter(Boolean)
+        .sort()[0] || '';
+    const maxAtraso = overdueList.reduce((max, r) => Math.max(max, r.M.atraso), 0);
+    return { countResp: overdueList.length, totalVenc, oldest, maxAtraso };
   }, [rowsResp]);
 
   const devedores = useMemo(() => {
@@ -631,20 +637,23 @@ export function JustificativasView() {
             />
           </div>
 
-          {/* Alerta de devedor vencido */}
-          {worstResp ? (
+          {/* Alerta agregado de pendências vencidas */}
+          {overdueSummary.totalVenc > 0 ? (
             <div className="note note-bad" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div>
-                <b>{worstResp.p.nome}</b> tem a maior pendência vencida:{' '}
-                {plural(worstResp.M.venc, 'justificativa vencida', 'justificativas vencidas')}, a mais antiga de{' '}
-                {formatBr(worstResp.M.oldest)} ({plural(worstResp.M.atraso, 'dia', 'dias')} de atraso).
+                Há{' '}
+                <b>{plural(overdueSummary.totalVenc, 'justificativa vencida', 'justificativas vencidas')}</b>{' '}
+                distribuídas em {plural(overdueSummary.countResp, 'frente de atuação', 'frentes de atuação')}
+                {overdueSummary.oldest
+                  ? `, com pendência mais antiga de ${formatBr(overdueSummary.oldest)} (${plural(overdueSummary.maxAtraso, 'dia', 'dias')} de atraso).`
+                  : '.'}
               </div>
               <button
                 type="button"
                 className="btn btn-accent btn-sm"
-                onClick={() => openEmailModal({ mode: 'cobranca', targetRespId: worstResp.p.id })}
+                onClick={() => openEmailModal({ mode: 'cobranca', targetRespId: '*' })}
               >
-                Cobrar agora
+                Cobrar pendências vencidas
               </button>
             </div>
           ) : !A.pend && A.need > 0 ? (
@@ -694,7 +703,6 @@ export function JustificativasView() {
               data={filteredRespCob}
               columns={cobRespColumns}
               rowKey={r => r.p.id}
-              rowClassName={r => (r === worstResp ? 'worst' : '')}
               emptyMessage="Nenhuma pessoa com esse papel ou sem pendências."
             />
           </div>

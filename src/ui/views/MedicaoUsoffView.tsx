@@ -32,6 +32,7 @@ import {
   exportConfrontoSAPXlsx
 } from '../../services/excel.service';
 import { reconciliarConfirmacoesSAP } from '../../services/data.service';
+import { emitAuditEventBestEffort } from '../../utils/audit';
 
 export function MedicaoUsoffView() {
   const {
@@ -73,6 +74,12 @@ export function MedicaoUsoffView() {
     setIsExporting(true);
     try {
       await exportUsoffXlsx(dataset, P, scopeLabel, filters);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_usoff',
+        category: 'operacional',
+        target_label: `USOFF ${P.ini}..${P.fim}`,
+        details: { embarques: embarques.length }
+      });
       showToast('Relatório de USOFF exportado com sucesso!', 'success');
     } catch (err: any) {
       console.error(err);
@@ -87,6 +94,12 @@ export function MedicaoUsoffView() {
     setIsExportingPortal(true);
     try {
       await exportUsoffPortalOffshoreXlsx(dataset, P, filters, scopeLabel);
+      void emitAuditEventBestEffort({
+        action: 'export_excel_portal_usoff',
+        category: 'operacional',
+        target_label: `Portal Offshore + USOFF ${P.ini}..${P.fim}`,
+        details: { embarques: embarques.length }
+      });
       showToast('Relatório Portal Offshore + USOFF exportado com sucesso!', 'success');
     } catch (err: any) {
       console.error(err);
@@ -174,8 +187,17 @@ export function MedicaoUsoffView() {
       render: r => formatHours(r.summary.hc)
     },
     {
+      key: 'hDiaria',
+      header: 'HCD (Diária)',
+      align: 'right',
+      width: '104px',
+      minWidth: '96px',
+      sortValue: r => r.summary.hDiaria ?? 0,
+      render: r => ((r.summary.hDiaria ?? 0) > 0 ? formatHours(r.summary.hDiaria ?? 0) : <span className="sub">—</span>)
+    },
+    {
       key: 'pD',
-      header: 'HC ÷ HD',
+      header: '(HC + HCD) ÷ HD',
       width: '175px',
       minWidth: '165px',
       sortValue: r => r.summary.pD ?? -1,
@@ -375,8 +397,17 @@ export function MedicaoUsoffView() {
       render: r => <b>{formatHours(r.hc)}</b>
     },
     {
+      key: 'hDiaria',
+      header: 'HCD (Diária)',
+      align: 'right',
+      width: '104px',
+      minWidth: '96px',
+      sortValue: r => r.hDiaria ?? 0,
+      render: r => ((r.hDiaria ?? 0) > 0 ? formatHours(r.hDiaria ?? 0) : <span className="sub">—</span>)
+    },
+    {
       key: 'pD',
-      header: 'HC ÷ HD',
+      header: '(HC + HCD) ÷ HD',
       width: '175px',
       minWidth: '165px',
       sortValue: r => r.pD ?? -1,
@@ -580,6 +611,12 @@ export function MedicaoUsoffView() {
     setIsExportingConfronto(true);
     try {
       await exportConfrontoSAPXlsx(filteredConfrontoOps, periodDisplayName(P));
+      void emitAuditEventBestEffort({
+        action: 'export_excel_confronto_sap',
+        category: 'operacional',
+        target_label: `Confronto SAP ${P.ini}..${P.fim}`,
+        details: { rows: filteredConfrontoOps.length }
+      });
       showToast('Relatório de confronto exportado com sucesso!', 'success');
     } catch (err: any) {
       console.error(err);
@@ -864,6 +901,12 @@ export function MedicaoUsoffView() {
             <b>HC<sub>i</sub></b>: horas confirmadas, isto é, o HH executado recebido do fluxo.
           </div>
           <div>
+            <b>HCD<sub>i</sub></b>: confirmação por diária (<b>dias &times; 10 h</b>) em unidades/plataformas por Diária sem carteira/HP programado e sem confirmação SAP; unidades com programação (ex.: Urucu) ou SAP mantêm apenas HP/HC para não duplicar.
+          </div>
+          <div>
+            <b>(HC + HCD) &divide; HD</b>: aproveitamento real sobre o disponível, somando HH confirmado (SAP) e diárias sem carteira.
+          </div>
+          <div>
             <b>PE<sub>i</sub> e EX<sub>i</sub></b>: ponderações da programação e da execução, definidas em Configurações (UN ou padrão) ou na planilha.
           </div>
         </div>
@@ -886,8 +929,8 @@ export function MedicaoUsoffView() {
             </div>
           )}
 
-          {/* 6 KPIs */}
-          <div className="kpis">
+          {/* 8 KPIs (grade 4x2 em desktop) */}
+          <div className="kpis kpis-4">
             <KpiCard
               value={T.n}
               label={isEnc ? 'embarques com desembarque no período' : 'embarques no período'}
@@ -909,8 +952,18 @@ export function MedicaoUsoffView() {
               tone="blue"
             />
             <KpiCard
+              value={formatHours(T.hDiaria ?? 0)}
+              label="HCD · confirmação por diária"
+              tone="blue"
+            />
+            <KpiCard
+              value={formatHours(T.hcComDiaria ?? T.hc)}
+              label="HC + HCD · confirmado total"
+              tone="blue"
+            />
+            <KpiCard
               value={formatPct(T.pD)}
-              label="HC ÷ HD (sobre disponível)"
+              label="(HC + HCD) ÷ HD (sobre disponível)"
               tone={statusOf(T.pD, dataset.config) === 'ok' ? 'ok' : 'bad'}
             />
             <KpiCard

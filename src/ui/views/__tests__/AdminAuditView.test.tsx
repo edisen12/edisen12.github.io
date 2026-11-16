@@ -159,9 +159,13 @@ describe('AdminAuditView - Painel de Governança, Contas & Auditoria', () => {
     });
   });
 
-  it('1. Bloqueia acesso quando o usuário não possui permissão de administrador ou visão global', () => {
-    renderAdminAuditView({ isGlobal: false, isAdmin: false });
+  it('1. Bloqueia acesso quando o usuário não é Administrador (inclusive preposto e gestor)', () => {
+    const { unmount } = renderAdminAuditView({ isGlobal: false, isAdmin: false });
+    expect(screen.getAllByText(/Acesso Restrito/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Painel de Governança, Contas & Auditoria/i)).toBeNull();
+    unmount();
 
+    renderAdminAuditView({ isGlobal: true, isAdmin: false });
     expect(screen.getAllByText(/Acesso Restrito/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Painel de Governança, Contas & Auditoria/i)).toBeNull();
   });

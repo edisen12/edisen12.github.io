@@ -10,6 +10,7 @@ import {
   isSapBeforeEmbarkation,
   lookupPlatform,
   mergeConfrontoOperations,
+  resolveDivergenciaSapStatus,
   resolveLocation,
   resolvePlace,
   resolveTechName
@@ -151,9 +152,27 @@ export function CarteiraEmbarqueModal() {
       return false;
     });
 
-    // 3. Cruzamento integrado
+    // 3. Cruzamento integrado (se o snapshot global de SAP estiver carregado mas nenhuma linha
+    // restar na janela deste embarque, zera cache legado de hh_confirmado_sap para evitar falso positivo)
+    const hasGlobalSapLoaded = (dataset.confirmacoesSap || []).length > 0;
+    const opsForConfronto =
+      hasGlobalSapLoaded && sapDoEmbarque.length === 0
+        ? opsDoEmbarque.map(op => {
+            const hhConf = Number(op.hh_confirmado) || 0;
+            const divergenciaRaw = Math.round(hhConf * 100) / 100;
+            return {
+              ...op,
+              hh_confirmado_sap: 0,
+              divergencia_sap: Object.is(divergenciaRaw, -0) ? 0 : divergenciaRaw,
+              status_divergencia: resolveDivergenciaSapStatus(hhConf, 0, {
+                statusProgramacao: op.status_programacao
+              })
+            };
+          })
+        : opsDoEmbarque;
+
     const merged = mergeConfrontoOperations(
-      opsDoEmbarque,
+      opsForConfronto,
       sapDoEmbarque,
       embarque ? [embarque] : [],
       dataset.tecnicos || {}
@@ -191,7 +210,7 @@ export function CarteiraEmbarqueModal() {
 
     const operacoesComUsoff: OperacaoComUsoffRow[] = merged.map(o => {
       const hp = Number(o.hh_programado) || 0;
-      const hc = Math.max(Number(o.hh_confirmado_sap) || 0, Number(o.hh_confirmado) || 0, 0);
+      const hc = Math.max(Number(o.hh_confirmado_sap) || 0, 0);
       const isCarteira = o.status_programacao === 'Carteira';
       const isFora = o.status_programacao === 'Fora da carteira';
       const hpCart = isCarteira ? hp : 0;
@@ -635,7 +654,7 @@ export function CarteiraEmbarqueModal() {
                 {summary?.weightsFalta ? '—' : formatUs(summary?.totExHc ?? 0)}
               </b>
               <span className="sub" style={{ fontSize: '0.70rem', color: 'var(--ink-muted)', display: 'block' }}>
-                {summary?.isDiaria ? 'Medição diária' : `${formatHours(summary?.totPortal || 0)} confirmadas`}
+                {summary?.isDiaria ? 'Medição diária' : `${formatHours(summary?.totSap || 0)} SAP`}
               </span>
             </div>
 

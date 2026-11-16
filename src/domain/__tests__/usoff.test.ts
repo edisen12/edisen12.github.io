@@ -1513,5 +1513,247 @@ describe('src/domain/usoff.ts - Cálculo de USOFF & Invariantes Financeiros', ()
       // USOFF exato: 55001 (0.30*20 + 0.70*18 = 18.6) + 55002 (0.30*30 + 0.70*30 = 30.0) = 48.6
       expect(total.us).toBe(48.6);
     });
+
+    it('respeita estritamente as horas confirmadas no SAP (Grupo 4: não usa Portal quando Portal > SAP e trava negativos em 0)', () => {
+      const dataset = createBaseDataset({
+        config: {
+          ...DEFAULT_CONFIG,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70
+        },
+        tecnicos: {
+          '1001': { matricula: '1001', nome: 'Tecnico Um', funcao: 'Automação' },
+          '1002': { matricula: '1002', nome: 'Tecnico Dois', funcao: 'Instrumentação' },
+          '1003': { matricula: '1003', nome: 'Tecnico Tres', funcao: 'Instrumentação' },
+          '1004': { matricula: '1004', nome: 'Tecnico Quatro', funcao: 'Instrumentação' }
+        },
+        carteira: [
+          {
+            id: 'c-53676',
+            id_embarque: '93676',
+            matricula: '1001',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 15,
+            hh_carteira: 15,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'c-51679',
+            id_embarque: '91679',
+            matricula: '1002',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 2,
+            hh_carteira: 2,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'c-54873',
+            id_embarque: '94873',
+            matricula: '1003',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 1.5,
+            hh_carteira: 1.5,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'c-est-neg',
+            id_embarque: '99004',
+            matricula: '1004',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 10,
+            hh_carteira: 10,
+            hh_fora_carteira: 0,
+            operacao: '',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          // Caso padrão 53676: Portal 8h, SAP 0h -> Execução Zero (US = 0, não 5.6)
+          {
+            id: 'op-53676',
+            portal_id: '93676',
+            id_embarque: '93676',
+            matricula: '1001',
+            chave_petrobras: '',
+            nome: 'Tecnico Um',
+            empresa: 'Infotec',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099860906',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 15,
+            hh_confirmado: 8,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 8,
+            status_divergencia: 'Não Apontado no SAP',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // Caso padrão 51679: Portal 2h, SAP 0h -> Execução Zero (US = 0, não 2.6)
+          {
+            id: 'op-51679',
+            portal_id: '91679',
+            id_embarque: '91679',
+            matricula: '1002',
+            chave_petrobras: '',
+            nome: 'Tecnico Dois',
+            empresa: 'Infotec',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099006747',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 2,
+            hh_confirmado: 2,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 2,
+            status_divergencia: 'Não Apontado no SAP',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // Caso padrão 54873: HP 1.5, Portal 6h, SAP 5h -> PE*1.5 + EX*5 = 0.45 + 3.50 = 3.95 (não 4.65)
+          {
+            id: 'op-54873',
+            portal_id: '94873',
+            id_embarque: '94873',
+            matricula: '1003',
+            chave_petrobras: '',
+            nome: 'Tecnico Tres',
+            empresa: 'Infotec',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099481897',
+            operacao: '0050',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 1.5,
+            hh_confirmado: 6,
+            hh_confirmado_sap: 5,
+            divergencia_sap: 1,
+            status_divergencia: 'Divergente (Portal > SAP)',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          // Caso estorno líquido negativo (-4h no SAP vs 5h no Portal) -> trava hc = 0 (US = 0)
+          {
+            id: 'op-neg',
+            portal_id: '99004',
+            id_embarque: '99004',
+            matricula: '1004',
+            chave_petrobras: '',
+            nome: 'Tecnico Quatro',
+            empresa: 'Infotec',
+            estrutura: '',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P58',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099990004',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Regular',
+            status_programacao: 'Carteira',
+            hh_programado: 10,
+            hh_confirmado: 5,
+            hh_confirmado_sap: -4,
+            divergencia_sap: 9,
+            status_divergencia: 'Divergente (Portal > SAP)',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        confirmacoesSap: [
+          {
+            id: 's-54873',
+            matricula: '1003',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: '002099481897',
+            operacao: '0050',
+            horas_confirmadas: 5,
+            contador_confirmacao: 1,
+            id_embarque: '94873',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 's-neg-1',
+            matricula: '1004',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: '002099990004',
+            operacao: '0010',
+            horas_confirmadas: -4,
+            contador_confirmacao: 1,
+            id_embarque: '99004',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      const pidx = buildPlatformIndex(dataset.plataformas);
+      const embarques = computeUsoffOperations(basePeriod, dataset, emptyFilters, pidx, 'embarque');
+      const byId = (id: string) => embarques.find(e => e.id_embarque === id)!;
+
+      expect(byId('93676').hc).toBe(0);
+      expect(byId('93676').us).toBe(0);
+
+      expect(byId('91679').hc).toBe(0);
+      expect(byId('91679').us).toBe(0);
+
+      expect(byId('94873').hc).toBe(5);
+      expect(byId('94873').peHp).toBeCloseTo(0.45, 5);
+      expect(byId('94873').exHc).toBeCloseTo(3.5, 5);
+      expect(byId('94873').us).toBeCloseTo(3.95, 5);
+
+      expect(byId('99004').hc).toBe(0);
+      expect(byId('99004').us).toBe(0);
+
+      const summary = summarizeUsoff(embarques);
+      expect(summary.hc).toBe(5);
+      expect(summary.us).toBeCloseTo(3.95, 5);
+    });
   });
 });

@@ -232,7 +232,7 @@ export const computeUsoffOperations = (
       const hasGw = hasGangwayJustification(op.matricula, a, b, dataset.justMap);
 
       const hp = Number(op.hh_programado) || 0;
-      const hc = Math.max(Number(op.hh_confirmado_sap) || 0, Number(op.hh_confirmado) || 0);
+      const hc = Math.max(Number(op.hh_confirmado_sap) || 0, 0);
 
       const isCarteira = op.status_programacao === 'Carteira';
       const hpCart = isCarteira ? hp : 0;

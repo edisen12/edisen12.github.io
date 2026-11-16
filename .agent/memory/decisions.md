@@ -32,11 +32,12 @@
 - Semáforo `statusOf`: `≥ meta` → `ok` · `≥ atenção` → `warn` · abaixo → `bad`.
 
 ### 1.7 USOFF (`usoff.ts`)
-- Agrupa por `operacao` (OP) normalizada. Sem OP → `EMB:<id>`. Apontamento sem carteira → `SEMOP:<...>` (tipo "Sem programação").
+- Agrupa por `operacao` (OP) normalizada ou `embarque` (`id_embarque`). Sem OP → `EMB:<id>`. Apontamento sem carteira → `SEMOP:<...>` (tipo "Sem programação").
 - `HP` = `horas_programadas` se > 0 (fonte "informada"), senão `dias × hh_dia`. `hpAte` = parcela proporcional até `LAST`.
 - Pesos em cascata: linha da carteira (`pe`, `ex`) → `config_usoff_un[un]` → global (`us_pe_padrao`, `us_ex_padrao`).
-- **Regra dos 12 dias no USOFF:**
-  - `Carteira` (programação com $\ge 12$ dias de antecedência): utiliza a ponderação de Programação ($PE \times HP_{carteira}$) e de Execução ($EX \times HC$).
+- **Regra dos 12 dias + Execução estritamente do SAP no USOFF:**
+  - Quando há operações granulares (`carteiraOperacoes`), as horas confirmadas consideradas no cálculo ($HC$) respeitam **estritamente** o relatório do SAP (`hc = Math.max(Number(op.hh_confirmado_sap) || 0, 0)`), sem `Math.max(..., hh_confirmado)` com o Portal Offshore (trava `>= 0` protege contra estorno líquido negativo). Se `hh_confirmado_sap === 0` e não há Gangway, aplica-se a trava de execução zero ($US_{off} = 0$).
+  - `Carteira` (programação com $\ge 12$ dias de antecedência): utiliza a ponderação mista de Programação ($PE \times HP_{carteira}$) e de Execução ($EX \times HC$).
   - `Fora da carteira` (programação inserida com $< 12$ dias de antecedência ou durante o embarque): utiliza **APENAS** a ponderação da Execução ($EX \times HC$). A parcela de programação **não pontua** ($PE \times 0$).
   - Portanto: $US_{off} = (PE \times HP_{carteira}) + (EX \times HC)$. Se `hh_carteira` não for informado (base legada), recai de forma retrocompatível para $HP$ total.
 - **Trava `falta`:** se algum item não tem PE e EX, o total exibe `—` (`null`). Nunca mostra soma parcial.
@@ -317,11 +318,7 @@
 - **2026-11-16** — Bloqueio de Confirmações SAP Pós-Embarque Após `data_fim` (`028_fix_sap_post_embarkation_reconciliation.sql`) e Auditoria de Divergências SAP × Portal Offshore (49 casos):
   - *Regra Canônica Pós-Embarque (`isSapAfterEmbarkation` + SQL/Server/Mock/UI):* confirmações SAP positivas (`horas_confirmadas >= 0`) com execução após o desembarque (`data_fim_real > data_fim`) não pertencem ao embarque encerrado e devem ser rejeitadas sem vazar para `Fora da Carteira`/`extraOps`, **exceto** dentro da janela de tolerância pós-desembarque PMB (até `+4 dias` corridos tanto em `data_fim_real <= data_fim + 4d` quanto em `data_lancamento <= data_fim + 4d`, ex.: `52663`).
   - *Invariantes Preservados:*
-    1. Execuções com `data_fim_real <= data_fim` permanecem vinculadas independentemente de `data_lancamento` (mantém lançamentos/reconfirmações retroativas em que `App == Portal`).
+    1. Execuções com `data_fim_real <= data_fim` permanecem vinculadas independentemente de `data_lancamento` (**Grupo 2** — 31 linhas confirmadas pelo usuário para manter a regra atual em que `App == Portal`).
     2. Estornos negativos tardios (`horas_confirmadas < 0`, ex.: `56586` / `002032288155/0010`) permanecem elegíveis após `data_fim`.
-    3. `Math.max(hh_confirmado_sap, hh_confirmado)` no motor USOFF (`src/domain/usoff.ts`, `excel.service.ts`, `CarteiraEmbarqueModal.tsx`) **não** foi alterado unilateralmente; os 3 casos em que `hh_confirmado_sap` já coincidia com o SAP mas `USoff` refletia `Portal > SAP` ficaram documentados para decisão explícita do usuário.
-  - *Auditoria dos 49 casos divergentes (100% mapeados, zero PII):*
-    - **Grupo 1 (12 linhas — corrigido na Migration `028` e na aplicação):** execuções SAP positivas em novembro (ou fora da janela PMB `+4d` como `52953`) sendo somadas a embarques de outubro (`56082`, `56083`, `56077`, `52974`, `53658`, `52953`).
-    - **Grupo 2 (31 linhas — pendente avaliação do usuário):** `data_fim_real <= data_fim` com `App == Portal` 100%, porém `data_lancamento > data_fim + 4d` (Subgrupo 2A: 20 linhas estornadas em out e relançadas em nov; Subgrupo 2B: 11 linhas apontadas retroativamente em nov).
-    - **Grupo 3 (3 linhas — pendente avaliação do usuário):** divergência real SAP × Portal com execuções dentro do próprio embarque (`56082`/`56083` `002030310807/0020` e `53684` `002032198204/0020`).
-    - **Grupo 4 (3 linhas — pendente decisão do usuário):** `hh_confirmado_sap` igual à referência SAP, diferença restrita à regra `Math.max(SAP, Portal)` do USOFF (`53676`, `51679`, `54873`, além de `52953` após zerar SAP).
+    3. Divergência real SAP × Portal dentro do embarque (**Grupo 3** — 3 linhas: `56082`/`56083` `002030310807/0020` e `53684` `002032198204/0020`) validada operacionalmente pelo usuário sem alteração de regra.
+  - *Regra Canônica USOFF (`hh_confirmado_sap` estrito — **Grupo 4**, decisão do usuário):* nos casos em que Portal e SAP divergem (`53676` `002032860906/0010`, `51679` `002032006747/0010`, `54873` `002030481897/0050` e reflexo de `52953` `002032834159/0010`), o cálculo do USOFF deve respeitar **estritamente** o confirmado no relatório do SAP (`hc = Math.max(Number(op.hh_confirmado_sap) || 0, 0)`), substituindo `Math.max(hh_confirmado_sap, hh_confirmado)` em `src/domain/usoff.ts`, `src/services/excel.service.ts` e `src/ui/modals/CarteiraEmbarqueModal.tsx` (incluindo limpeza defensiva de cache legado de `hh_confirmado_sap` na modal quando todas as confirmações SAP do embarque são filtradas por janela).

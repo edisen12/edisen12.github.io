@@ -802,6 +802,58 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
           }
         ],
         confirmacoesSap: [
+          {
+            id: 'sap-cart-exec',
+            matricula: '1001',
+            data_criacao: '2026-10-02',
+            data_lancamento: '2026-10-02',
+            data_fim_real: '2026-10-02',
+            ordem: '400010',
+            operacao: '0010',
+            horas_confirmadas: 10,
+            contador_confirmacao: 1,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 'sap-fora-exec',
+            matricula: '1001',
+            data_criacao: '2026-10-03',
+            data_lancamento: '2026-10-03',
+            data_fim_real: '2026-10-03',
+            ordem: '400030',
+            operacao: '0030',
+            horas_confirmadas: 20,
+            contador_confirmacao: 1,
+            id_embarque: '55104',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 'sap-diaria-1',
+            matricula: '1002',
+            data_criacao: '2026-10-04',
+            data_lancamento: '2026-10-04',
+            data_fim_real: '2026-10-04',
+            ordem: '500010',
+            operacao: '0010',
+            horas_confirmadas: 40,
+            contador_confirmacao: 1,
+            id_embarque: '55200',
+            status_reconciliacao: 'Em Carteira'
+          },
+          {
+            id: 'sap-diaria-2',
+            matricula: '1002',
+            data_criacao: '2026-10-04',
+            data_lancamento: '2026-10-04',
+            data_fim_real: '2026-10-04',
+            ordem: '500020',
+            operacao: '0020',
+            horas_confirmadas: 40,
+            contador_confirmacao: 1,
+            id_embarque: '55200',
+            status_reconciliacao: 'Em Carteira'
+          },
           // 7. Ordem do SAP não cadastrada no Portal -> apenas 0.70 * 10 = 7.00
           {
             id: 'sap-extra-1',
@@ -1109,6 +1161,141 @@ describe('Excel Service - Importação Heurística, Parsing Universal e Exporta�
       const usRow = usoffAoa[1];
       expect(usRow[usHeader.indexOf('HH Confirmado (SAP)')]).toBe(18);
       expect(usRow[usHeader.indexOf('Status Confronto SAP')]).toBe('OK');
+    });
+
+    it('exportUsoffPortalOffshoreXlsx respeita estritamente HH Confirmado (SAP) no HC Considerado e USoff quando Portal > SAP (Grupo 4)', async () => {
+      const capturedBlobs: Blob[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      vi.spyOn(URL, 'createObjectURL').mockImplementation((obj: Blob | MediaSource) => {
+        capturedBlobs.push(obj as Blob);
+        return 'blob:mock-grupo4';
+      });
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+      const dsG4 = createTestDataset({
+        config: {
+          ...mockContractConfig,
+          us_pe_padrao: 0.30,
+          us_ex_padrao: 0.70,
+          med_criterio: 'enc'
+        },
+        justMap: {},
+        carteira: [
+          {
+            id: 'emb-93676',
+            id_embarque: '93676',
+            matricula: '1001',
+            plataforma_sigla: 'P50',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            horas_programadas: 16.5,
+            hh_carteira: 16.5,
+            operacao: '93676',
+            pe: 0.30,
+            ex: 0.70,
+            fonte: 'portal_offshore'
+          }
+        ],
+        carteiraOperacoes: [
+          {
+            id: 'op-g4-sap0',
+            portal_id: '93676',
+            id_embarque: '93676',
+            matricula: '1001',
+            chave_petrobras: 'CH1',
+            nome: 'Tecnico Teste',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099860906',
+            operacao: '0010',
+            status_processamento: 'Confirmado',
+            prioridade: 'Alta',
+            status_programacao: 'Carteira',
+            hh_programado: 15,
+            hh_confirmado: 8,
+            hh_confirmado_sap: 0,
+            divergencia_sap: 8,
+            status_divergencia: 'Não Apontado no SAP',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          },
+          {
+            id: 'op-g4-sap5',
+            portal_id: '93676',
+            id_embarque: '93676',
+            matricula: '1001',
+            chave_petrobras: 'CH1',
+            nome: 'Tecnico Teste',
+            empresa: 'Infotec Brasil',
+            estrutura: 'UN-ES',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            plataforma_sigla: 'P50',
+            data_inicio: '2026-10-01',
+            data_fim: '2026-10-14',
+            ordem: '002099481897',
+            operacao: '0050',
+            status_processamento: 'Confirmado',
+            prioridade: 'Alta',
+            status_programacao: 'Carteira',
+            hh_programado: 1.5,
+            hh_confirmado: 6,
+            hh_confirmado_sap: 5,
+            divergencia_sap: 1,
+            status_divergencia: 'Divergente (Portal > SAP)',
+            recursos: 1,
+            fonte: 'portal_offshore'
+          }
+        ],
+        confirmacoesSap: [
+          {
+            id: 'sap-g4-1',
+            matricula: '1001',
+            data_criacao: '2026-10-05',
+            data_lancamento: '2026-10-05',
+            data_fim_real: '2026-10-05',
+            ordem: '002099481897',
+            operacao: '0050',
+            horas_confirmadas: 5,
+            contador_confirmacao: 1,
+            id_embarque: '93676',
+            status_reconciliacao: 'Em Carteira'
+          }
+        ]
+      });
+
+      const period: PeriodWindow = { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' };
+      const emptyFilters = { fDate: '', fReg: '', fPlat: '', fResp: '', fPer: '', cIni: '', cFim: '' };
+
+      await exportUsoffPortalOffshoreXlsx(dsG4, period, emptyFilters);
+      expect(capturedBlobs).toHaveLength(1);
+
+      const wb = XLSX.read(await capturedBlobs[0].arrayBuffer(), { type: 'array' });
+      const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Portal Offshore + USOFF'], { header: 1 });
+      const header = aoa[0];
+      const rows = aoa.slice(1);
+
+      const rowSap0 = rows.find(r => r[header.indexOf('Ordem')] === '002099860906')!;
+      expect(rowSap0[header.indexOf('HH Confirmado')]).toBe(8);
+      expect(rowSap0[header.indexOf('HH Confirmado (SAP)')]).toBe(0);
+      expect(rowSap0[header.indexOf('HC Considerado (USOFF)')]).toBe(0);
+      expect(rowSap0[header.indexOf('USoff')]).toBe(0);
+
+      const rowSap5 = rows.find(r => r[header.indexOf('Ordem')] === '002099481897')!;
+      expect(rowSap5[header.indexOf('HH Confirmado')]).toBe(6);
+      expect(rowSap5[header.indexOf('HH Confirmado (SAP)')]).toBe(5);
+      expect(rowSap5[header.indexOf('HC Considerado (USOFF)')]).toBe(5);
+      expect(rowSap5[header.indexOf('USoff')]).toBeCloseTo(3.95, 5);
+
+      const resumoAoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets['Resumo Validação'], { header: 1 });
+      const totalRow = resumoAoa.find(r => r[0] === 'Total USoff apresentado no painel')!;
+      const diffRow = resumoAoa.find(r => r[0] === 'Diferença (Painel − Soma da Aba 1)')!;
+      expect(totalRow[1]).toBeCloseTo(3.95, 5);
+      expect(diffRow[1]).toBe(0);
     });
   });
 });

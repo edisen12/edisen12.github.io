@@ -494,4 +494,143 @@ describe('CarteiraEmbarqueModal', () => {
     expect(screen.queryByText('6,0 h')).toBeNull();
     expect(screen.getByText('OK (Conciliado)')).not.toBeNull();
   });
+
+  it('usa estritamente hh_confirmado_sap no USoff (Grupo 4: Portal > SAP) e zera cache SAP quando todas as confirmações do embarque forem rejeitadas por janela', () => {
+    // Caso 1: Grupo 4 misto (Portal 8 vs SAP 0, Portal 6 vs SAP 5)
+    const dsG4 = createSyntheticDataset();
+    dsG4.config.us_pe_padrao = 0.30;
+    dsG4.config.us_ex_padrao = 0.70;
+    dsG4.carteira = [
+      {
+        ...dsG4.carteira[0],
+        id: 'cart-93676',
+        id_embarque: 'EMB-93676',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14'
+      }
+    ];
+    dsG4.carteiraOperacoes = [
+      {
+        ...dsG4.carteiraOperacoes![0],
+        id: 'op-g4-1',
+        id_embarque: 'EMB-93676',
+        portal_id: 'EMB-93676',
+        ordem: 'ORD-32860906',
+        operacao: '0010',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14',
+        hh_programado: 15,
+        hh_confirmado: 8,
+        hh_confirmado_sap: 0
+      },
+      {
+        ...dsG4.carteiraOperacoes![0],
+        id: 'op-g4-2',
+        id_embarque: 'EMB-93676',
+        portal_id: 'EMB-93676',
+        ordem: 'ORD-30481897',
+        operacao: '0050',
+        data_inicio: '2026-10-01',
+        data_fim: '2026-10-14',
+        hh_programado: 1.5,
+        hh_confirmado: 6,
+        hh_confirmado_sap: 5
+      }
+    ];
+    dsG4.confirmacoesSap = [
+      {
+        id: 'sap-g4-2',
+        matricula: '10231',
+        data_criacao: '2026-10-05',
+        data_lancamento: '2026-10-05',
+        data_fim_real: '2026-10-05',
+        ordem: 'ORD-30481897',
+        operacao: '0050',
+        horas_confirmadas: 5,
+        contador_confirmacao: 1,
+        id_embarque: 'EMB-93676',
+        status_reconciliacao: 'Em Carteira'
+      }
+    ];
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-93676' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: dsG4,
+      pidx: MOCK_PIDX,
+      activePeriod: { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' },
+      currentUser: MOCK_USER
+    });
+
+    const { unmount } = renderWithToast(<CarteiraEmbarqueModal />);
+    expect(screen.getByText('Execução Zero (HC=0)')).not.toBeNull();
+    expect(screen.getByText('1 op. sem USOFF')).not.toBeNull();
+    // 0.30*1.5 + 0.70*5 = 0.45 + 3.50 = 3.95 (não 9.55 nem 4.65)
+    expect(screen.getAllByText('3,95').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('4,65')).toBeNull();
+    expect(screen.queryByText('9,55')).toBeNull();
+    unmount();
+
+    // Caso 2: todas as confirmações SAP do embarque foram rejeitadas pós-embarque -> cache legado deve zerar
+    const dsStale = createSyntheticDataset();
+    dsStale.config.us_pe_padrao = 0.30;
+    dsStale.config.us_ex_padrao = 0.70;
+    dsStale.carteira = [
+      {
+        ...dsStale.carteira[0],
+        id: 'cart-92953',
+        id_embarque: 'EMB-92953',
+        data_inicio: '2026-10-15',
+        data_fim: '2026-10-28'
+      }
+    ];
+    dsStale.carteiraOperacoes = [
+      {
+        ...dsStale.carteiraOperacoes![0],
+        id: 'op-stale-1',
+        id_embarque: 'EMB-92953',
+        portal_id: 'EMB-92953',
+        ordem: 'ORD-32834159',
+        operacao: '0010',
+        data_inicio: '2026-10-15',
+        data_fim: '2026-10-28',
+        hh_programado: 3,
+        hh_confirmado: 3,
+        hh_confirmado_sap: 3, // cache legado antes da reconciliação
+        divergencia_sap: 0,
+        status_divergencia: 'OK'
+      }
+    ];
+    dsStale.confirmacoesSap = [
+      {
+        id: 'sap-post-rej',
+        matricula: '10231',
+        data_criacao: '2026-11-04',
+        data_lancamento: '2026-11-04',
+        data_fim_real: '2026-10-29',
+        ordem: 'ORD-32834159',
+        operacao: '0010',
+        horas_confirmadas: 3,
+        contador_confirmacao: 1,
+        id_embarque: 'EMB-92953',
+        status_reconciliacao: 'Em Carteira'
+      }
+    ];
+
+    (useApp as any).mockReturnValue({
+      carteiraModal: { matricula: '10231', idEmbarque: 'EMB-92953' },
+      closeCarteiraModal,
+      openFichaDrawer,
+      dataset: dsStale,
+      pidx: MOCK_PIDX,
+      activePeriod: { ini: '2026-10-01', fim: '2026-10-31', m: '2026-10' },
+      currentUser: MOCK_USER
+    });
+
+    renderWithToast(<CarteiraEmbarqueModal />);
+    expect(screen.getByText('Execução Zero (HC=0)')).not.toBeNull();
+    expect(screen.getAllByText('0,00').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('OK (Conciliado)')).toBeNull();
+  });
 });

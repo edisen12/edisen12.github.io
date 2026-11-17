@@ -19,7 +19,6 @@ permissions: {}
 
 jobs:
   executar-retencao-lgpd:
-    if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Executar RPC executar_retencao_lgpd no Supabase
@@ -29,6 +28,10 @@ jobs:
           ANOS_OP: ${{ github.event.inputs.anos_operacional || '5' }}
           MESES_IP: ${{ github.event.inputs.meses_logs_ip || '12' }}
         run: |
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ]; then
+            echo "Secret SUPABASE_SERVICE_ROLE_KEY não configurado — execução automática ignorada."
+            exit 0
+          fi
           RESPONSE=$(curl -fsS -X POST "${SUPABASE_URL}/rest/v1/rpc/executar_retencao_lgpd" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \

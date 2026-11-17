@@ -18,6 +18,8 @@ permissions:
 jobs:
   validate-script-syntax:
     runs-on: ubuntu-latest
+    outputs:
+      has_source_db: ${{ steps.check-secret.outputs.configured }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,9 +27,20 @@ jobs:
       - name: Validar sintaxe POSIX/Bash do script de DR
         run: bash -n scripts/backup-and-verify-restore.sh
 
+      - name: Verificar se SOURCE_DATABASE_URL está configurado
+        id: check-secret
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
+        run: |
+          if [ -n "$SOURCE_DATABASE_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify-backup-restore:
     needs: validate-script-syntax
-    if: ${{ secrets.SOURCE_DATABASE_URL != '' }}
+    if: ${{ needs.validate-script-syntax.outputs.has_source_db == 'true' }}
     runs-on: ubuntu-latest
     services:
       verify-postgres:

@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-17 09:12 (BRT) · Branch `main` (base `47fc985`) · Migrations `023`–`034` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Hierarquia operacional de cobrança por papel e segregação de funções (bloqueio de justificativas por `admin`) concluídas · 37 arquivos / 666 testes aprovados ✅
+> Última atualização: 2026-11-17 09:42 (BRT) · Branch `main` (base `2a6fbba`) · Migrations `023`–`034` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Hierarquia operacional de cobrança, bloqueio de justificativas por `admin` e correção de parse YAML nos workflows `lgpd-retention-monthly.yml` / `database-backup-verify.yml` concluídos ✅ · 37 arquivos / 666 testes aprovados ✅
 
 ## 1. Resumo Executivo
 
@@ -218,6 +218,7 @@
     - *Segurança Dual-Topology & RLS (`supabase/migrations/034_role_hierarchy_cobranca_and_admin_just.sql`, `server/src/core/domain-engine.service.ts`, `src/utils/impersonation.ts`):* liberada leitura apenas dos `controlador`es subordinados com interseção de plataformas/UNs para `preposto` ativo (`auth_visible_controlador_ids()`); removidas políticas legadas (`pessoas_select`, `pessoa_plat_select`, `pessoa_un_select`, `just_insert`, `just_update`, `just_delete`) em produção; bloqueada escrita (`INSERT`/`UPDATE`/`DELETE`) em `justificativas` para `admin` na RLS e em `SelfHostedDomainEngine.saveJustificativa` (mantendo leitura e cobrança).
     - *UI (`JustificativasView.tsx`, `PainelDiaView.tsx`, `VisaoGeralView.tsx`, `FichaTecnicoDrawer.tsx`, `JustificativaModal.tsx`, `EmailComposerModal.tsx`, `StickyFilterBar.tsx`, `ScopeBanner.tsx`):* `controlador` sem aba de cobrança nem botões `Cobrar`/`E-mail`; `preposto` vê e cobra somente `controlador`es subordinados (com filtro opcional em `StickyFilterBar` e feedback no `ScopeBanner`); `gestor` cobra `preposto`s e `controlador`es; `admin` cobra todos os papéis operacionais sem visualizar botões `Justificar`/`Editar` nem conseguir submeter `JustificativaModal`.
     - *Testes Adicionados/Atualizados:* `calculations.test.ts` (50), `communications.test.ts` (12), `impersonation.test.ts` (5), `rls-policies.test.ts`, `lgpd-compliance.test.ts` (12), `ModalsAndDrawer.test.tsx` e `OperationalViews.test.tsx`.
+    - *Correção de Workflows GitHub Actions (`.github/workflows/{lgpd-retention-monthly,database-backup-verify}.yml`):* removido `secrets.*` de `jobs.<id>.if` (inválido no parser YAML do Actions, que gerava `startup_failure` a cada `push`); `lgpd-retention-monthly.yml` passou a validar `SUPABASE_SERVICE_ROLE_KEY` via `env:` no step e `database-backup-verify.yml` passou a expor booleano `'true'`/`'false'` via `GITHUB_OUTPUT` em `validate-script-syntax` antes de condicionar `verify-backup-restore`.
 
   - **Resultados de Qualidade:**
     - `npm --prefix server run typecheck` + `npm run typecheck`: **0 erros**.

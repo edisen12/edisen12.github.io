@@ -18,6 +18,7 @@ import { platformKey, sanitizePlatformCode } from './format';
 import {
   collectVisibleTecnicoMatriculas,
   filterScopedConfirmacoesSap,
+  filterScopedPessoasForActor,
   filterTecnicosMapByMatriculas
 } from './lgpd';
 
@@ -257,10 +258,26 @@ export function scopeDatasetForUser(
     }
   });
 
-  // 3. Pessoas, Perfis e Onboarding restritos ao próprio usuário
+  // 3. Pessoas, Perfis e Onboarding:
+  //    - Próprio usuário sempre visível;
+  //    - Preposto enxerga também Controladores subordinados cujas plataformas/UNs cruzam sua carteira.
   const scopedPessoas: Record<string, Pessoa> = target.pessoa
     ? { [target.pessoa.id]: target.pessoa }
     : {};
+
+  if (target.profile.role === 'preposto') {
+    const visibleSubordinates = filterScopedPessoasForActor(
+      Object.values(fullDataset.pessoas || {}),
+      target.profile.id,
+      target.profile.role,
+      allowedPlatformSiglas,
+      allowedUNs,
+      Object.values(fullDataset.plataformas || {})
+    );
+    visibleSubordinates.forEach(p => {
+      scopedPessoas[p.id] = p;
+    });
+  }
 
   const scopedProfiles: Record<string, UserProfile> = {
     [target.profile.id]: target.profile

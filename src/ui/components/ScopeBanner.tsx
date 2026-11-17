@@ -35,6 +35,9 @@ export function ScopeBanner() {
   // Banner 2: Carteira Restrita do Usuário (Preposto / Controlador)
   if (!isGlobal && userProfile) {
     const roleName = ROLES_LABEL[userProfile.role] || userProfile.role;
+    const respNome = filters.fResp
+      ? resolvePersonFilter(filters.fResp, dataset.pessoas)?.nome || filters.fResp
+      : '';
     return (
       <div
         className="scope-banner note"
@@ -45,17 +48,45 @@ export function ScopeBanner() {
           background: 'var(--blue-soft)',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: '10px'
         }}
         role="status"
       >
-        <ShieldAlert size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
-        <div style={{ flex: 1, fontSize: '0.84rem' }}>
-          <strong>Escopo restrito ({userProfile.nome} · {roleName}):</strong>{' '}
-          <span style={{ color: 'var(--ink-secondary)' }}>
-            Exibindo exclusivamente as plataformas e unidades sob sua gestão operacional.
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+          <ShieldAlert size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
+          <div style={{ fontSize: '0.84rem' }}>
+            <strong>Escopo restrito ({userProfile.nome} · {roleName}):</strong>{' '}
+            <span style={{ color: 'var(--ink-secondary)' }}>
+              Exibindo exclusivamente as plataformas e unidades sob sua gestão operacional.
+            </span>
+            {respNome && (
+              <span style={{ color: 'var(--blue)', marginLeft: '8px', fontWeight: 600 }}>
+                · Filtrado por: {respNome}
+              </span>
+            )}
+          </div>
         </div>
+        {filters.fResp && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => updateFilter('fResp', '')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 8px',
+              fontSize: '0.78rem',
+              minHeight: '26px'
+            }}
+            title="Remover filtro de responsável"
+          >
+            <X size={13} />
+            <span>Limpar filtro</span>
+          </button>
+        )}
       </div>
     );
   }

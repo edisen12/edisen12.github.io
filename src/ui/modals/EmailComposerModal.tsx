@@ -6,6 +6,10 @@ import { Modal } from '../components/Modal';
 import { PAPEIS_LABEL } from '../../config/constants';
 import type { Pessoa } from '../../domain/types';
 import {
+  isChargeTargetAllowed,
+  resolveActorPessoa
+} from '../../domain/calculations';
+import {
   buildCobrancaMailPayload,
   buildDailyMailPayload,
   buildMailLinks
@@ -20,7 +24,8 @@ export function EmailComposerModal() {
     dataset,
     pidx,
     activePeriod,
-    userProfile
+    userProfile,
+    pessoaScope
   } = useApp();
 
   const { showToast } = useToast();
@@ -29,6 +34,19 @@ export function EmailComposerModal() {
   const date = emailModal?.date || '';
   const plats = emailModal?.plats || [];
   const targetRespId = emailModal?.targetRespId;
+
+  const chargeActor = useMemo(
+    () => ({
+      role: userProfile?.role,
+      userId: userProfile?.id,
+      pessoa: resolveActorPessoa(dataset.pessoas, {
+        userId: userProfile?.id,
+        pessoa: pessoaScope
+      }),
+      pidx
+    }),
+    [userProfile, dataset.pessoas, pessoaScope, pidx]
+  );
 
   // Gera o payload inicial com base no modo
   const initialData = useMemo(() => {
@@ -40,29 +58,48 @@ export function EmailComposerModal() {
         plats,
         dataset,
         pidx,
-        userProfile?.nome
+        userProfile?.nome,
+        chargeActor
       );
     }
 
     if (mode === 'cobranca') {
-      const target: Pessoa | '*' | null =
+      const candidateTarget: Pessoa | '*' | null =
         targetRespId === '*'
           ? '*'
           : targetRespId
           ? dataset.pessoas[targetRespId] || null
           : null;
 
+      if (
+        candidateTarget &&
+        candidateTarget !== '*' &&
+        !isChargeTargetAllowed(candidateTarget, chargeActor)
+      ) {
+        return buildCobrancaMailPayload(
+          candidateTarget,
+          activePeriod,
+          dataset,
+          pidx,
+          userProfile?.nome,
+          undefined,
+          chargeActor
+        );
+      }
+
       return buildCobrancaMailPayload(
-        target,
+        candidateTarget,
         activePeriod,
         dataset,
         pidx,
-        userProfile?.nome
+        userProfile?.nome,
+        undefined,
+        chargeActor
       );
     }
 
     return null;
-  }, [emailModal, mode, date, plats, targetRespId, dataset, pidx, userProfile, activePeriod]);
+  }, [emailModal, mode, date, plats, targetRespId, dataset, pidx, userProfile, activePeriod, chargeActor]);
 
   // Estados editáveis do modal
   const [toInput, setToInput] = useState('');
@@ -209,7 +246,13 @@ export function EmailComposerModal() {
           </div>
         ) : (
           <div className="note note-bad" style={{ fontSize: '0.85rem' }}>
-            Nenhum preposto, controlador ou gestor está associado a esta plataforma.
+            {userProfile?.role === 'controlador'
+              ? 'Seu perfil operacional não realiza cobranças por e-mail.'
+              : userProfile?.role === 'preposto'
+              ? 'Nenhum controlador subordinado está associado a esta plataforma para cobrança.'
+              : userProfile?.role === 'gestor'
+              ? 'Nenhum preposto ou controlador está associado a esta plataforma para cobrança.'
+              : 'Nenhum preposto, controlador ou gestor está associado a esta plataforma.'}
           </div>
         )}
 

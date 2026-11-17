@@ -613,5 +613,105 @@ describe('Views Operacionais (VisaoGeralView, PainelDiaView, EmbarqueAtualView, 
         expect(screen.getByText('Lista de cobrança copiada para a área de transferência!')).not.toBeNull();
       });
     });
+
+    it('aplica regras de hierarquia por papel em JustificativasView e PainelDiaView (preposto, controlador, gestor, admin)', () => {
+      const dsComHierarquia = createSyntheticDataset();
+      dsComHierarquia.pessoas['pes-ctrl'] = {
+        id: 'pes-ctrl',
+        slug: 'diego-ctrl',
+        nome: 'Diego Controlador P51',
+        papel: 'controlador',
+        email: 'diego.ctrl@infotecbrasil.com.br',
+        user_id: 'usr-ctrl-1',
+        plats: ['P51'],
+        uns: []
+      };
+      dsComHierarquia.pessoas['pes-gestor'] = {
+        id: 'pes-gestor',
+        slug: 'lucas-gestor',
+        nome: 'Lucas Silva Pereira',
+        papel: 'gestor',
+        email: 'gestor.teste@infotecbrasil.com.br',
+        user_id: 'usr-gestor-1',
+        plats: [],
+        uns: ['UN-BS']
+      };
+
+      // 1. Gestor: vê Prepostos e Controladores na cobrança, mas NÃO vê aba Gestores
+      setupAppMock({ dataset: dsComHierarquia });
+      const { unmount: unmountGestor } = renderWithToast(<JustificativasView />);
+      expect(screen.getByRole('tab', { name: /Prepostos/i })).not.toBeNull();
+      expect(screen.getByRole('tab', { name: /Controladores/i })).not.toBeNull();
+      expect(screen.queryByRole('tab', { name: /Gestores/i })).toBeNull();
+      unmountGestor();
+
+      // 2. Preposto: vê e cobra apenas Controladores subordinados, nunca a si próprio
+      setupAppMock({
+        dataset: dsComHierarquia,
+        isGlobal: false,
+        userProfile: {
+          id: 'usr-prep-1',
+          email: 'preposto.teste@infotecbrasil.com.br',
+          nome: 'Camila Rocha Mendes',
+          role: 'preposto',
+          ativo: true
+        },
+        pessoaScope: dsComHierarquia.pessoas['pes-1']
+      });
+      const { unmount: unmountPrep } = renderWithToast(<JustificativasView />);
+      expect(screen.getByRole('tab', { name: /Controladores/i })).not.toBeNull();
+      expect(screen.queryByRole('tab', { name: /Prepostos/i })).toBeNull();
+      expect(screen.getByText('Diego Controlador P51')).not.toBeNull();
+      expect(screen.queryByText('Camila Rocha Mendes')).toBeNull();
+      unmountPrep();
+
+      // 3. Controlador: não tem aba de cobrança nem botões Cobrar / E-mail, apenas Justificar
+      setupAppMock({
+        dataset: dsComHierarquia,
+        isGlobal: false,
+        userProfile: {
+          id: 'usr-ctrl-1',
+          email: 'diego.ctrl@infotecbrasil.com.br',
+          nome: 'Diego Controlador P51',
+          role: 'controlador',
+          ativo: true
+        },
+        pessoaScope: dsComHierarquia.pessoas['pes-ctrl']
+      });
+      const { unmount: unmountCtrl } = renderWithToast(<JustificativasView />);
+      expect(screen.queryByRole('tab', { name: /Cobrança por responsável/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Cobrar' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'E-mail' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Justificar' })).not.toBeNull();
+      unmountCtrl();
+
+      // 4. Admin: cobra todo mundo (Prepostos, Controladores, Gestores), mas NÃO vê Justificar / Editar
+      setupAppMock({
+        dataset: dsComHierarquia,
+        isGlobal: true,
+        isAdmin: true,
+        userProfile: {
+          id: 'usr-admin-1',
+          email: 'admin.teste@infotecbrasil.com.br',
+          nome: 'Administrador Sistema',
+          role: 'admin',
+          ativo: true
+        }
+      });
+      const { unmount: unmountAdminJust } = renderWithToast(<JustificativasView />);
+      expect(screen.getByRole('tab', { name: /Gestores/i })).not.toBeNull();
+      fireEvent.click(screen.getByRole('tab', { name: /Pendentes de justificativa/i }));
+      expect(screen.queryByRole('button', { name: 'Justificar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'E-mail' })).not.toBeNull();
+      fireEvent.click(screen.getByRole('tab', { name: /Justificativas registradas/i }));
+      expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+      unmountAdminJust();
+
+      const { unmount: unmountAdminDia } = renderWithToast(<PainelDiaView />);
+      expect(screen.queryByRole('button', { name: 'Justificar' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'E-mail' })).not.toBeNull();
+      unmountAdminDia();
+    });
   });
 });

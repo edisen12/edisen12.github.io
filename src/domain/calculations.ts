@@ -10,6 +10,7 @@ import type {
   EmbarkationAccum,
   EmbarkationInfo,
   FilterState,
+  PapelOperacional,
   PeriodDayEntry,
   PeriodTechSummary,
   PeriodWindow,
@@ -18,6 +19,7 @@ import type {
   ResolvedPlace,
   ResolvedRecord,
   StatusMeta,
+  SystemRole,
   Tecnico,
   UsoffUnWeight
 } from './types';
@@ -555,6 +557,165 @@ export const gestorOfUn = (
     .filter(p => p.papel !== 'controlador')
     .map(p => p.nome)
     .join(', ');
+};
+
+export interface ChargeActorContext {
+  role?: SystemRole | string | null;
+  userId?: string | null;
+  pessoa?: Pessoa | null;
+  pidx?: Record<string, Plataforma>;
+}
+
+/**
+ * Define se o papel possui atribuição operacional para registrar ou editar justificativas.
+ * Administradores atuam apenas na governança do sistema e cobrança.
+ */
+export const canRoleJustify = (role?: SystemRole | string | null): boolean =>
+  role !== 'admin';
+
+/**
+ * Define se o papel possui frente subordinada elegível para cobrança.
+ */
+export const canRoleCharge = (role?: SystemRole | string | null): boolean =>
+  role === 'admin' || role === 'gestor' || role === 'preposto';
+
+/**
+ * Lista os papéis operacionais que o ator autenticado tem permissão de cobrar.
+ */
+export const getChargeablePapeisForRole = (
+  role?: SystemRole | string | null
+): PapelOperacional[] => {
+  switch (role) {
+    case 'admin':
+      return ['preposto', 'controlador', 'gestor'];
+    case 'gestor':
+      return ['preposto', 'controlador'];
+    case 'preposto':
+      return ['controlador'];
+    default:
+      return [];
+  }
+};
+
+/**
+ * Coleta as chaves normalizadas de plataformas sob escopo de uma pessoa
+ * (plataformas diretas + plataformas pertencentes às UNs explícitas).
+ */
+export const resolveEffectivePlatformKeys = (
+  pessoa: Pick<Pessoa, 'plats' | 'uns'>,
+  plataformasOrPidx?: Record<string, Plataforma>
+): Set<string> => {
+  const keys = new Set<string>();
+  const idx = plataformasOrPidx ? buildPlatformIndex(plataformasOrPidx) : null;
+
+  (pessoa.plats || []).forEach(sigla => {
+    const kRaw = platformKey(sigla);
+    if (kRaw) keys.add(kRaw);
+    const kSan = platformKey(sanitizePlatformCode(sigla));
+    if (kSan) keys.add(kSan);
+    if (idx) {
+      const looked = lookupPlatform(idx, sigla);
+      if (looked?.sigla) {
+        const kLooked = platformKey(looked.sigla);
+        if (kLooked) keys.add(kLooked);
+      }
+    }
+  });
+
+  const directUns = new Set(
+    (pessoa.uns || []).map(u => String(u || '').trim()).filter(Boolean)
+  );
+  if (directUns.size > 0 && plataformasOrPidx) {
+    Object.values(plataformasOrPidx).forEach(plat => {
+      if (plat?.sigla && plat.un && directUns.has(plat.un.trim())) {
+        const k = platformKey(plat.sigla);
+        if (k) keys.add(k);
+        const kSan = platformKey(sanitizePlatformCode(plat.sigla));
+        if (kSan) keys.add(kSan);
+      }
+    });
+  }
+
+  return keys;
+};
+
+/**
+ * Verifica se duas pessoas compartilham ao menos uma plataforma ou UN explícita.
+ */
+export const isPersonInActorScope = (
+  actorPessoa: Pick<Pessoa, 'plats' | 'uns'>,
+  target: Pick<Pessoa, 'plats' | 'uns'>,
+  plataformasOrPidx?: Record<string, Plataforma>
+): boolean => {
+  const actorUns = new Set(
+    (actorPessoa.uns || []).map(u => String(u || '').trim()).filter(Boolean)
+  );
+  if (actorUns.size > 0) {
+    const targetUns = (target.uns || [])
+      .map(u => String(u || '').trim())
+      .filter(Boolean);
+    if (targetUns.some(u => actorUns.has(u))) return true;
+  }
+
+  const actorPlats = resolveEffectivePlatformKeys(actorPessoa, plataformasOrPidx);
+  const targetPlats = resolveEffectivePlatformKeys(target, plataformasOrPidx);
+  for (const pk of targetPlats) {
+    if (actorPlats.has(pk)) return true;
+  }
+
+  return false;
+};
+
+/**
+ * Resolve o registro Pessoa associado ao usuário atual quando não fornecido no contexto.
+ */
+export const resolveActorPessoa = (
+  pessoas: Record<string, Pessoa>,
+  actor?: Pick<ChargeActorContext, 'userId' | 'pessoa'> | null
+): Pessoa | null => {
+  if (actor?.pessoa) return actor.pessoa;
+  if (!actor?.userId) return null;
+  return Object.values(pessoas).find(p => p.user_id === actor.userId) || null;
+};
+
+/**
+ * Verifica se `target` é elegível para cobrança/e-mail pelo ator atual.
+ */
+export const isChargeTargetAllowed = (
+  target: Pessoa,
+  actor?: ChargeActorContext | null
+): boolean => {
+  if (!actor?.role) return true;
+
+  if (actor.userId && target.user_id && target.user_id === actor.userId) {
+    return false;
+  }
+  if (actor.pessoa && target.id === actor.pessoa.id) {
+    return false;
+  }
+
+  const allowedPapeis = getChargeablePapeisForRole(actor.role);
+  const targetPapel = (target.papel || 'preposto') as PapelOperacional;
+  if (!allowedPapeis.includes(targetPapel)) {
+    return false;
+  }
+
+  if (actor.role === 'preposto' && actor.pessoa) {
+    return isPersonInActorScope(actor.pessoa, target, actor.pidx);
+  }
+
+  return true;
+};
+
+/**
+ * Filtra uma lista de pessoas mantendo apenas os alvos de cobrança elegíveis para o ator.
+ */
+export const filterChargeablePeople = (
+  pessoas: Pessoa[],
+  actor?: ChargeActorContext | null
+): Pessoa[] => {
+  if (!actor?.role) return pessoas;
+  return pessoas.filter(p => isChargeTargetAllowed(p, actor));
 };
 
 export const passesFilter = (

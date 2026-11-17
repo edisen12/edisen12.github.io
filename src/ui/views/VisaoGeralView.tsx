@@ -15,6 +15,7 @@ import type {
 import {
   aggregateDays,
   armadorOf,
+  canRoleCharge,
   computeDayRows,
   computePeriodDays,
   formatPlatformLabel,
@@ -48,8 +49,11 @@ export function VisaoGeralView() {
     updateFilter,
     openFichaDrawer,
     openEmailModal,
+    userProfile,
     isGlobal
   } = useApp();
+
+  const canCharge = canRoleCharge(userProfile?.role);
 
   const [papelFilter, setPapelFilter] = useState<'preposto' | 'controlador' | 'gestor'>('preposto');
   const [operacionalTab, setOperacionalTab] = useState<'plataformas' | 'unidades' | 'armadores'>('plataformas');
@@ -424,7 +428,7 @@ export function VisaoGeralView() {
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {Ad.inf > 0 && D && (
+            {canCharge && Ad.inf > 0 && D && (
               <button
                 type="button"
                 className="btn btn-accent"
@@ -616,7 +620,7 @@ export function VisaoGeralView() {
               >
                 Técnicos
               </button>
-              {r.Ad.inf > 0 && D && (
+              {canCharge && r.Ad.inf > 0 && D && (
                 <button
                   type="button"
                   className="btn btn-accent btn-sm"
@@ -1442,7 +1446,7 @@ export function VisaoGeralView() {
                         >
                           Técnicos
                         </button>
-                        {r.Ad.inf > 0 && D && (
+                        {canCharge && r.Ad.inf > 0 && D && (
                           <button
                             type="button"
                             className="btn btn-accent btn-sm"

@@ -44,6 +44,7 @@ import type { RealtimeSseHub } from './realtime-hub';
 import {
   collectVisibleTecnicoMatriculas,
   filterScopedConfirmacoesSap,
+  filterScopedPessoasForActor,
   isJustificativaInScope,
   validateStrongPasswordPolicy
 } from '../../../src/utils/lgpd';
@@ -694,13 +695,18 @@ export class SelfHostedDomainEngine {
       ? allPlats
       : allPlats.filter(p => scope.allowedPlatforms.has(p.sigla));
 
-    // 4. Pessoas (não-globais enxergam apenas seu próprio vínculo cadastral)
+    // 4. Pessoas (não-globais enxergam o próprio vínculo; preposto enxerga também controladores de sua carteira)
     const allPessoaRows = await this.storage.findMany<Pessoa>('pessoas');
     const pessoaRows = scope.isGlobal
       ? allPessoaRows
-      : scope.pessoa
-        ? [scope.pessoa]
-        : allPessoaRows.filter(p => p.user_id === actor.id);
+      : filterScopedPessoasForActor(
+          allPessoaRows,
+          actor.id,
+          actor.role,
+          scope.allowedPlatforms,
+          scope.allowedUNs,
+          allPlats
+        );
 
     // 5. Técnicos (filtrados posteriormente ao escopo efetivo de plataformas/UNs)
     const allTecnicoRows = await this.storage.findMany<Tecnico>('tecnicos', {
@@ -898,6 +904,12 @@ export class SelfHostedDomainEngine {
     _ipAddress?: string
   ): Promise<void> {
     await this.assertFirstLoginCompleted(actor);
+
+    if (actor.role === 'admin') {
+      throw new Error(
+        'Acesso negado: administradores do sistema não registram nem alteram justificativas operacionais.'
+      );
+    }
 
     const matricula = String(input.matricula || '').trim();
     const data = String(input.data || '').trim();

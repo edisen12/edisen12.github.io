@@ -18,6 +18,8 @@ import {
 import { addDays, formatBr, formatBrShort, todayIso } from '../../utils/date';
 import {
   buildSapIndex,
+  canRoleCharge,
+  canRoleJustify,
   computeDayRows,
   gestorOfUn,
   groupDaysByField,
@@ -44,11 +46,14 @@ export function PainelDiaView() {
     openJustModal,
     openEmailModal,
     openCarteiraModal,
+    userProfile,
     isGlobal,
     scopeLabel
   } = useApp();
 
   const { showToast } = useToast();
+  const canJustify = canRoleJustify(userProfile?.role);
+  const canCharge = canRoleCharge(userProfile?.role);
   const [dayViewMode, setDayViewMode] = useState<'abaixo' | 'todos'>('abaixo');
   const [modalOrdens, setModalOrdens] = useState<{
     mat: string;
@@ -387,14 +392,16 @@ export function PainelDiaView() {
                 {r.j.responsavel_nome}
                 {r.j.criado_em && ` · em ${formatBr(r.j.criado_em.slice(0, 10))}`}
               </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => openJustModal(r.mat, D)}
-                style={{ padding: '2px 6px', fontSize: '0.78rem', marginTop: '4px' }}
-              >
-                Editar
-              </button>
+              {canJustify && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => openJustModal(r.mat, D)}
+                  style={{ padding: '2px 6px', fontSize: '0.78rem', marginTop: '4px' }}
+                >
+                  Editar
+                </button>
+              )}
             </div>
           );
         }
@@ -412,22 +419,28 @@ export function PainelDiaView() {
                 <StatusPill status="warn" text={`Pendente (até ${formatBrShort(pz)})`} />
               )}
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                type="button"
-                className="btn btn-accent btn-sm"
-                onClick={() => openJustModal(r.mat, D)}
-              >
-                Justificar
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => openEmailModal({ mode: 'daily', plats: [r.p], date: D })}
-              >
-                E-mail
-              </button>
-            </div>
+            {(canJustify || canCharge) && (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {canJustify && (
+                  <button
+                    type="button"
+                    className="btn btn-accent btn-sm"
+                    onClick={() => openJustModal(r.mat, D)}
+                  >
+                    Justificar
+                  </button>
+                )}
+                {canCharge && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => openEmailModal({ mode: 'daily', plats: [r.p], date: D })}
+                  >
+                    E-mail
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       }
@@ -457,7 +470,7 @@ export function PainelDiaView() {
           >
             {isExportingDia ? 'Exportando...' : 'Exportar Apontamentos do Dia (Excel)'}
           </button>
-          {lowPlats.length > 0 && (
+          {canCharge && lowPlats.length > 0 && (
             <button
               type="button"
               className="btn btn-accent"
@@ -600,14 +613,16 @@ export function PainelDiaView() {
                         <li key={p.k} style={{ marginBottom: '2px' }}>
                           <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{p.k}</span>:{' '}
                           {formatPct(p.p)} · {p.abaixo} téc.{' '}
-                          <button
-                            type="button"
-                            className="btn-link"
-                            onClick={() => openEmailModal({ mode: 'daily', plats: [p.k], date: D })}
-                            style={{ fontSize: '0.78rem', color: 'var(--orange)' }}
-                          >
-                            e-mail
-                          </button>
+                          {canCharge && (
+                            <button
+                              type="button"
+                              className="btn-link"
+                              onClick={() => openEmailModal({ mode: 'daily', plats: [p.k], date: D })}
+                              style={{ fontSize: '0.78rem', color: 'var(--orange)' }}
+                            >
+                              e-mail
+                            </button>
+                          )}
                         </li>
                       ))}
                     </ul>

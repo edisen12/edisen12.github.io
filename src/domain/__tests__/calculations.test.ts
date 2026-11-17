@@ -24,15 +24,21 @@ import {
   calcHpCarteiraInInterval,
   calcHpForaCarteiraInInterval,
   calcHpInInterval,
+  canRoleCharge,
+  canRoleJustify,
   computeCobrancaStats,
   computeDataAte,
   computeDayRows,
   computeMeasurementDays,
   computePeriodDays,
   computePeriodTechs,
+  filterChargeablePeople,
   findCarteira,
   findResponsiblePeople,
   formatPlatformLabel,
+  getChargeablePapeisForRole,
+  isChargeTargetAllowed,
+  isPersonInActorScope,
   gestorOfUn,
   getClosedEmbarkations,
   getRollingEmbarkations,
@@ -2164,6 +2170,148 @@ describe('src/domain/calculations.ts - Invariantes Matemáticos & Regras de Dom�
       expect(rowEst?.hh_confirmado_sap).toBe(9);
       expect(rowEst?.status_divergencia).toBe('OK');
       expect(rowLeak).toBeUndefined();
+    });
+  });
+
+  describe('Hierarquia de papéis: cobrança e justificativa', () => {
+    const platIndex = buildPlatformIndex({
+      P50: {
+        sigla: 'P50',
+        chave_norm: 'p50',
+        nome: 'P-50',
+        un: 'Espírito Santo (UN-ES)',
+        armador: 'Petrobras',
+        gerencia: 'UO-ES',
+        tipo: 'FPSO',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      },
+      P58: {
+        sigla: 'P58',
+        chave_norm: 'p58',
+        nome: 'P-58',
+        un: 'Espírito Santo (UN-ES)',
+        armador: 'Petrobras',
+        gerencia: 'UO-ES',
+        tipo: 'FPSO',
+        situacao: 'Mobilizada',
+        cadastro_pendente: false
+      }
+    });
+
+    const prepA: Pessoa = {
+      id: 'prep-a',
+      slug: 'prep-a',
+      nome: 'Preposto A',
+      papel: 'preposto',
+      email: 'prep.a@teste.local',
+      user_id: 'u-prep-a',
+      plats: ['P50'],
+      uns: []
+    };
+    const prepB: Pessoa = {
+      id: 'prep-b',
+      slug: 'prep-b',
+      nome: 'Preposto B',
+      papel: 'preposto',
+      email: 'prep.b@teste.local',
+      user_id: 'u-prep-b',
+      plats: ['P50'],
+      uns: []
+    };
+    const ctrlMesmaPlat: Pessoa = {
+      id: 'ctrl-p50',
+      slug: 'ctrl-p50',
+      nome: 'Controlador P50',
+      papel: 'controlador',
+      email: 'ctrl.p50@teste.local',
+      user_id: 'u-ctrl-p50',
+      plats: ['P50'],
+      uns: []
+    };
+    const ctrlOutraPlatMesmaUn: Pessoa = {
+      id: 'ctrl-p58',
+      slug: 'ctrl-p58',
+      nome: 'Controlador P58',
+      papel: 'controlador',
+      email: 'ctrl.p58@teste.local',
+      user_id: 'u-ctrl-p58',
+      plats: ['P58'],
+      uns: []
+    };
+    const gestorRow: Pessoa = {
+      id: 'gestor-1',
+      slug: 'gestor-1',
+      nome: 'Gestor Contrato',
+      papel: 'gestor',
+      email: 'gestor@teste.local',
+      user_id: 'u-gestor-1',
+      plats: [],
+      uns: ['Espírito Santo (UN-ES)']
+    };
+
+    const allPessoas = [prepA, prepB, ctrlMesmaPlat, ctrlOutraPlatMesmaUn, gestorRow];
+
+    it('define corretamente permissões de justificativa e cobrança por papel', () => {
+      expect(canRoleJustify('admin')).toBe(false);
+      expect(canRoleJustify('gestor')).toBe(true);
+      expect(canRoleJustify('preposto')).toBe(true);
+      expect(canRoleJustify('controlador')).toBe(true);
+
+      expect(canRoleCharge('admin')).toBe(true);
+      expect(canRoleCharge('gestor')).toBe(true);
+      expect(canRoleCharge('preposto')).toBe(true);
+      expect(canRoleCharge('controlador')).toBe(false);
+
+      expect(getChargeablePapeisForRole('admin')).toEqual(['preposto', 'controlador', 'gestor']);
+      expect(getChargeablePapeisForRole('gestor')).toEqual(['preposto', 'controlador']);
+      expect(getChargeablePapeisForRole('preposto')).toEqual(['controlador']);
+      expect(getChargeablePapeisForRole('controlador')).toEqual([]);
+    });
+
+    it('isola preposto apenas a controladores que compartilham suas plataformas (sem vazar mesma UN ou colegas)', () => {
+      expect(isPersonInActorScope(prepA, ctrlMesmaPlat, platIndex)).toBe(true);
+      expect(isPersonInActorScope(prepA, ctrlOutraPlatMesmaUn, platIndex)).toBe(false);
+
+      const alvosPrep = filterChargeablePeople(allPessoas, {
+        role: 'preposto',
+        userId: 'u-prep-a',
+        pessoa: prepA,
+        pidx: platIndex
+      });
+      expect(alvosPrep.map(p => p.id)).toEqual(['ctrl-p50']);
+    });
+
+    it('permite gestor cobrar prepostos e controladores sem cobrar outro gestor; admin cobra todos; controlador ninguém', () => {
+      const alvosGestor = filterChargeablePeople(allPessoas, {
+        role: 'gestor',
+        userId: 'u-gestor-1',
+        pessoa: gestorRow,
+        pidx: platIndex
+      });
+      expect(alvosGestor.map(p => p.id)).toEqual(['prep-a', 'prep-b', 'ctrl-p50', 'ctrl-p58']);
+
+      const alvosAdmin = filterChargeablePeople(allPessoas, {
+        role: 'admin',
+        userId: 'u-admin-1',
+        pidx: platIndex
+      });
+      expect(alvosAdmin.map(p => p.id)).toEqual([
+        'prep-a',
+        'prep-b',
+        'ctrl-p50',
+        'ctrl-p58',
+        'gestor-1'
+      ]);
+
+      const alvosCtrl = filterChargeablePeople(allPessoas, {
+        role: 'controlador',
+        userId: 'u-ctrl-p50',
+        pessoa: ctrlMesmaPlat,
+        pidx: platIndex
+      });
+      expect(alvosCtrl).toEqual([]);
+      expect(isChargeTargetAllowed(ctrlMesmaPlat, { role: 'controlador', userId: 'u-ctrl-p50' })).toBe(false);
     });
   });
 });

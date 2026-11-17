@@ -245,7 +245,10 @@ describe('Conformidade LGPD — Minimização, Sigilo de Saúde, RBAC e Sessão'
       'pessoas',
       [
         { id: 'p-prep', slug: 'prep', nome: 'Preposto ES', papel: 'preposto', email: 'prep@teste.local', user_id: 'u-prep', plats: ['P50'], uns: [] },
-        { id: 'p-other', slug: 'other', nome: 'Outro Preposto BC', papel: 'preposto', email: 'other@teste.local', user_id: 'u-other', plats: ['P25'], uns: [] }
+        { id: 'p-ctrl-p50', slug: 'ctrl-p50', nome: 'Controlador P50', papel: 'controlador', email: 'ctrl50@teste.local', user_id: 'u-ctrl-50', plats: ['P50'], uns: [] },
+        { id: 'p-ctrl-p25', slug: 'ctrl-p25', nome: 'Controlador P25', papel: 'controlador', email: 'ctrl25@teste.local', user_id: 'u-ctrl-25', plats: ['P25'], uns: [] },
+        { id: 'p-other', slug: 'other', nome: 'Outro Preposto BC', papel: 'preposto', email: 'other@teste.local', user_id: 'u-other', plats: ['P25'], uns: [] },
+        { id: 'p-prep-p50', slug: 'prep-p50', nome: 'Outro Preposto ES', papel: 'preposto', email: 'prep2@teste.local', user_id: 'u-prep-2', plats: ['P50'], uns: [] }
       ],
       ['id']
     );
@@ -298,10 +301,42 @@ describe('Conformidade LGPD — Minimização, Sigilo de Saúde, RBAC e Sessão'
     };
     const prepRaw = await engine.fetchRawDataset(prepActor, '2026-10-01', '2026-10-31');
 
-    expect(prepRaw.pessoaRows.map(p => p.id)).toEqual(['p-prep']);
+    expect(prepRaw.pessoaRows.map(p => p.id).sort()).toEqual(['p-ctrl-p50', 'p-prep']);
     expect(prepRaw.tecnicoRows.map(t => t.matricula)).toEqual(['1001']);
     expect(prepRaw.confirmacaoSapRows.map(s => s.id)).toEqual(['s1']);
     expect(prepRaw.justificativaRows.map(j => j.id)).toEqual(['j1']);
+
+    // Controlador enxerga estritamente o próprio cadastro
+    const ctrlActor: AuthenticatedActor = {
+      id: 'u-ctrl-50',
+      email: 'ctrl50@teste.local',
+      nome: 'Controlador P50',
+      role: 'controlador',
+      ativo: true,
+      sessionId: 'sess-ctrl',
+      csrfToken: 'csrf-ctrl'
+    };
+    const ctrlRaw = await engine.fetchRawDataset(ctrlActor, '2026-10-01', '2026-10-31');
+    expect(ctrlRaw.pessoaRows.map(p => p.id)).toEqual(['p-ctrl-p50']);
+
+    // Administrador do sistema é bloqueado ao tentar registrar justificativa operacional
+    const adminActor: AuthenticatedActor = {
+      id: mockUsers.admin.id,
+      email: mockUsers.admin.email,
+      nome: 'Admin',
+      role: 'admin',
+      ativo: true,
+      sessionId: 'sess-admin',
+      csrfToken: 'csrf-admin'
+    };
+    await expect(
+      engine.saveJustificativa(adminActor, {
+        matricula: '1001',
+        data: '2026-10-04',
+        motivo: 'Outro',
+        descricao: 'Teste'
+      })
+    ).rejects.toThrow(/administradores do sistema não registram/i);
 
     const gestorActor: AuthenticatedActor = {
       id: mockUsers.gestor.id,

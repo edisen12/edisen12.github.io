@@ -10,6 +10,7 @@ import {
 } from '../../utils/lgpd';
 import {
   accumulateEmbarkation,
+  canRoleJustify,
   inferEmbarkation,
   resolveLocation,
   resolveRecord,
@@ -91,10 +92,18 @@ export function JustificativaModal() {
   const nomeTecnico = resolveTechName(mat, dataset);
   const isGw = motivo === 'Gangway desconectada';
   const isHealthMotivo = isHealthJustificationMotivo(motivo);
+  const canJustify = canRoleJustify(userProfile?.role);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+
+    if (!canJustify) {
+      setErrorMsg(
+        'Administradores do sistema não registram nem alteram justificativas operacionais.'
+      );
+      return;
+    }
 
     if (!motivo) {
       setErrorMsg('Selecione um motivo.');
@@ -163,7 +172,7 @@ export function JustificativaModal() {
             type="button"
             className="btn btn-primary"
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || !canJustify}
           >
             {isSaving ? 'Salvando…' : 'Salvar justificativa'}
           </button>
@@ -171,6 +180,11 @@ export function JustificativaModal() {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {!canJustify && (
+          <div className="note note-warn" role="alert" style={{ fontSize: '0.84rem', lineHeight: 1.45 }}>
+            <b>Ação restrita à operação:</b> administradores do sistema acompanham pendências e realizam cobranças, mas não registram nem editam justificativas operacionais.
+          </div>
+        )}
         {/* Painel de fatos do dia */}
         <div
           className="facts"

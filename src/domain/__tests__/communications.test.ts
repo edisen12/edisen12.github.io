@@ -369,6 +369,77 @@ describe('src/domain/communications.ts - Geração de Comunicações, Links de E
       expect(payload.body).toContain('1 já com prazo vencido');
       expect(payload.body).toContain('vencido há 12 dias');
     });
+
+    it('aplica hierarquia de cobrança por papel (preposto -> controlador, gestor -> preposto/controlador, admin -> todos, controlador -> ninguém)', () => {
+      const ctrlES: Pessoa = {
+        id: 'ctrlES',
+        slug: 'ctrl-es',
+        nome: 'Controlador P58',
+        papel: 'controlador',
+        email: 'ctrl.es@infotec.com.br',
+        user_id: 'u-ctrl-es',
+        plats: ['P58'],
+        uns: []
+      };
+      const base = createBaseDataset({
+        hhMap: {
+          '1001|2026-10-01': {
+            matricula: '1001',
+            data: '2026-10-01',
+            plataforma_sigla: 'P58',
+            unidade_negocio: 'Espírito Santo (UN-ES)',
+            horas_executadas: 5
+          }
+        }
+      });
+      base.pessoas.ctrlES = ctrlES;
+      const pidx = buildPlatformIndex(base.plataformas);
+
+      // Preposto ES só cobra Controlador ES (não a si mesmo nem o Gestor)
+      const mailPrep = buildDailyMailPayload('2026-10-01', ['P58'], base, pidx, 'João Preposto ES', {
+        role: 'preposto',
+        userId: 'u-prep-es',
+        pessoa: base.pessoas.prepES,
+        pidx
+      });
+      expect(mailPrep.to).toEqual(['ctrl.es@infotec.com.br']);
+
+      const cobPrep = buildCobrancaMailPayload('*', period, base, pidx, 'João', '2026-10-15', {
+        role: 'preposto',
+        userId: 'u-prep-es',
+        pessoa: base.pessoas.prepES,
+        pidx
+      });
+      expect(cobPrep.ppl.map(p => p.id)).toEqual(['ctrlES']);
+
+      // Gestor cobra Preposto e Controlador, mas não outro Gestor
+      const cobGestor = buildCobrancaMailPayload('*', period, base, pidx, 'Gestor', '2026-10-15', {
+        role: 'gestor',
+        userId: 'u-gestor-es',
+        pessoa: base.pessoas.gestorContrato,
+        pidx
+      });
+      expect(cobGestor.ppl.map(p => p.id).sort()).toEqual(['ctrlES', 'prepES']);
+
+      // Administrador cobra todos (incluindo Gestor)
+      const cobAdmin = buildCobrancaMailPayload('*', period, base, pidx, 'Admin', '2026-10-15', {
+        role: 'admin',
+        userId: 'u-admin',
+        pidx
+      });
+      expect(cobAdmin.ppl.map(p => p.id).sort()).toEqual(['ctrlES', 'gestorContrato', 'prepES']);
+
+      // Controlador não cobra ninguém (nem a si mesmo)
+      const cobCtrl = buildCobrancaMailPayload('*', period, base, pidx, 'Ctrl', '2026-10-15', {
+        role: 'controlador',
+        userId: 'u-ctrl-es',
+        pessoa: ctrlES,
+        pidx
+      });
+      expect(cobCtrl.ppl).toEqual([]);
+      expect(cobCtrl.to).toEqual([]);
+      expect(cobCtrl.pendentesCount).toBe(0);
+    });
   });
 
   describe('4. buildCobrancaListText & buildDailyAlertText', () => {

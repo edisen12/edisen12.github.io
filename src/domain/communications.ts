@@ -22,13 +22,16 @@ import {
 } from '../utils/format';
 import { periodDisplayName } from './periods';
 import {
+  type ChargeActorContext,
   armadorOf,
   computeCobrancaStats,
   computeDayRows,
   computePeriodDays,
+  filterChargeablePeople,
   findResponsiblePeople,
   gestorOfUn,
   groupDaysByField,
+  isChargeTargetAllowed,
   isPersonResponsible,
   passesFilter,
   prazoOf,
@@ -80,7 +83,8 @@ export const buildDailyMailPayload = (
   platforms: string[],
   dataset: AppDataset,
   pidx: Record<string, Plataforma>,
-  senderName?: string
+  senderName?: string,
+  actor?: ChargeActorContext
 ): {
   rows: DayTechRow[];
   ppl: Pessoa[];
@@ -98,7 +102,10 @@ export const buildDailyMailPayload = (
     )
   ].filter(u => u && u !== 'Sem unidade');
 
-  const ppl = findResponsiblePeople(dataset.pessoas, platforms, uns);
+  const ppl = filterChargeablePeople(
+    findResponsiblePeople(dataset.pessoas, platforms, uns),
+    actor
+  );
   const H = formatHours(dataset.config.hh_dia);
   const by: Record<string, DayTechRow[]> = {};
   rows.forEach(r => {
@@ -159,7 +166,8 @@ export const buildCobrancaMailPayload = (
   dataset: AppDataset,
   pidx: Record<string, Plataforma>,
   senderName?: string,
-  today?: string
+  today?: string,
+  actor?: ChargeActorContext
 ): {
   ppl: Pessoa[];
   body: string;
@@ -188,10 +196,16 @@ export const buildCobrancaMailPayload = (
   let list: PeriodDayEntry[];
 
   if (target === '*' || target === null) {
-    ppl = Object.values(dataset.pessoas).filter(p =>
+    const eligible = filterChargeablePeople(Object.values(dataset.pessoas), actor);
+    ppl = eligible.filter(p =>
       pend.some(x => isPersonResponsible(p, { p: x.p, r: x.r }))
     );
-    list = pend;
+    list = actor?.role
+      ? pend.filter(x => ppl.some(p => isPersonResponsible(p, { p: x.p, r: x.r })))
+      : pend;
+  } else if (actor?.role && !isChargeTargetAllowed(target, actor)) {
+    ppl = [];
+    list = [];
   } else {
     ppl = [target];
     list = pend.filter(x => isPersonResponsible(target, { p: x.p, r: x.r }));
@@ -202,9 +216,10 @@ export const buildCobrancaMailPayload = (
     P
   )} (${formatBr(P.ini)} a ${formatBr(P.fim)})`;
 
-  let body = `${
-    ppl.length > 1 ? 'Prezados' : `Prezado(a) ${ppl[0].nome.split(' ')[0]}`
-  },\n\nNo período de ${formatBr(P.ini)} a ${formatBr(P.fim)}, ${
+  const greeting =
+    ppl.length === 1 ? `Prezado(a) ${ppl[0].nome.split(' ')[0]}` : 'Prezados';
+
+  let body = `${greeting},\n\nNo período de ${formatBr(P.ini)} a ${formatBr(P.fim)}, ${
     list.length === 1 ? 'há 1 dia' : `há ${list.length} dias`
   } de técnicos abaixo da meta de ${formatHours(
     dataset.config.hh_dia
@@ -248,7 +263,8 @@ export const buildCobrancaListText = (
   P: PeriodWindow,
   dataset: AppDataset,
   pidx: Record<string, Plataforma>,
-  today?: string
+  today?: string,
+  actor?: ChargeActorContext
 ): string => {
   const emptyFilters: FilterState = {
     fDate: '',
@@ -263,7 +279,7 @@ export const buildCobrancaListText = (
   const days = computePeriodDays(P, dataset, emptyFilters, pidx).filter(
     x => x.e < x.d - 0.001
   );
-  const pes = Object.values(dataset.pessoas);
+  const pes = filterChargeablePeople(Object.values(dataset.pessoas), actor);
   const lines = [
     'Cobrança de justificativas · HH Offshore',
     `Período: ${formatBr(P.ini)} a ${formatBr(P.fim)}`,

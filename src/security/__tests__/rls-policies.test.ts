@@ -83,10 +83,42 @@ export function auth_is_admin(state: DatabaseState, uid: string | null): boolean
   return prof?.role === 'admin';
 }
 
+export function auth_is_preposto(state: DatabaseState, uid: string | null): boolean {
+  if (!auth_is_active(state, uid)) return false;
+  const prof = (state.tables.profiles || []).find((p: any) => p.id === uid);
+  return prof?.role === 'preposto';
+}
+
 export function auth_is_global(state: DatabaseState, uid: string | null): boolean {
   if (!auth_is_active(state, uid)) return false;
   const prof = (state.tables.profiles || []).find((p: any) => p.id === uid);
   return prof?.role === 'admin' || prof?.role === 'gestor';
+}
+
+export function auth_visible_controlador_ids(state: DatabaseState, uid: string | null): string[] {
+  if (!auth_is_preposto(state, uid)) return [];
+  const allowedPlats = auth_allowed_platforms(state, uid);
+  const allowedUns = auth_allowed_uns(state, uid);
+  const allPlatforms = state.tables.plataformas || [];
+
+  return (state.tables.pessoas || [])
+    .filter((p: any) => {
+      if (p.papel !== 'controlador') return false;
+      const pPlats = (state.tables.pessoa_plataformas || [])
+        .filter((pp: any) => pp.pessoa_id === p.id)
+        .map((pp: any) => pp.plataforma_sigla);
+      if (pPlats.some((sig: string) => allowedPlats.includes(sig))) return true;
+
+      const pUns = (state.tables.pessoa_unidades || [])
+        .filter((pu: any) => pu.pessoa_id === p.id)
+        .map((pu: any) => pu.unidade_negocio);
+      return pUns.some(
+        (un: string) =>
+          allowedUns.includes(un) ||
+          allPlatforms.some((plat: any) => plat.un === un && allowedPlats.includes(plat.sigla))
+      );
+    })
+    .map((p: any) => p.id);
 }
 
 export function auth_allowed_uns(state: DatabaseState, uid: string | null): string[] {
@@ -181,14 +213,21 @@ export function evaluateRlsSelect(
       return isGlobal || auth_allowed_platforms(state, uid).includes(row.sigla);
 
     case 'pessoas':
-      return isGlobal || row.user_id === uid;
+      return (
+        isGlobal ||
+        row.user_id === uid ||
+        auth_visible_controlador_ids(state, uid).includes(row.id)
+      );
 
     case 'pessoa_plataformas': {
       if (isGlobal) return true;
       const userPessoas = (state.tables.pessoas || [])
         .filter((p: any) => p.user_id === uid)
         .map((p: any) => p.id);
-      return userPessoas.includes(row.pessoa_id);
+      return (
+        userPessoas.includes(row.pessoa_id) ||
+        auth_visible_controlador_ids(state, uid).includes(row.pessoa_id)
+      );
     }
 
     case 'pessoa_unidades': {
@@ -196,7 +235,10 @@ export function evaluateRlsSelect(
       const userPessoas = (state.tables.pessoas || [])
         .filter((p: any) => p.user_id === uid)
         .map((p: any) => p.id);
-      return userPessoas.includes(row.pessoa_id);
+      return (
+        userPessoas.includes(row.pessoa_id) ||
+        auth_visible_controlador_ids(state, uid).includes(row.pessoa_id)
+      );
     }
 
     case 'tecnicos': {
@@ -315,6 +357,12 @@ export function evaluateRlsInsert(
       return { allowed: true }; // Sessões autenticadas podem registrar logs de auditoria
 
     case 'justificativas': {
+      if (isAdmin) {
+        return {
+          allowed: false,
+          reason: 'Administradores do sistema não registram justificativas operacionais'
+        };
+      }
       const canAccess = isGlobal || auth_can_access_justificativa(state, uid, payload.matricula, payload.data);
       return canAccess
         ? { allowed: true }
@@ -375,6 +423,12 @@ export function evaluateRlsUpdate(
       return { allowed: false, reason: 'Política WORM: registros de system_audit_logs são estritamente imutáveis (UPDATE negado)' };
 
     case 'justificativas': {
+      if (isAdmin) {
+        return {
+          allowed: false,
+          reason: 'Administradores do sistema não alteram justificativas operacionais'
+        };
+      }
       const canAccessExisting = isGlobal || auth_can_access_justificativa(state, uid, existingRow.matricula, existingRow.data);
       const targetMat = patch.matricula ?? existingRow.matricula;
       const targetData = patch.data ?? existingRow.data;
@@ -418,6 +472,17 @@ export function evaluateRlsDelete(
         ? { allowed: true }
         : { allowed: false, reason: 'Apenas admin pode excluir perfis e onboardings' };
 
+    case 'justificativas':
+      if (isAdmin) {
+        return {
+          allowed: false,
+          reason: 'Administradores do sistema não excluem justificativas operacionais via RLS'
+        };
+      }
+      return isGlobal
+        ? { allowed: true }
+        : { allowed: false, reason: 'Exclusão em justificativas restrita a perfis globais (admin/gestor)' };
+
     case 'plataformas':
     case 'pessoas':
     case 'pessoa_plataformas':
@@ -427,7 +492,6 @@ export function evaluateRlsDelete(
     case 'carteira_operacoes':
     case 'confirmacoes_sap':
     case 'apontamentos_hh':
-    case 'justificativas':
     case 'configuracoes':
     case 'config_usoff_un':
     case 'configuracoes_notificacao':
@@ -1042,6 +1106,52 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(delRes.error).not.toBeNull();
       expect(delRes.error.message).toContain('restrita a perfis globais');
     });
+
+    it('Migration 034: admin lê justificativas mas é REJEITADO em INSERT/UPDATE/DELETE; preposto lê apenas controladores de sua carteira', async () => {
+      const adminClient = createRlsClient(dbState, { id: mockUsers.admin.id, email: mockUsers.admin.email });
+
+      const readAdmin = await adminClient.from('justificativas').select('*');
+      expect(readAdmin.error).toBeNull();
+      expect(readAdmin.data.length).toBeGreaterThan(0);
+
+      const insAdmin = await adminClient.from('justificativas').insert({
+        id: 'jus-admin-bloqueada',
+        matricula: '1001',
+        data: '2026-10-01',
+        motivo: 'Tentativa admin'
+      });
+      expect(insAdmin.error).not.toBeNull();
+
+      const updAdmin = await adminClient.from('justificativas').update({ motivo: 'Edit admin' }).eq('id', 'jus-001');
+      expect(updAdmin.error).not.toBeNull();
+
+      const delAdmin = await adminClient.from('justificativas').delete().eq('id', 'jus-001');
+      expect(delAdmin.error).not.toBeNull();
+
+      // Adiciona controlador compartilhando P50 e outro preposto em P50
+      dbState.tables.pessoas.push(
+        { id: 'pes-ctrl-p50', slug: 'ctrl-p50', nome: 'Controlador P50', papel: 'controlador', email: 'ctrl50@teste.local', user_id: null },
+        { id: 'pes-prep-colega', slug: 'prep-colega', nome: 'Outro Preposto', papel: 'preposto', email: 'colega@teste.local', user_id: null }
+      );
+      dbState.tables.pessoa_plataformas.push(
+        { pessoa_id: 'pes-ctrl-p50', plataforma_sigla: 'P50' },
+        { pessoa_id: 'pes-prep-colega', plataforma_sigla: 'P50' }
+      );
+
+      const prepostoClient = createRlsClient(dbState, { id: mockUsers.preposto.id, email: mockUsers.preposto.email });
+      const { data: visiblePessoas } = await prepostoClient.from('pessoas').select('*');
+      const ids = visiblePessoas.map((p: any) => p.id);
+      expect(ids).toContain('pes-preposto-001');
+      expect(ids).toContain('pes-ctrl-p50');
+      expect(ids).not.toContain('pes-controlador-003'); // P25 fora da carteira
+      expect(ids).not.toContain('pes-prep-colega'); // Outro preposto oculto
+      expect(ids).not.toContain('pes-gestor-002'); // Gestor oculto
+
+      // Controlador vê estritamente o próprio cadastro
+      const ctrlClient = createRlsClient(dbState, { id: mockUsers.controlador.id, email: mockUsers.controlador.email });
+      const { data: ctrlPessoas } = await ctrlClient.from('pessoas').select('*');
+      expect(ctrlPessoas.map((p: any) => p.id)).toEqual(['pes-controlador-003']);
+    });
   });
 
   // ============================================================================
@@ -1540,6 +1650,17 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
     it('Migration 033: adiciona coluna ativo boolean NOT NULL DEFAULT true em public.tecnicos', () => {
       const sql = readMigration('033_add_tecnicos_ativo.sql');
       expect(sql).toMatch(/ALTER TABLE public\.tecnicos[\s\S]*ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true/i);
+    });
+
+    it('Migration 034: libera leitura de controladores subordinados ao preposto e bloqueia escrita de justificativas por admin', () => {
+      const sql = readMigration('034_role_hierarchy_cobranca_and_admin_just.sql');
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.auth_is_preposto\(\)/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.auth_visible_controlador_ids\(\)/i);
+      expect(sql).toMatch(/CREATE POLICY "pessoas_select_policy" ON public\.pessoas/i);
+      expect(sql).toMatch(/CREATE POLICY "justificativas_insert_policy" ON public\.justificativas/i);
+      expect(sql).toMatch(/CREATE POLICY "justificativas_update_policy" ON public\.justificativas/i);
+      expect(sql).toMatch(/NOT \(SELECT public\.auth_is_admin\(\)\)/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.auth_visible_controlador_ids\(\) FROM PUBLIC, anon/i);
     });
   });
 });

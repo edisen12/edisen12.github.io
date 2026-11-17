@@ -307,12 +307,34 @@ describe('Modais Operacionais e Ficha do Técnico', () => {
         expect(closeJustModal).toHaveBeenCalledTimes(1);
       });
     });
+
+    it('bloqueia submissão e exibe aviso operacional quando logado como Administrador', () => {
+      setupAppMock({
+        justModal: { mat: '10231', date: '2026-06-02' },
+        userProfile: {
+          id: 'usr-admin-1',
+          email: 'admin.teste@infotecbrasil.com.br',
+          nome: 'Administrador Teste',
+          role: 'admin',
+          ativo: true
+        },
+        isGlobal: true,
+        isAdmin: true
+      });
+      renderWithToast(<JustificativaModal />);
+
+      expect(screen.getByText(/Ação restrita à operação/i)).not.toBeNull();
+      const saveBtn = screen.getByRole('button', { name: /Salvar justificativa/i }) as HTMLButtonElement;
+      expect(saveBtn.disabled).toBe(true);
+      fireEvent.click(saveBtn);
+      expect(saveJustificativa).not.toHaveBeenCalled();
+    });
   });
 
   describe('FichaTecnicoDrawer', () => {
     it('exibe resumo do técnico, histórico diário, expande ordens SAP destacando "Não Cadastrada no Portal" e dispara exportação Excel', async () => {
       const ctx = setupAppMock({ fichaMat: '10231', scopeLabel: 'Carteira P51' });
-      renderWithToast(<FichaTecnicoDrawer />);
+      const { unmount } = renderWithToast(<FichaTecnicoDrawer />);
 
       // Cabeçalho e resumo do técnico
       expect(screen.getByText('Carlos Eduardo Sintético')).not.toBeNull();
@@ -349,12 +371,40 @@ describe('Modais Operacionais e Ficha do Técnico', () => {
           'Carteira P51'
         );
       });
+
+      // Para Admin, FichaTecnicoDrawer oculta botão Justificar mantendo status Pendente
+      unmount();
+      setupAppMock({
+        fichaMat: '10231',
+        scopeLabel: undefined,
+        userProfile: {
+          id: 'usr-admin-1',
+          email: 'admin.teste@infotecbrasil.com.br',
+          nome: 'Administrador Teste',
+          role: 'admin',
+          ativo: true
+        },
+        isGlobal: true,
+        isAdmin: true
+      });
+      renderWithToast(<FichaTecnicoDrawer />);
+      expect(screen.queryByRole('button', { name: 'Justificar' })).toBeNull();
+      expect(screen.getAllByText('Pendente').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('EmailComposerModal', () => {
-    it('preenche destinatários, assunto, corpo e alerta de pessoa sem e-mail no modo diário e cobrança', () => {
+    it('preenche destinatários, assunto, corpo e alerta de pessoa sem e-mail no modo diário e cobrança conforme hierarquia', () => {
+      // Gestor cobra Preposto (Camila) e Controlador (Bruno)
       setupAppMock({
+        userProfile: {
+          id: 'usr-gestor-1',
+          email: 'gestor.teste@infotecbrasil.com.br',
+          nome: 'Gestor Teste',
+          role: 'gestor',
+          ativo: true
+        },
+        isGlobal: true,
         emailModal: { mode: 'daily', date: '2026-06-02', plats: ['P51'] }
       });
 
@@ -373,8 +423,26 @@ describe('Modais Operacionais e Ficha do Técnico', () => {
 
       unmount();
 
-      // Modo cobrança global ('*')
+      // Preposto não se autocobra: envia apenas para o Controlador subordinado
       setupAppMock({
+        userProfile: MOCK_USER, // Camila (preposto)
+        emailModal: { mode: 'daily', date: '2026-06-02', plats: ['P51'] }
+      });
+      const { unmount: unmountPrep } = renderWithToast(<EmailComposerModal />);
+      expect(screen.queryByText('Camila Rocha Mendes')).toBeNull();
+      expect(screen.getByText('Bruno Alves Sintético')).not.toBeNull();
+      unmountPrep();
+
+      // Modo cobrança global ('*') como Gestor
+      setupAppMock({
+        userProfile: {
+          id: 'usr-gestor-1',
+          email: 'gestor.teste@infotecbrasil.com.br',
+          nome: 'Gestor Teste',
+          role: 'gestor',
+          ativo: true
+        },
+        isGlobal: true,
         emailModal: { mode: 'cobranca', targetRespId: '*' }
       });
       renderWithToast(<EmailComposerModal />);

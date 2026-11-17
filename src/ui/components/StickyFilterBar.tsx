@@ -34,6 +34,7 @@ export function StickyFilterBar() {
     resetFilters,
     dataset,
     pidx,
+    userProfile,
     isGlobal,
     activePeriod,
     availability: ctxAvailability
@@ -605,8 +606,8 @@ export function StickyFilterBar() {
           </select>
         </div>
 
-        {/* Responsável (Exibido apenas em escopo global) */}
-        {isGlobal && (
+        {/* Responsável (Global vê todos os papéis; Preposto vê apenas Controladores subordinados) */}
+        {(isGlobal || (userProfile?.role === 'preposto' && groupedPessoas.controladores.length > 0)) && (
           <div className="filter-group filter-group-resp">
             <label className="filter-label" htmlFor="filter-resp">
               Responsável
@@ -617,8 +618,10 @@ export function StickyFilterBar() {
               value={selectedRespValue}
               onChange={e => updateFilter('fResp', e.target.value)}
             >
-              <option value="">Todos os responsáveis</option>
-              {groupedPessoas.prepostos.length > 0 && (
+              <option value="">
+                {isGlobal ? 'Todos os responsáveis' : 'Todos da minha carteira'}
+              </option>
+              {isGlobal && groupedPessoas.prepostos.length > 0 && (
                 <optgroup label="Prepostos">
                   {groupedPessoas.prepostos.map(p => (
                     <option key={p.id} value={p.id}>
@@ -636,7 +639,7 @@ export function StickyFilterBar() {
                   ))}
                 </optgroup>
               )}
-              {groupedPessoas.gestores.length > 0 && (
+              {isGlobal && groupedPessoas.gestores.length > 0 && (
                 <optgroup label="Gestores">
                   {groupedPessoas.gestores.map(p => (
                     <option key={p.id} value={p.id}>

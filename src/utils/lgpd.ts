@@ -3,6 +3,9 @@ import type {
   CarteiraOperacao,
   ConfirmacaoSAP,
   Justificativa,
+  Pessoa,
+  Plataforma,
+  SystemRole,
   Tecnico
 } from '../domain/types';
 
@@ -171,4 +174,66 @@ export function isJustificativaInScope(
   return scopedCarteira.some(
     c => c.matricula === j.matricula && j.data >= c.data_inicio && j.data <= c.data_fim
   );
+}
+
+const normalizePlatKeySimple = (sigla: string): string =>
+  String(sigla || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+/**
+ * Filtra os registros de pessoas visíveis para usuários não-globais:
+ * - Todos os não-globais enxergam o próprio vínculo;
+ * - Prepostos enxergam também os Controladores cuja carteira compartilhe ao menos uma plataforma ou UN do escopo.
+ */
+export function filterScopedPessoasForActor(
+  allPessoas: Pessoa[],
+  actorId: string,
+  actorRole: SystemRole | string,
+  allowedPlatforms: Set<string>,
+  allowedUNs: Set<string>,
+  allPlatforms: Array<Pick<Plataforma, 'sigla' | 'un'>> = []
+): Pessoa[] {
+  const allowedPlatKeys = new Set<string>();
+  allowedPlatforms.forEach(s => {
+    const k = normalizePlatKeySimple(s);
+    if (k) allowedPlatKeys.add(k);
+  });
+
+  const result: Pessoa[] = [];
+  const seen = new Set<string>();
+
+  for (const p of allPessoas) {
+    const isSelf = Boolean(actorId && p.user_id === actorId);
+    let visible = isSelf;
+
+    if (!visible && actorRole === 'preposto' && p.papel === 'controlador') {
+      const sharesPlat = (p.plats || []).some(sig => {
+        const k = normalizePlatKeySimple(sig);
+        return Boolean(k && allowedPlatKeys.has(k));
+      });
+      const sharesUn = (p.uns || []).some(u => {
+        const un = String(u || '').trim();
+        if (!un) return false;
+        if (allowedUNs.has(un)) return true;
+        return allPlatforms.some(
+          plat =>
+            plat.un &&
+            plat.un.trim() === un &&
+            allowedPlatKeys.has(normalizePlatKeySimple(plat.sigla))
+        );
+      });
+      visible = sharesPlat || sharesUn;
+    }
+
+    if (visible && !seen.has(p.id)) {
+      seen.add(p.id);
+      result.push(p);
+    }
+  }
+
+  return result;
 }

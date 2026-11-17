@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
 import { KpiCard } from '../components/KpiCard';
@@ -6,18 +6,24 @@ import { StatusPill } from '../components/StatusPill';
 import { MeterBar } from '../components/MeterBar';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { PAPEIS_LABEL } from '../../config/constants';
+import { PAPEIS_LABEL, PAPEIS_PLURAL } from '../../config/constants';
 import type {
   CobrancaStats,
+  PapelOperacional,
   PeriodDayEntry,
   Pessoa
 } from '../../domain/types';
 import {
+  canRoleCharge,
+  canRoleJustify,
   computeCobrancaStats,
   computePeriodDays,
+  filterChargeablePeople,
   findResponsiblePeople,
+  getChargeablePapeisForRole,
   isPersonResponsible,
   prazoOf,
+  resolveActorPessoa,
   resolveTechName
 } from '../../domain/calculations';
 import { periodDisplayName } from '../../domain/periods';
@@ -40,6 +46,8 @@ export function JustificativasView() {
     pidx,
     activePeriod,
     filters,
+    userProfile,
+    pessoaScope,
     updateFilter,
     openFichaDrawer,
     openJustModal,
@@ -47,8 +55,41 @@ export function JustificativasView() {
   } = useApp();
 
   const { showToast } = useToast();
-  const [subView, setSubView] = useState<JustSubView>('cob');
-  const [papelFilter, setPapelFilter] = useState<'preposto' | 'controlador' | 'gestor'>('preposto');
+  const canJustify = canRoleJustify(userProfile?.role);
+  const canCharge = canRoleCharge(userProfile?.role);
+  const allowedPapeis = useMemo(
+    () => getChargeablePapeisForRole(userProfile?.role),
+    [userProfile?.role]
+  );
+
+  const [subView, setSubView] = useState<JustSubView>(() =>
+    canRoleCharge(userProfile?.role) ? 'cob' : 'pend'
+  );
+  const [papelFilter, setPapelFilter] = useState<PapelOperacional>('preposto');
+
+  useEffect(() => {
+    if (!canCharge && subView === 'cob') {
+      setSubView('pend');
+    }
+  }, [canCharge, subView]);
+
+  const effectivePapelFilter: PapelOperacional = useMemo(() => {
+    if (allowedPapeis.length === 0) return 'controlador';
+    return allowedPapeis.includes(papelFilter) ? papelFilter : allowedPapeis[0];
+  }, [allowedPapeis, papelFilter]);
+
+  const chargeActor = useMemo(
+    () => ({
+      role: userProfile?.role,
+      userId: userProfile?.id,
+      pessoa: resolveActorPessoa(dataset.pessoas, {
+        userId: userProfile?.id,
+        pessoa: pessoaScope
+      }),
+      pidx
+    }),
+    [userProfile, dataset.pessoas, pessoaScope, pidx]
+  );
 
   const P = activePeriod;
   const TODAY = todayIso();
@@ -92,9 +133,12 @@ export function JustificativasView() {
     return computeCobrancaStats(daysBelow, dataset.config, TODAY);
   }, [daysBelow, dataset.config, TODAY]);
 
-  // Agregações por responsável para cobrança
+  // Agregações por responsável elegível para cobrança conforme hierarquia do papel
   const rowsResp = useMemo(() => {
-    const pessoasList = Object.values(dataset.pessoas);
+    const pessoasList = filterChargeablePeople(
+      Object.values(dataset.pessoas),
+      chargeActor
+    );
     return pessoasList.map(p => {
       const respDays = daysBelow.filter(x => isPersonResponsible(p, { p: x.p, r: x.r }));
       return {
@@ -102,7 +146,7 @@ export function JustificativasView() {
         M: computeCobrancaStats(respDays, dataset.config, TODAY)
       };
     });
-  }, [daysBelow, dataset.pessoas, dataset.config, TODAY]);
+  }, [daysBelow, dataset.pessoas, dataset.config, TODAY, chargeActor]);
 
   // Resumo agregado de pendências vencidas (sem ranking individual punitivo — LGPD/BOAS PRÁTICAS)
   const overdueSummary = useMemo(() => {
@@ -135,7 +179,7 @@ export function JustificativasView() {
   // Copiar lista de cobrança
   const handleCopyCobrancaList = async () => {
     try {
-      const text = buildCobrancaListText(P, dataset, pidx, TODAY);
+      const text = buildCobrancaListText(P, dataset, pidx, TODAY, chargeActor);
       await navigator.clipboard.writeText(text);
       showToast('Lista de cobrança copiada para a área de transferência!', 'success');
     } catch {
@@ -148,9 +192,9 @@ export function JustificativasView() {
   // -------------------------------------------------------------
   const filteredRespCob = useMemo(() => {
     return rowsResp
-      .filter(r => (r.p.papel || 'preposto') === papelFilter)
+      .filter(r => (r.p.papel || 'preposto') === effectivePapelFilter)
       .sort((a, b) => b.M.venc - a.M.venc || b.M.pend - a.M.pend || (a.M.pJ ?? 999) - (b.M.pJ ?? 999) || a.p.nome.localeCompare(b.p.nome));
-  }, [rowsResp, papelFilter]);
+  }, [rowsResp, effectivePapelFilter]);
 
   interface RespCobRow {
     p: Pessoa;
@@ -536,34 +580,40 @@ export function JustificativasView() {
                 {emDate && ` · em ${formatBr(emDate)}`}
                 {foraDoPrazo && <span style={{ color: 'var(--warn)', marginLeft: '4px' }}>(fora do prazo)</span>}
               </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => openJustModal(r.mat, r.D)}
-                style={{ marginTop: '4px', fontSize: '0.78rem' }}
-              >
-                Editar
-              </button>
+              {canJustify && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => openJustModal(r.mat, r.D)}
+                  style={{ marginTop: '4px', fontSize: '0.78rem' }}
+                >
+                  Editar
+                </button>
+              )}
             </div>
           );
         }
 
         return (
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button
-              type="button"
-              className="btn btn-accent btn-sm"
-              onClick={() => openJustModal(r.mat, r.D)}
-            >
-              Justificar
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => openEmailModal({ mode: 'daily', plats: [r.p], date: r.D })}
-            >
-              E-mail
-            </button>
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            {canJustify && (
+              <button
+                type="button"
+                className="btn btn-accent btn-sm"
+                onClick={() => openJustModal(r.mat, r.D)}
+              >
+                Justificar
+              </button>
+            )}
+            {canCharge && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => openEmailModal({ mode: 'daily', plats: [r.p], date: r.D })}
+              >
+                E-mail
+              </button>
+            )}
           </div>
         );
       }
@@ -586,7 +636,15 @@ export function JustificativasView() {
         {/* Sub-abas com SegmentedControl e contagens */}
         <SegmentedControl<JustSubView>
           options={[
-            { value: 'cob', label: 'Cobrança por responsável', count: rowsResp.filter(r => r.M.need > 0).length },
+            ...(canCharge
+              ? [
+                  {
+                    value: 'cob' as const,
+                    label: 'Cobrança por responsável',
+                    count: rowsResp.filter(r => r.M.need > 0).length
+                  }
+                ]
+              : []),
             { value: 'pend', label: 'Pendentes de justificativa', count: pend.length, badgeTone: pend.length > 0 ? (A.venc > 0 ? 'bad' : 'warn') : 'default' },
             { value: 'feitas', label: 'Justificativas registradas', count: feitas.length, badgeTone: 'ok' }
           ]}
@@ -596,7 +654,7 @@ export function JustificativasView() {
       </div>
 
       {/* SUB-VISÃO 1: COBRANÇA */}
-      {subView === 'cob' && (
+      {canCharge && subView === 'cob' && (
         <div className="subview-cobranca">
           {/* 6 KPIs de SLA */}
           <div className="kpis">
@@ -667,16 +725,18 @@ export function JustificativasView() {
             <div className="section-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                 <h3 style={{ margin: 0, fontFamily: 'var(--f-display)' }}>Cobrança por responsável</h3>
-                <SegmentedControl<'preposto' | 'controlador' | 'gestor'>
-                  options={[
-                    { value: 'preposto', label: 'Prepostos', count: rowsResp.filter(r => (r.p.papel || 'preposto') === 'preposto').length },
-                    { value: 'controlador', label: 'Controladores', count: rowsResp.filter(r => (r.p.papel || 'preposto') === 'controlador').length },
-                    { value: 'gestor', label: 'Gestores', count: rowsResp.filter(r => (r.p.papel || 'preposto') === 'gestor').length }
-                  ]}
-                  value={papelFilter}
-                  onChange={setPapelFilter}
-                  size="sm"
-                />
+                {allowedPapeis.length > 0 && (
+                  <SegmentedControl<PapelOperacional>
+                    options={allowedPapeis.map(papel => ({
+                      value: papel,
+                      label: PAPEIS_PLURAL[papel] || papel,
+                      count: rowsResp.filter(r => (r.p.papel || 'preposto') === papel).length
+                    }))}
+                    value={effectivePapelFilter}
+                    onChange={setPapelFilter}
+                    size="sm"
+                  />
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -703,7 +763,11 @@ export function JustificativasView() {
               data={filteredRespCob}
               columns={cobRespColumns}
               rowKey={r => r.p.id}
-              emptyMessage="Nenhuma pessoa com esse papel ou sem pendências."
+              emptyMessage={
+                userProfile?.role === 'preposto'
+                  ? 'Nenhum controlador subordinado vinculado às suas plataformas ou sem pendências.'
+                  : 'Nenhuma pessoa com esse papel ou sem pendências.'
+              }
             />
           </div>
 

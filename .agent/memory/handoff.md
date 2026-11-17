@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-16 21:55 (BRT) · Branch `main` · Migrations `023`–`033` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Saneamento legado de `chave_petrobras` (2.524 linhas), auto-hospedagem de fontes (`@fontsource`), engine de retenção/IP purge LGPD, workflow DR/Retenção e templates ROPA/RIPD/Incidentes concluídos ✅
+> Última atualização: 2026-11-17 09:12 (BRT) · Branch `main` (base `47fc985`) · Migrations `023`–`034` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Hierarquia operacional de cobrança por papel e segregação de funções (bloqueio de justificativas por `admin`) concluídas · 37 arquivos / 666 testes aprovados ✅
 
 ## 1. Resumo Executivo
 
@@ -213,9 +213,17 @@
     - *Interface Admin, Self-Hosted Fonts & Sessão:* `@fontsource/montserrat` e `@fontsource/source-sans-3` empacotados em `src/main.tsx`, CSP em `index.html` e `public/sw.js` (`v3`) livres de Google Fonts; suporte opcional a `VITE_AUTH_STORAGE=session` (`window.sessionStorage`) em `src/services/supabase.ts`; sub-aba **Privacidade & LGPD** em `AdminAuditView.tsx` integrando canal DPO (`PrivacyNoticeModal.tsx`), anonimização Art. 18 VI e rotina de retenção em Dual-Topology (BaaS + `SelfHostedDomainEngine` / `server/src/app.ts`).
     - *Automação DR/Retenção & Governança (`docs/lgpd/`):* suporte `PG_SCHEMA` em `scripts/backup-and-verify-restore.sh`, workflows `.github/workflows/{database-backup-verify,lgpd-retention-monthly}.yml`, e templates formais sem PII `ROPA_REGISTRO_OPERACOES.md`, `RIPD_RELATORIO_IMPACTO.md` e `PLANO_RESPOSTA_INCIDENTES_E_TITULARES.md`.
 
+  - **Frente 21: Hierarquia de Cobrança por Papel & Bloqueio de Justificativas para Admin (Migration `034`):**
+    - *Helpers & Domínio Puro (`src/domain/calculations.ts`, `src/domain/communications.ts`, `src/utils/lgpd.ts`):* criados `canRoleJustify`, `canRoleCharge`, `getChargeablePapeisForRole`, `resolveEffectivePlatformKeys`, `isPersonInActorScope`, `resolveActorPessoa`, `isChargeTargetAllowed`, `filterChargeablePeople` e `filterScopedPessoasForActor`; atualizados `buildDailyMailPayload`, `buildCobrancaMailPayload` e `buildCobrancaListText` com contexto de ator opcional e proteção para lista vazia de destinatários.
+    - *Segurança Dual-Topology & RLS (`supabase/migrations/034_role_hierarchy_cobranca_and_admin_just.sql`, `server/src/core/domain-engine.service.ts`, `src/utils/impersonation.ts`):* liberada leitura apenas dos `controlador`es subordinados com interseção de plataformas/UNs para `preposto` ativo (`auth_visible_controlador_ids()`); removidas políticas legadas (`pessoas_select`, `pessoa_plat_select`, `pessoa_un_select`, `just_insert`, `just_update`, `just_delete`) em produção; bloqueada escrita (`INSERT`/`UPDATE`/`DELETE`) em `justificativas` para `admin` na RLS e em `SelfHostedDomainEngine.saveJustificativa` (mantendo leitura e cobrança).
+    - *UI (`JustificativasView.tsx`, `PainelDiaView.tsx`, `VisaoGeralView.tsx`, `FichaTecnicoDrawer.tsx`, `JustificativaModal.tsx`, `EmailComposerModal.tsx`, `StickyFilterBar.tsx`, `ScopeBanner.tsx`):* `controlador` sem aba de cobrança nem botões `Cobrar`/`E-mail`; `preposto` vê e cobra somente `controlador`es subordinados (com filtro opcional em `StickyFilterBar` e feedback no `ScopeBanner`); `gestor` cobra `preposto`s e `controlador`es; `admin` cobra todos os papéis operacionais sem visualizar botões `Justificar`/`Editar` nem conseguir submeter `JustificativaModal`.
+    - *Testes Adicionados/Atualizados:* `calculations.test.ts` (50), `communications.test.ts` (12), `impersonation.test.ts` (5), `rls-policies.test.ts`, `lgpd-compliance.test.ts` (12), `ModalsAndDrawer.test.tsx` e `OperationalViews.test.tsx`.
+
   - **Resultados de Qualidade:**
-    - Suíte final (`server` typecheck + client typecheck + `npm run test:run` + `npm run build`) validada após a última edição.
-    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`–`033` aplicadas ✅ (`remaining_chaves = 0`, `get_advisors` performance com 0 `WARN`). Edge Function `admin-users` v3 ativa (`verify_jwt: true`); patch local v4 aguardando CLI/Dashboard devido a limitação de serialização no MCP `deploy_edge_function`.
+    - `npm --prefix server run typecheck` + `npm run typecheck`: **0 erros**.
+    - `npm run test:run`: **37 arquivos / 666 testes aprovados (100% verdes)**.
+    - `npm run build`: **bundle gerado em 5.39s** (`dist/`).
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`–`034` aplicadas ✅ (`get_advisors` performance com 0 `WARN`). Edge Function `admin-users` v3 ativa (`verify_jwt: true`); patch local v4 aguardando CLI/Dashboard devido a limitação de serialização no MCP `deploy_edge_function`.
 
 ## 4. Próximos Passos (priorizados)
 

@@ -8,6 +8,7 @@ import { Briefcase } from 'lucide-react';
 import {
   accumulateEmbarkation,
   buildSapIndex,
+  canRoleJustify,
   findCarteira,
   inferEmbarkation,
   isSapBeforeEmbarkation,
@@ -47,10 +48,13 @@ export function FichaTecnicoDrawer() {
     dataset,
     pidx,
     activePeriod,
+    userProfile,
     openJustModal,
     openCarteiraModal,
     scopeLabel
   } = useApp();
+
+  const canJustify = canRoleJustify(userProfile?.role);
 
   const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState(false);
@@ -424,14 +428,18 @@ export function FichaTecnicoDrawer() {
                               )}
                             </div>
                           ) : need ? (
-                            <button
-                              type="button"
-                              className="btn btn-accent btn-sm"
-                              onClick={() => openJustModal(mat, x.D)}
-                              style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-                            >
-                              Justificar
-                            </button>
+                            canJustify ? (
+                              <button
+                                type="button"
+                                className="btn btn-accent btn-sm"
+                                onClick={() => openJustModal(mat, x.D)}
+                                style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                              >
+                                Justificar
+                              </button>
+                            ) : (
+                              <StatusPill status="warn" text="Pendente" />
+                            )
                           ) : (
                             '—'
                           )}

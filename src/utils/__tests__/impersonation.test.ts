@@ -337,4 +337,36 @@ describe('impersonation utilities (Ver como outro usuário)', () => {
     expect(scoped.sharedOpsSet.has('OP-100')).toBe(true);
     expect(scoped.sharedOpsSet.has('OP-200')).toBe(false);
   });
+
+  it('scopeDatasetForUser inclui apenas controladores subordinados na carteira do preposto (nunca colegas, gestores ou fora da carteira)', () => {
+    const ds = createFullTestDataset();
+    ds.pessoas['pes-ctrl-p50'] = {
+      id: 'pes-ctrl-p50',
+      slug: 'ctrl-p50',
+      nome: 'Controlador P50 Subordinado',
+      papel: 'controlador',
+      email: 'ctrl.p50@empresa.com.br',
+      user_id: null,
+      plats: ['P50'],
+      uns: []
+    };
+    ds.pessoas['pes-prep-colega-p50'] = {
+      id: 'pes-prep-colega-p50',
+      slug: 'prep-colega',
+      nome: 'Outro Preposto P50',
+      papel: 'preposto',
+      email: 'prep.colega@empresa.com.br',
+      user_id: null,
+      plats: ['P50'],
+      uns: []
+    };
+    const pidx = buildPlatformIndex(ds.plataformas);
+    const prepTarget = resolveImpersonationFromPessoa(prepostoPessoa, ds);
+
+    const scoped = scopeDatasetForUser(ds, prepTarget, pidx);
+    expect(Object.keys(scoped.pessoas).sort()).toEqual([
+      'pes-ctrl-p50',
+      prepostoPessoa.id
+    ]);
+  });
 });

@@ -1147,6 +1147,7 @@ export async function assembleAppDataset(
         us_pe_padrao: cfg.us_pe_padrao != null ? Number(cfg.us_pe_padrao) : null,
         us_ex_padrao: cfg.us_ex_padrao != null ? Number(cfg.us_ex_padrao) : null,
         slogan: String(cfg.slogan || ''),
+        dpo_contato: String(cfg.dpo_contato || ''),
         regionais_extras: Array.isArray(cfg.regionais_extras) ? (cfg.regionais_extras as string[]) : []
       }
     : { ...DEFAULT_CONFIG };
@@ -1771,6 +1772,18 @@ export function createBaaSClientProvider(connector: BaaSConnectorPort): ClientDa
         return await connector.resetCarteiraEmbarquesRPC();
       }
       return { deleted_operacoes: 0, deleted_embarques: 0 };
+    },
+    async anonimizarTecnicoLgpd(matricula: string) {
+      if (typeof connector.anonimizarTecnicoLgpdRPC !== 'function') {
+        throw new Error('O conector BaaS ativo não suporta anonimização LGPD via RPC.');
+      }
+      return connector.anonimizarTecnicoLgpdRPC(matricula);
+    },
+    async executarRetencaoLgpd(anosOperacional: number = 5, mesesLogsIp: number = 12) {
+      if (typeof connector.executarRetencaoLgpdRPC !== 'function') {
+        throw new Error('O conector BaaS ativo não suporta rotina de retenção LGPD via RPC.');
+      }
+      return connector.executarRetencaoLgpdRPC(anosOperacional, mesesLogsIp);
     },
     async fetchSystemAuditLogs(filters?: AuditLogFilterInput) {
       const rawLogs = await connector.fetchRawAuditLogs({

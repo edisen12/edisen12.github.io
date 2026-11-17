@@ -1246,6 +1246,103 @@ export function createMockSupabaseClient(customInitialState?: Partial<MockDataba
           return { data: null, error: null };
         }
 
+        case 'anonimizar_tecnico_lgpd': {
+          if (!state.currentUser) {
+            return { data: null, error: new Error('Acesso negado.') };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && (prof.ativo === false || prof.role !== 'admin')) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas Administradores ativos podem anonimizar registros via LGPD.')
+            };
+          }
+          const mat = String(params?.p_matricula ?? '').trim();
+          if (!mat) {
+            return { data: null, error: new Error('Matrícula obrigatória para anonimização LGPD.') };
+          }
+          const tec = (state.tables.tecnicos || []).find((t: any) => t.matricula === mat);
+          if (!tec) {
+            return { data: null, error: new Error('Técnico não encontrado para a matrícula informada.') };
+          }
+          tec.nome = 'Técnico Anonimizado (LGPD)';
+          tec.ativo = false;
+          let opsCount = 0;
+          for (const op of state.tables.carteira_operacoes || []) {
+            if (op.matricula === mat) {
+              op.nome = 'Técnico Anonimizado (LGPD)';
+              op.chave_petrobras = '';
+              opsCount++;
+            }
+          }
+          let justCount = 0;
+          for (const j of state.tables.justificativas || []) {
+            if (j.matricula === mat && j.descricao && j.descricao !== '[Removido por anonimização LGPD]') {
+              j.descricao = '[Removido por anonimização LGPD]';
+              justCount++;
+            }
+          }
+          return {
+            data: {
+              ok: true,
+              matricula: mat,
+              operacoes_anonimizadas: opsCount,
+              justificativas_higienizadas: justCount
+            },
+            error: null
+          };
+        }
+
+        case 'executar_retencao_lgpd': {
+          if (!state.currentUser) {
+            return { data: null, error: new Error('Acesso negado.') };
+          }
+          const prof = (state.tables.profiles || []).find((p: any) => p.id === state.currentUser?.id);
+          if (prof && (prof.ativo === false || prof.role !== 'admin')) {
+            return {
+              data: null,
+              error: new Error('Acesso negado: apenas Administradores ativos podem executar retenção LGPD.')
+            };
+          }
+          const anos = Number(params?.p_anos_operacional ?? 5);
+          const mesesIp = Number(params?.p_meses_logs_ip ?? 12);
+          if (anos < 5) {
+            return { data: null, error: new Error('Prazo mínimo de retenção operacional/trabalhista é de 5 anos.') };
+          }
+          if (mesesIp < 12) {
+            return { data: null, error: new Error('Prazo mínimo de retenção de IPs de auditoria é de 12 meses.') };
+          }
+          const cutoffDateObj = new Date();
+          cutoffDateObj.setFullYear(cutoffDateObj.getFullYear() - anos);
+          const cutoffDate = cutoffDateObj.toISOString().slice(0, 10);
+          let justCount = 0;
+          for (const j of state.tables.justificativas || []) {
+            if (j.data < cutoffDate && j.descricao && !['[Expurgado por retenção LGPD]', '[Removido por anonimização LGPD]'].includes(j.descricao)) {
+              j.descricao = '[Expurgado por retenção LGPD]';
+              justCount++;
+            }
+          }
+          const cutoffIpObj = new Date();
+          cutoffIpObj.setMonth(cutoffIpObj.getMonth() - mesesIp);
+          let ipsCount = 0;
+          for (const log of state.tables.system_audit_logs || []) {
+            if (log.ip_address && new Date(log.created_at) < cutoffIpObj) {
+              log.ip_address = null;
+              ipsCount++;
+            }
+          }
+          return {
+            data: {
+              ok: true,
+              tecnicos_anonimizados: 0,
+              operacoes_anonimizadas: 0,
+              justificativas_higienizadas: justCount,
+              ips_expurgados: ipsCount
+            },
+            error: null
+          };
+        }
+
         default:
           return { data: null, error: new Error(`RPC desconhecida: ${name}`) };
       }

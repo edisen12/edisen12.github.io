@@ -1520,5 +1520,26 @@ describe('Auditoria de Segurança & Políticas RLS (Row Level Security) - 18 Tab
       expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.save_pessoa_with_scopes/i);
       expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.delete_tecnico_atomic/i);
     });
+
+    it('Migration 032: realiza limpeza legada de chave_petrobras, adiciona dpo_contato, refina trigger WORM e cria executar_retencao_lgpd', () => {
+      const sql = readMigration('032_lgpd_retention_and_cleanup.sql');
+      expect(sql).toMatch(/UPDATE public\.carteira_operacoes[\s\S]*chave_petrobras\s*=\s*''/i);
+      expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS dpo_contato text NOT NULL DEFAULT ''/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.fn_prevent_system_audit_logs_mutation\(\)/i);
+      expect(sql).toMatch(/app\.lgpd_retention_ip_purge/i);
+      expect(sql).toMatch(/NEW\.ip_address IS NULL/i);
+      expect(sql).toMatch(/OLD\.created_at\s*<\s*\(now\(\)\s*-\s*interval '12 months'\)/i);
+      expect(sql).toMatch(/CREATE OR REPLACE FUNCTION public\.executar_retencao_lgpd/i);
+      expect(sql).toMatch(/SECURITY DEFINER/i);
+      expect(sql).toMatch(/SET search_path = public, pg_catalog/i);
+      expect(sql).toMatch(/auth_is_admin\(\)/i);
+      expect(sql).toMatch(/REVOKE ALL ON FUNCTION public\.executar_retencao_lgpd\(integer, integer\) FROM PUBLIC, anon/i);
+      expect(sql).toMatch(/GRANT EXECUTE ON FUNCTION public\.executar_retencao_lgpd\(integer, integer\) TO authenticated, service_role/i);
+    });
+
+    it('Migration 033: adiciona coluna ativo boolean NOT NULL DEFAULT true em public.tecnicos', () => {
+      const sql = readMigration('033_add_tecnicos_ativo.sql');
+      expect(sql).toMatch(/ALTER TABLE public\.tecnicos[\s\S]*ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true/i);
+    });
   });
 });

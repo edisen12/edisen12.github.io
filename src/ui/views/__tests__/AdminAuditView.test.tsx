@@ -12,7 +12,10 @@ import { ToastProvider } from '../../components/ToastContext';
 import {
   fetchSystemAuditLogs,
   deleteUserAccount,
-  logSystemEvent
+  logSystemEvent,
+  saveConfiguracoes,
+  anonimizarTecnicoLgpd,
+  executarRetencaoLgpd
 } from '../../../services/data.service';
 import { adminManageUser } from '../../../services/auth.service';
 import type { AppDataset, SystemAuditLog, UserProfile } from '../../../domain/types';
@@ -24,7 +27,10 @@ vi.mock('../../state/AppContext', () => ({
 vi.mock('../../../services/data.service', () => ({
   fetchSystemAuditLogs: vi.fn(),
   deleteUserAccount: vi.fn(),
-  logSystemEvent: vi.fn().mockResolvedValue(undefined)
+  logSystemEvent: vi.fn().mockResolvedValue(undefined),
+  saveConfiguracoes: vi.fn().mockResolvedValue(undefined),
+  anonimizarTecnicoLgpd: vi.fn(),
+  executarRetencaoLgpd: vi.fn()
 }));
 
 vi.mock('../../../services/auth.service', () => ({
@@ -378,5 +384,82 @@ describe('AdminAuditView - Painel de Governança, Contas & Auditoria', () => {
     expect(screen.getByText(/Salvaguarda Anti-Lockout Ativa/i)).not.toBeNull();
     const submitDeleteBtn = screen.getByRole('button', { name: /Excluir Definitivamente/i });
     expect(submitDeleteBtn).toHaveProperty('disabled', true);
+  });
+
+  it('12. Aba Privacidade & LGPD: salva canal DPO, anonimiza titular após confirmação e executa rotina de retenção', async () => {
+    (anonimizarTecnicoLgpd as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      matricula: '2026',
+      operacoes_anonimizadas: 4,
+      justificativas_higienizadas: 1
+    });
+    (executarRetencaoLgpd as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      tecnicos_anonimizados: 2,
+      operacoes_anonimizadas: 6,
+      justificativas_higienizadas: 3,
+      ips_expurgados: 15
+    });
+
+    const DATASET_COM_LGPD: Partial<AppDataset> = {
+      ...MOCK_DATASET,
+      config: {
+        id: 'geral',
+        hh_dia: 11,
+        meta_percentual: 100,
+        atencao_percentual: 90,
+        dias_embarque: 14,
+        dia_corte_medicao: 21,
+        prazo_justificativa_dias: 2,
+        med_criterio: 'enc',
+        us_pe_padrao: null,
+        us_ex_padrao: null,
+        slogan: '',
+        dpo_contato: '',
+        regionais_extras: []
+      },
+      emailsResumo: ['resumo@empresa-teste.local'],
+      tecnicos: {
+        '2026': { matricula: '2026', nome: 'Colaborador Offshore Teste', funcao: 'Instrumentista' }
+      }
+    };
+
+    renderAdminAuditView({ dataset: DATASET_COM_LGPD });
+
+    const lgpdTab = screen.getByRole('tab', { name: /Privacidade & LGPD/i });
+    fireEvent.click(lgpdTab);
+
+    // 1. Canal DPO
+    const dpoInput = screen.getByLabelText(/E-mail funcional ou canal de Compliance/i);
+    fireEvent.change(dpoInput, { target: { value: 'dpo@empresa-teste.local' } });
+    fireEvent.click(screen.getByRole('button', { name: /Salvar canal DPO/i }));
+
+    await waitFor(() => {
+      expect(saveConfiguracoes).toHaveBeenCalledWith(
+        expect.objectContaining({ dpo_contato: 'dpo@empresa-teste.local' }),
+        [],
+        ['resumo@empresa-teste.local']
+      );
+    });
+
+    // 2. Anonimização individual
+    const selectTec = screen.getByLabelText(/Colaborador \/ Matrícula/i);
+    fireEvent.change(selectTec, { target: { value: '2026' } });
+    fireEvent.click(screen.getByRole('button', { name: /Anonimizar Titular \(LGPD\)/i }));
+
+    expect(screen.getByText(/Confirmar Anonimização Irreversível/i)).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar Anonimização/i }));
+
+    await waitFor(() => {
+      expect(anonimizarTecnicoLgpd).toHaveBeenCalledWith('2026');
+    });
+
+    // 3. Rotina de Retenção & Expurgo de IPs
+    fireEvent.click(screen.getByRole('button', { name: /Executar Rotina de Retenção/i }));
+
+    await waitFor(() => {
+      expect(executarRetencaoLgpd).toHaveBeenCalledWith(5, 12);
+      expect(screen.getByText(/Última execução: 2 técnico\(s\), 3 justificativa\(s\), 15 IP\(s\) expurgados/i)).not.toBeNull();
+    });
   });
 });

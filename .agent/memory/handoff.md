@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-16 18:15 (BRT) · Branch `main` · Suíte Completa: 37 arquivos / 651 testes aprovados ✅ · `npm run typecheck` + `npm --prefix server run typecheck`: 0 erros ✅ · `npm run build`: bundle `dist/` gerado ✅ · Supabase PROD (`fwdvrkfootvublicetim`): Migrations 023–031 aplicadas em produção ✅
+> Última atualização: 2026-11-16 21:55 (BRT) · Branch `main` · Migrations `023`–`033` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Saneamento legado de `chave_petrobras` (2.524 linhas), auto-hospedagem de fontes (`@fontsource`), engine de retenção/IP purge LGPD, workflow DR/Retenção e templates ROPA/RIPD/Incidentes concluídos ✅
 
 ## 1. Resumo Executivo
 
@@ -76,9 +76,11 @@
 - `src/utils/lgpd.ts` — módulo isomórfico compartilhado (`src/` e `server/`) de sigilo/minimização (`isHealthJustificationMotivo`, `containsSensitiveHealthTerms`, `maskHealthDescriptionForExport`, `maskPetrobrasKey`, `validateStrongPasswordPolicy`, `filterScopedConfirmacoesSap`, `collectVisibleTecnicoMatriculas`, `filterTecnicosMapByMatriculas`, `isJustificativaInScope`).
 - `src/utils/audit.ts` — helper client-side `emitAuditEventBestEffort` (isolado do servidor Node para manter `server/` livre de DOM).
 - `src/ui/modals/PrivacyNoticeModal.tsx` — modal corporativo de Aviso de Privacidade LGPD acessível antes do login (`LoginView.tsx`) e após autenticação (`UserSettingsView.tsx`).
-- `supabase/migrations/029_lgpd_hardening.sql`, `030_drop_legacy_tecnicos_select_and_harden_triggers.sql` e `031_atomic_rpcs_constraints_and_advisors.sql` — aplicadas em produção (`fwdvrkfootvublicetim`).
-- `scripts/backup-and-verify-restore.sh` e `docs/DATABASE_BACKUP_AND_DR.md` — automação e runbook de backup físico (`pg_dump`) com restauração verificada (`pg_restore`) em banco temporário isolado.
-- `src/security/__tests__/lgpd-compliance.test.ts` — suíte dedicada (9 testes) somada à atualização de `rls-policies.test.ts` (54 testes), `rbac.test.ts`, `data.service.test.ts`, `AdminAuditView.test.tsx`, `ResponsiveShellAndPwa.test.tsx` e `impersonation.test.ts`.
+- `supabase/migrations/029_lgpd_hardening.sql`, `030_drop_legacy_tecnicos_select_and_harden_triggers.sql`, `031_atomic_rpcs_constraints_and_advisors.sql`, `032_lgpd_retention_and_cleanup.sql` e `033_add_tecnicos_ativo.sql` — aplicadas em produção (`fwdvrkfootvublicetim`).
+- Fontes `Montserrat` e `Source Sans 3` empacotadas via `@fontsource/*` (`src/main.tsx`), com CSP `'self'` em `index.html` e `public/sw.js` `v3` estrito (zero chamadas a `fonts.googleapis.com` / `fonts.gstatic.com`).
+- Painel **Privacidade & LGPD** em `AdminAuditView.tsx` (canal DPO configurável `dpo_contato` exibido dinamicamente em `PrivacyNoticeModal.tsx`, anonimização Art. 18 VI via `anonimizarTecnicoLgpd` e execução de `executarRetencaoLgpd`), espelhado em BaaS e `SelfHostedDomainEngine`.
+- `scripts/backup-and-verify-restore.sh`, `.github/workflows/{database-backup-verify,lgpd-retention-monthly}.yml`, `docs/DATABASE_BACKUP_AND_DR.md` e templates formais `docs/lgpd/{ROPA_REGISTRO_OPERACOES,RIPD_RELATORIO_IMPACTO,PLANO_RESPOSTA_INCIDENTES_E_TITULARES}.md`.
+- `src/security/__tests__/lgpd-compliance.test.ts` (12 testes), `rls-policies.test.ts` (56 testes), `AdminAuditView.test.tsx` (12 testes), além das demais suítes.
 
 ### Segurança e Suíte Completa de Testes
 - `src/security/__tests__/*` (rbac, `rls-policies` com 50 testes incluindo Migrations 023/024/025/027, admin-users-edge, first-login-gate-security, data-leakage-and-sanitization com varredura em `src/`, `server/`, `supabase/` e `public/`).
@@ -206,11 +208,22 @@
     - *Constraints Nativas e Índices/Advisors (`031`):* adicionados `CHECK` constraints em `configuracoes`, `carteira_embarques` (mantendo negativos permitidos apenas em SAP/estornos), `carteira_operacoes`, `tecnicos` e `plataformas`; criado índice `idx_just_audit_log_modificado_por` (FK sem índice); otimizadas `system_audit_logs_insert_policy` (`(SELECT auth.role())`) e políticas de escrita em `carteira_operacoes`/`confirmacoes_sap` (divididas em `INSERT`/`UPDATE`/`DELETE`), zerando os avisos `WARN` de performance no Supabase (`get_advisors`).
     - *Sessão Self-Hosted e Disaster Recovery:* `SelfHostedDomainEngine`, `server/src/app.ts` e `server/src/index.ts` passam a respeitar `SESSION_TTL_HOURS` configurável (`1h..24h`, alinhando banco e cookie `HttpOnly`); adicionados script `scripts/backup-and-verify-restore.sh` e runbook `docs/DATABASE_BACKUP_AND_DR.md` para rotina de dump + teste automático de restauração.
 
+  - **Frente 20: Retenção LGPD, Saneamento Legado, Fontes Locais, Painel Privacidade & Documentação ROPA/RIPD (Migrations `032` e `033`):**
+    - *Saneamento e Correção de Schema em Produção (`032` e `033`):* zeragem retroativa de todas as `2.524` linhas com `chave_petrobras` não vazia em `public.carteira_operacoes` sem alterar horas/cálculos; adição da coluna `ativo boolean NOT NULL DEFAULT true` em `public.tecnicos` (corrigindo erro latente em `fn_audit_tecnicos()` e `anonimizar_tecnico_lgpd`) e `dpo_contato` em `public.configuracoes`; refinamento da trigger WORM de `system_audit_logs` permitindo exclusivamente expurgo de `ip_address` > 12 meses mediante `executar_retencao_lgpd(p_anos_operacional, p_meses_logs_ip)`. Validado em produção via transação revertida (`INSERT/UPDATE/DELETE` em `tecnicos`, `executar_retencao_lgpd(5, 12)` e bloqueio WORM ativo).
+    - *Interface Admin, Self-Hosted Fonts & Sessão:* `@fontsource/montserrat` e `@fontsource/source-sans-3` empacotados em `src/main.tsx`, CSP em `index.html` e `public/sw.js` (`v3`) livres de Google Fonts; suporte opcional a `VITE_AUTH_STORAGE=session` (`window.sessionStorage`) em `src/services/supabase.ts`; sub-aba **Privacidade & LGPD** em `AdminAuditView.tsx` integrando canal DPO (`PrivacyNoticeModal.tsx`), anonimização Art. 18 VI e rotina de retenção em Dual-Topology (BaaS + `SelfHostedDomainEngine` / `server/src/app.ts`).
+    - *Automação DR/Retenção & Governança (`docs/lgpd/`):* suporte `PG_SCHEMA` em `scripts/backup-and-verify-restore.sh`, workflows `.github/workflows/{database-backup-verify,lgpd-retention-monthly}.yml`, e templates formais sem PII `ROPA_REGISTRO_OPERACOES.md`, `RIPD_RELATORIO_IMPACTO.md` e `PLANO_RESPOSTA_INCIDENTES_E_TITULARES.md`.
+
+  - **Resultados de Qualidade:**
+    - Suíte final (`server` typecheck + client typecheck + `npm run test:run` + `npm run build`) validada após a última edição.
+    - Banco Supabase PROD (`fwdvrkfootvublicetim`): Migrations `023`–`033` aplicadas ✅ (`remaining_chaves = 0`, `get_advisors` performance com 0 `WARN`). Edge Function `admin-users` v3 ativa (`verify_jwt: true`); patch local v4 aguardando CLI/Dashboard devido a limitação de serialização no MCP `deploy_edge_function`.
+
 ## 4. Próximos Passos (priorizados)
 
-1. **Publicação e Redeploy:** executar `git push` para publicar o frontend no GitHub Pages e redeployar a Edge Function `supabase/functions/admin-users/index.ts` no Supabase (Migrations `029`–`031` já estão aplicadas no banco de produção `fwdvrkfootvublicetim`).
-2. **Validação pelo usuário em produção após deploy:** confirmar o retorno **"Voltar para Admin"** sob simulação, os indicadores USOFF (**HCD** e `(HC + HCD) ÷ HD`), o alerta/trava LGPD em justificativas de atestado, o Aviso de Privacidade no login/perfil, a atomicidade ao salvar pessoas/plataformas e o isolamento da aba **Painel do Administrador** para `gestor`.
-3. **Pendências operacionais de governança LGPD:** designar/publicar canal formal de DPO/Encarregado, formalizar DPA/RIT/RIPD e cláusulas de transferência internacional (Res. CD/ANPD nº 19/2024), configurar job/política automática de retenção e expurgo após prazo legal/trabalhista, além de habilitar **Leaked Password Protection** e **PITR / backup externo** no Supabase conforme plano.
+1. **Ações manuais exclusivas de painel/governança (fora de código/MCP):**
+   - Habilitar **Leaked Password Protection (HaveIBeenPwned)** e **MFA/2FA (TOTP)** no *Supabase Dashboard → Authentication*;
+   - Avaliar/ativar **PITR / Backups Gerenciados** no painel Supabase e, se desejado, configurar secrets `SOURCE_DATABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` no GitHub para habilitar os workflows automáticos de DR e retenção mensal;
+   - Fazer deploy da v4 local de `supabase/functions/admin-users/index.ts` (`npx supabase functions deploy admin-users --project-ref fwdvrkfootvublicetim`);
+   - Nomear formalmente o Encarregado (DPO), preencher `dpo_contato` na aba **Privacidade & LGPD** e assinar/adotar os modelos de ROPA, RIPD e Plano de Incidentes em `docs/lgpd/`.
 
 
 

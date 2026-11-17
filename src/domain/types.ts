@@ -181,6 +181,7 @@ export interface ContractConfig {
   us_pe_padrao: number | null;
   us_ex_padrao: number | null;
   slogan: string;
+  dpo_contato?: string;
   regionais_extras: string[];
 }
 

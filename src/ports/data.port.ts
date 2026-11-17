@@ -157,6 +157,22 @@ export interface ClientDataPort {
   ): Promise<any>;
   reconciliarConfirmacoesSAP?(): Promise<any>;
   resetCarteiraEmbarques?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
+  anonimizarTecnicoLgpd?(matricula: string): Promise<{
+    ok: boolean;
+    matricula: string;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+  }>;
+  executarRetencaoLgpd?(
+    anosOperacional?: number,
+    mesesLogsIp?: number
+  ): Promise<{
+    ok: boolean;
+    tecnicos_anonimizados: number;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+    ips_expurgados: number;
+  }>;
   fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]>;
   deleteUserAccount(userId: string): Promise<{ ok: boolean; message: string }>;
   logSystemEvent(event: Partial<SystemAuditLog>): Promise<void>;

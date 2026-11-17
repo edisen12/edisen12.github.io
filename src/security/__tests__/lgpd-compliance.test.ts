@@ -376,4 +376,146 @@ describe('Conformidade LGPD — Minimização, Sigilo de Saúde, RBAC e Sessão'
     const engineFallback = new SelfHostedDomainEngine(storage, undefined, { sessionTtlHours: 999 });
     expect(engineFallback.getSessionTtlSeconds()).toBe(12 * 3600);
   });
+
+  it('10. PrivacyNoticeModal exibe canal DPO configurado e interface empacota fontes localmente sem CDN Google', () => {
+    const onClose = vi.fn();
+    render(React.createElement(PrivacyNoticeModal, { open: true, onClose, dpoContato: 'dpo@empresa-exemplo.local' }));
+    expect(screen.getByText(/Canal configurado:/i)).not.toBeNull();
+    expect(screen.getByText(/dpo@empresa-exemplo\.local/i)).not.toBeNull();
+
+    const indexHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+    const swJs = fs.readFileSync(path.resolve(process.cwd(), 'public/sw.js'), 'utf-8');
+    const mainTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/main.tsx'), 'utf-8');
+
+    expect(indexHtml).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/i);
+    expect(swJs).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com|isGoogleFonts/i);
+    expect(mainTsx).toContain('@fontsource/montserrat/');
+    expect(mainTsx).toContain('@fontsource/source-sans-3/');
+  });
+
+  it('11. SelfHostedDomainEngine anonimizarTecnicoLgpd e executarRetencaoLgpd protegem RBAC, limpam PII e registram auditoria WORM', async () => {
+    const storage = new InMemoryStorageDriver();
+    const engine = new SelfHostedDomainEngine(storage);
+
+    await storage.upsertMany(
+      'tecnicos',
+      [{ matricula: '8888', nome: 'Nome Original Sensivel', funcao: 'Instrumentista' }],
+      ['matricula']
+    );
+    await storage.upsertMany(
+      'carteira_operacoes',
+      [
+        {
+          id: 'op-1',
+          portal_id: 'P-1',
+          matricula: '8888',
+          chave_petrobras: '',
+          nome: 'Nome Original Sensivel',
+          empresa: 'Infotec',
+          estrutura: 'Mero',
+          unidade_negocio: 'Búzios (UN-BUZ)',
+          plataforma_sigla: 'FPSO',
+          data_inicio: '2026-01-01',
+          data_fim: '2026-01-14',
+          ordem: '9001',
+          operacao: '0010',
+          status_processamento: 'OK',
+          prioridade: 'Regular',
+          status_programacao: 'Carteira',
+          hh_programado: 44,
+          hh_confirmado: 44,
+          recursos: 1,
+          fonte: 'SAP'
+        }
+      ],
+      ['matricula', 'data_inicio', 'ordem', 'operacao']
+    );
+    await storage.upsertMany(
+      'justificativas',
+      [
+        {
+          id: 'j-old',
+          matricula: '9999',
+          data: '2018-03-15',
+          motivo: 'Outros',
+          horas_gangway: 0,
+          descricao: 'Observacao operacional antiga',
+          responsavel_nome: 'Gestor'
+        },
+        {
+          id: 'j-8888',
+          matricula: '8888',
+          data: '2026-05-01',
+          motivo: 'Outros',
+          horas_gangway: 0,
+          descricao: 'Detalhe textual do colaborador 8888',
+          responsavel_nome: 'Gestor'
+        }
+      ],
+      ['matricula', 'data']
+    );
+
+    const gestorActor: AuthenticatedActor = {
+      id: 'usr-gestor',
+      email: 'gestor@teste.local',
+      nome: 'Gestor Teste',
+      role: 'gestor',
+      ativo: true,
+      sessionId: 'sess-g',
+      csrfToken: 'csrf-g'
+    };
+    const adminActor: AuthenticatedActor = {
+      id: 'usr-admin',
+      email: 'admin@teste.local',
+      nome: 'Admin Teste',
+      role: 'admin',
+      ativo: true,
+      sessionId: 'sess-a',
+      csrfToken: 'csrf-a'
+    };
+
+    await expect(engine.anonimizarTecnicoLgpd(gestorActor, '8888')).rejects.toThrow(/Acesso negado/i);
+    await expect(engine.executarRetencaoLgpd(gestorActor, 5, 12)).rejects.toThrow(/Acesso negado/i);
+    await expect(engine.executarRetencaoLgpd(adminActor, 2, 12)).rejects.toThrow(/mínimo de retenção operacional/i);
+    await expect(engine.executarRetencaoLgpd(adminActor, 5, 3)).rejects.toThrow(/mínimo de retenção de IPs/i);
+
+    const anonRes = await engine.anonimizarTecnicoLgpd(adminActor, '8888', '10.0.0.1');
+    expect(anonRes.ok).toBe(true);
+    expect(anonRes.operacoes_anonimizadas).toBe(1);
+    expect(anonRes.justificativas_higienizadas).toBe(1);
+
+    const tecAfter = await storage.findOne<any>('tecnicos', { matricula: '8888' });
+    expect(tecAfter.nome).toBe('Técnico Anonimizado (LGPD)');
+    const opsAfter = await storage.findMany<any>('carteira_operacoes', { filter: { matricula: '8888' } });
+    expect(opsAfter[0].nome).toBe('Técnico Anonimizado (LGPD)');
+    expect(opsAfter[0].hh_programado).toBe(44);
+
+    const retRes = await engine.executarRetencaoLgpd(adminActor, 5, 12, '10.0.0.1');
+    expect(retRes.ok).toBe(true);
+    expect(retRes.justificativas_higienizadas).toBe(1);
+
+    const oldJustAfter = await storage.findOne<any>('justificativas', { matricula: '9999' });
+    expect(oldJustAfter.descricao).toBe('[Expurgado por retenção LGPD]');
+
+    const auditLogs = await engine.fetchAuditLogs(adminActor, { limit: 10 });
+    expect(auditLogs.some(l => l.action === 'lgpd_anonymization')).toBe(true);
+    expect(auditLogs.some(l => l.action === 'lgpd_retention_executed')).toBe(true);
+  });
+
+  it('12. Documentação formal LGPD (ROPA, RIPD, Resposta a Incidentes) e workflows de DR/Retenção existem sem PII', () => {
+    const requiredFiles = [
+      'docs/lgpd/ROPA_REGISTRO_OPERACOES.md',
+      'docs/lgpd/RIPD_RELATORIO_IMPACTO.md',
+      'docs/lgpd/PLANO_RESPOSTA_INCIDENTES_E_TITULARES.md',
+      '.github/workflows/database-backup-verify.yml',
+      '.github/workflows/lgpd-retention-monthly.yml'
+    ];
+    for (const rel of requiredFiles) {
+      const fullPath = path.resolve(process.cwd(), rel);
+      expect(fs.existsSync(fullPath)).toBe(true);
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      expect(content).not.toMatch(/@infotecbrasil\.com\.br/i);
+      expect(content).not.toMatch(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+    }
+  });
 });

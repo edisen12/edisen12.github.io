@@ -1,0 +1,37 @@
+name: LGPD Monthly Retention & IP Purge
+
+on:
+  schedule:
+    # Dia 1 de cada mês às 04:00 UTC (01:00 BRT)
+    - cron: '0 4 1 * *'
+  workflow_dispatch:
+    inputs:
+      anos_operacional:
+        description: 'Prazo de retenção operacional/trabalhista em anos (mínimo 5)'
+        required: false
+        default: '5'
+      meses_logs_ip:
+        description: 'Prazo de retenção de IPs em system_audit_logs em meses (mínimo 12)'
+        required: false
+        default: '12'
+
+permissions: {}
+
+jobs:
+  executar-retencao-lgpd:
+    if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar RPC executar_retencao_lgpd no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL || 'https://fwdvrkfootvublicetim.supabase.co' }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANOS_OP: ${{ github.event.inputs.anos_operacional || '5' }}
+          MESES_IP: ${{ github.event.inputs.meses_logs_ip || '12' }}
+        run: |
+          RESPONSE=$(curl -fsS -X POST "${SUPABASE_URL}/rest/v1/rpc/executar_retencao_lgpd" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"p_anos_operacional\": ${ANOS_OP}, \"p_meses_logs_ip\": ${MESES_IP}}")
+          echo "Resultado da retenção LGPD: ${RESPONSE}"

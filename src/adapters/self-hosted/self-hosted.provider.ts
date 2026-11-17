@@ -479,6 +479,52 @@ export function createSelfHostedClientProvider(
       };
     },
 
+    async anonimizarTecnicoLgpd(matricula: string): Promise<{
+      ok: boolean;
+      matricula: string;
+      operacoes_anonimizadas: number;
+      justificativas_higienizadas: number;
+    }> {
+      const res = await http.post<{
+        ok: boolean;
+        matricula: string;
+        operacoes_anonimizadas?: number;
+        justificativas_higienizadas?: number;
+      }>('/lgpd/anonymize', { matricula });
+      return {
+        ok: Boolean(res.ok),
+        matricula: res.matricula || matricula,
+        operacoes_anonimizadas: Number(res.operacoes_anonimizadas || 0),
+        justificativas_higienizadas: Number(res.justificativas_higienizadas || 0)
+      };
+    },
+
+    async executarRetencaoLgpd(
+      anosOperacional: number = 5,
+      mesesLogsIp: number = 12
+    ): Promise<{
+      ok: boolean;
+      tecnicos_anonimizados: number;
+      operacoes_anonimizadas: number;
+      justificativas_higienizadas: number;
+      ips_expurgados: number;
+    }> {
+      const res = await http.post<{
+        ok: boolean;
+        tecnicos_anonimizados?: number;
+        operacoes_anonimizadas?: number;
+        justificativas_higienizadas?: number;
+        ips_expurgados?: number;
+      }>('/lgpd/retention', { anosOperacional, mesesLogsIp });
+      return {
+        ok: Boolean(res.ok),
+        tecnicos_anonimizados: Number(res.tecnicos_anonimizados || 0),
+        operacoes_anonimizadas: Number(res.operacoes_anonimizadas || 0),
+        justificativas_higienizadas: Number(res.justificativas_higienizadas || 0),
+        ips_expurgados: Number(res.ips_expurgados || 0)
+      };
+    },
+
     async fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]> {
       const params = new URLSearchParams();
       if (filters?.limit) params.set('limit', String(filters.limit));

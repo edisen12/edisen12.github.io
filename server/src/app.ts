@@ -390,6 +390,28 @@ export function createSelfHostedHttpHandler(deps: AppHandlerDependencies) {
       }
 
       // ------------------------------------------------------------------------
+      // 14.1 PRIVACIDADE & RETENÇÃO LGPD
+      // ------------------------------------------------------------------------
+      if (method === 'POST' && pathname === '/api/v1/lgpd/anonymize') {
+        const actor = await authenticate(true);
+        const body = await readJsonBody(req);
+        const result = await engine.anonimizarTecnicoLgpd(actor, body.matricula, clientIp);
+        return sendJson(res, 200, result);
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/lgpd/retention') {
+        const actor = await authenticate(true);
+        const body = await readJsonBody(req);
+        const result = await engine.executarRetencaoLgpd(
+          actor,
+          body.anosOperacional,
+          body.mesesLogsIp,
+          clientIp
+        );
+        return sendJson(res, 200, result);
+      }
+
+      // ------------------------------------------------------------------------
       // 15. CANAL REALTIME SSE
       // ------------------------------------------------------------------------
       if (method === 'GET' && pathname === '/api/v1/realtime/events') {

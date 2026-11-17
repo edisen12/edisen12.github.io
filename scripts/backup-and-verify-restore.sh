@@ -22,6 +22,7 @@ SOURCE_DATABASE_URL="${SOURCE_DATABASE_URL:-}"
 VERIFY_ADMIN_URL="${VERIFY_ADMIN_URL:-}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/hh-offshore}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
+PG_SCHEMA="${PG_SCHEMA:-}"
 
 if [[ -z "$SOURCE_DATABASE_URL" ]]; then
   echo "ERRO: defina SOURCE_DATABASE_URL (somente leitura / dump de origem)." >&2
@@ -32,8 +33,13 @@ mkdir -p "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DUMP_FILE="${BACKUP_DIR}/hhoffshore_${STAMP}.dump"
 
+DUMP_ARGS=(--format=custom --no-owner --no-privileges --file="$DUMP_FILE")
+if [[ -n "$PG_SCHEMA" ]]; then
+  DUMP_ARGS+=(--schema="$PG_SCHEMA")
+fi
+
 echo "[1/4] Gerando dump PostgreSQL em ${DUMP_FILE}..."
-pg_dump --format=custom --no-owner --no-privileges --file="$DUMP_FILE" "$SOURCE_DATABASE_URL"
+pg_dump "${DUMP_ARGS[@]}" "$SOURCE_DATABASE_URL"
 chmod 600 "$DUMP_FILE"
 
 if [[ ! -s "$DUMP_FILE" ]]; then

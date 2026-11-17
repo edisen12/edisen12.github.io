@@ -7,11 +7,19 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../types/database.types';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../adapters/baas/providers/supabase.config';
 
+const authStorageMode =
+  (import.meta as any).env?.VITE_AUTH_STORAGE === 'session' ? 'session' : 'local';
+
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined
+    storage:
+      typeof window !== 'undefined'
+        ? authStorageMode === 'session'
+          ? window.sessionStorage
+          : window.localStorage
+        : undefined
   }
 });

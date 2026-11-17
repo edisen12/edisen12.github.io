@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG: ContractConfig = {
   us_pe_padrao: null,
   us_ex_padrao: null,
   slogan: '',
+  dpo_contato: '',
   regionais_extras: []
 };
 

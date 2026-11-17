@@ -446,6 +446,7 @@ export const mockContractConfig: ContractConfig = {
   us_pe_padrao: 1.0,
   us_ex_padrao: 1.0,
   slogan: 'Gestão Inteligente de HH Offshore · Ambiente de Teste',
+  dpo_contato: '',
   regionais_extras: ['Espírito Santo (UN-ES)', 'Búzios (UN-BUZ)', 'Bacia de Campos (UN-BC)']
 };
 

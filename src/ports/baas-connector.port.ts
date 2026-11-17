@@ -100,6 +100,22 @@ export interface BaaSConnectorPort {
   fetchAllSapForDedup?(): Promise<any[]>;
   reconciliarConfirmacoesSAPRPC?(): Promise<any>;
   resetCarteiraEmbarquesRPC?(): Promise<{ deleted_operacoes: number; deleted_embarques: number }>;
+  anonimizarTecnicoLgpdRPC?(matricula: string): Promise<{
+    ok: boolean;
+    matricula: string;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+  }>;
+  executarRetencaoLgpdRPC?(
+    anosOperacional?: number,
+    mesesLogsIp?: number
+  ): Promise<{
+    ok: boolean;
+    tecnicos_anonimizados: number;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+    ips_expurgados: number;
+  }>;
   insertFluxoImportacao(row: {
     tipo_fluxo: 'hh' | 'carteira';
     origem: string;

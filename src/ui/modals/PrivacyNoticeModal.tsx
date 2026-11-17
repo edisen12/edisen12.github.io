@@ -5,12 +5,14 @@ import { Modal } from '../components/Modal';
 export interface PrivacyNoticeModalProps {
   open: boolean;
   onClose: () => void;
+  dpoContato?: string;
 }
 
 /**
  * Aviso de Privacidade Corporativo e Diretrizes LGPD (Lei nº 13.709/2018).
  */
-export function PrivacyNoticeModal({ open, onClose }: PrivacyNoticeModalProps) {
+export function PrivacyNoticeModal({ open, onClose, dpoContato }: PrivacyNoticeModalProps) {
+  const cleanDpoContato = (dpoContato || '').trim();
   return (
     <Modal
       open={open}
@@ -79,7 +81,15 @@ export function PrivacyNoticeModal({ open, onClose }: PrivacyNoticeModalProps) {
             <span>5. Canal de Atendimento e Encarregado pelo Tratamento (DPO — Art. 41)</span>
           </div>
           <p style={{ margin: 0 }}>
-            Para exercer direitos previstos na LGPD, reportar incidentes de privacidade ou solicitar esclarecimentos sobre este aviso, contate o Encarregado pelo Tratamento de Dados (DPO) ou a Administração do Contrato da <b>Infotec Brasil</b> através dos canais internos corporativos de Governança e Compliance.
+            Para exercer direitos previstos na LGPD, reportar incidentes de privacidade ou solicitar esclarecimentos sobre este aviso, contate o Encarregado pelo Tratamento de Dados (DPO) ou a Administração do Contrato da <b>Infotec Brasil</b> através dos canais internos corporativos de Governança e Compliance
+            {cleanDpoContato ? (
+              <>
+                {' '}
+                (<b>Canal configurado:</b> {cleanDpoContato}).
+              </>
+            ) : (
+              '.'
+            )}
           </p>
         </section>
       </div>

@@ -215,6 +215,42 @@ export async function resetCarteiraEmbarques(): Promise<{ deleted_operacoes: num
 }
 
 /**
+ * Executa a anonimização LGPD (Art. 18 VI) de um técnico mantendo consistência estatutária numérica.
+ */
+export async function anonimizarTecnicoLgpd(matricula: string): Promise<{
+  ok: boolean;
+  matricula: string;
+  operacoes_anonimizadas: number;
+  justificativas_higienizadas: number;
+}> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.anonimizarTecnicoLgpd !== 'function') {
+    throw new Error('O provedor de dados ativo não suporta anonimização LGPD.');
+  }
+  return provider.data.anonimizarTecnicoLgpd(matricula);
+}
+
+/**
+ * Executa a rotina periódica de retenção, anonimização e expurgo de IPs LGPD (Art. 15 e 16).
+ */
+export async function executarRetencaoLgpd(
+  anosOperacional: number = 5,
+  mesesLogsIp: number = 12
+): Promise<{
+  ok: boolean;
+  tecnicos_anonimizados: number;
+  operacoes_anonimizadas: number;
+  justificativas_higienizadas: number;
+  ips_expurgados: number;
+}> {
+  const provider = getClientDatabaseProvider();
+  if (typeof provider.data.executarRetencaoLgpd !== 'function') {
+    throw new Error('O provedor de dados ativo não suporta rotina de retenção LGPD.');
+  }
+  return provider.data.executarRetencaoLgpd(anosOperacional, mesesLogsIp);
+}
+
+/**
  * Consulta a trilha de auditoria do sistema com filtros opcionais.
  */
 export async function fetchSystemAuditLogs(filters?: AuditLogFilterInput): Promise<SystemAuditLog[]> {

@@ -67,6 +67,7 @@ export const DEFAULT_CONFIG: ContractConfig = {
   us_pe_padrao: null,
   us_ex_padrao: null,
   slogan: '',
+  dpo_contato: '',
   regionais_extras: []
 };
 
@@ -998,6 +999,7 @@ export class SelfHostedDomainEngine {
       us_pe_padrao: cfg.us_pe_padrao != null ? Number(cfg.us_pe_padrao) : null,
       us_ex_padrao: cfg.us_ex_padrao != null ? Number(cfg.us_ex_padrao) : null,
       slogan: cfg.slogan || '',
+      dpo_contato: cfg.dpo_contato != null ? String(cfg.dpo_contato).trim() : '',
       regionais_extras: Array.isArray(cfg.regionais_extras) ? cfg.regionais_extras : []
     };
 
@@ -2690,6 +2692,179 @@ export class SelfHostedDomainEngine {
     return {
       ok: true,
       message: `Usuário ${target.nome} removido do sistema com sucesso.`
+    };
+  }
+
+  async anonimizarTecnicoLgpd(
+    actor: AuthenticatedActor,
+    matricula: string,
+    ipAddress?: string | null
+  ): Promise<{
+    ok: boolean;
+    matricula: string;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+  }> {
+    this.assertAdminRole(actor);
+    const cleanMat = (matricula || '').trim();
+    if (!cleanMat) {
+      throw new Error('Matrícula obrigatória para anonimização LGPD.');
+    }
+
+    const tec = await this.storage.findOne<Tecnico>('tecnicos', { matricula: cleanMat });
+    if (!tec) {
+      throw new Error('Técnico não encontrado para a matrícula informada.');
+    }
+
+    const nowIso = new Date().toISOString();
+    await this.storage.upsertMany(
+      'tecnicos',
+      [{ ...tec, nome: 'Técnico Anonimizado (LGPD)' }],
+      ['matricula']
+    );
+
+    const ops = await this.storage.findMany<CarteiraOperacao>('carteira_operacoes', {
+      filter: { matricula: cleanMat }
+    });
+    if (ops.length > 0) {
+      await this.storage.upsertMany(
+        'carteira_operacoes',
+        ops.map(op => ({
+          ...op,
+          nome: 'Técnico Anonimizado (LGPD)',
+          chave_petrobras: '',
+          updated_at: nowIso
+        })),
+        ['matricula', 'data_inicio', 'ordem', 'operacao']
+      );
+    }
+
+    const justs = await this.storage.findMany<Justificativa>('justificativas', {
+      filter: { matricula: cleanMat }
+    });
+    const dirtyJusts = justs.filter(
+      j => Boolean(j.descricao) && j.descricao !== '[Removido por anonimização LGPD]'
+    );
+    if (dirtyJusts.length > 0) {
+      await this.storage.upsertMany(
+        'justificativas',
+        dirtyJusts.map(j => ({
+          ...j,
+          descricao: '[Removido por anonimização LGPD]',
+          updated_by: actor.id,
+          updated_at: nowIso
+        })),
+        ['matricula', 'data']
+      );
+    }
+
+    await this.storage.appendImmutable('system_audit_logs', {
+      id: generateUuid(),
+      actor_id: actor.id,
+      actor_nome: actor.nome,
+      actor_email: actor.email,
+      actor_role: actor.role,
+      action: 'lgpd_anonymization',
+      category: 'seguranca',
+      target_id: cleanMat,
+      target_label: `Mat. ${cleanMat}`,
+      details: {
+        tabela: 'tecnicos',
+        lgpd_anonymized: true,
+        operacoes_anonimizadas: ops.length,
+        justificativas_higienizadas: dirtyJusts.length
+      },
+      ip_address: ipAddress || null,
+      created_at: nowIso
+    });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
+
+    return {
+      ok: true,
+      matricula: cleanMat,
+      operacoes_anonimizadas: ops.length,
+      justificativas_higienizadas: dirtyJusts.length
+    };
+  }
+
+  async executarRetencaoLgpd(
+    actor: AuthenticatedActor,
+    anosOperacional: number = 5,
+    mesesLogsIp: number = 12,
+    ipAddress?: string | null
+  ): Promise<{
+    ok: boolean;
+    tecnicos_anonimizados: number;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+    ips_expurgados: number;
+  }> {
+    this.assertAdminRole(actor);
+    const anos = Math.trunc(Number(anosOperacional) || 5);
+    const mesesIp = Math.trunc(Number(mesesLogsIp) || 12);
+    if (anos < 5) {
+      throw new Error('Prazo mínimo de retenção operacional/trabalhista é de 5 anos.');
+    }
+    if (mesesIp < 12) {
+      throw new Error('Prazo mínimo de retenção de IPs de auditoria é de 12 meses.');
+    }
+
+    const now = new Date();
+    const cutoffDateObj = new Date(now);
+    cutoffDateObj.setFullYear(cutoffDateObj.getFullYear() - anos);
+    const cutoffDate = cutoffDateObj.toISOString().slice(0, 10);
+    const nowIso = now.toISOString();
+
+    const allJusts = await this.storage.findMany<Justificativa>('justificativas');
+    const staleJusts = allJusts.filter(
+      j =>
+        j.data < cutoffDate &&
+        Boolean(j.descricao) &&
+        j.descricao !== '[Expurgado por retenção LGPD]' &&
+        j.descricao !== '[Removido por anonimização LGPD]'
+    );
+
+    if (staleJusts.length > 0) {
+      await this.storage.upsertMany(
+        'justificativas',
+        staleJusts.map(j => ({
+          ...j,
+          descricao: '[Expurgado por retenção LGPD]',
+          updated_by: actor.id,
+          updated_at: nowIso
+        })),
+        ['matricula', 'data']
+      );
+    }
+
+    await this.storage.appendImmutable('system_audit_logs', {
+      id: generateUuid(),
+      actor_id: actor.id,
+      actor_nome: actor.nome,
+      actor_email: actor.email,
+      actor_role: actor.role,
+      action: 'lgpd_retention_executed',
+      category: 'seguranca',
+      target_id: 'lgpd-retention',
+      target_label: 'Rotina de Retenção e Expurgo LGPD',
+      details: {
+        anos_operacional: anos,
+        meses_logs_ip: mesesIp,
+        justificativas_higienizadas: staleJusts.length
+      },
+      ip_address: ipAddress || null,
+      created_at: nowIso
+    });
+
+    this.realtimeHub?.broadcast('sync_heartbeat');
+
+    return {
+      ok: true,
+      tecnicos_anonimizados: 0,
+      operacoes_anonimizadas: 0,
+      justificativas_higienizadas: staleJusts.length,
+      ips_expurgados: 0
     };
   }
 }

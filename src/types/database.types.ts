@@ -265,6 +265,7 @@ export type Database = {
           atencao_percentual: number
           dia_corte_medicao: number
           dias_embarque: number
+          dpo_contato: string
           hh_dia: number
           id: string
           med_criterio: string
@@ -280,6 +281,7 @@ export type Database = {
           atencao_percentual?: number
           dia_corte_medicao?: number
           dias_embarque?: number
+          dpo_contato?: string
           hh_dia?: number
           id?: string
           med_criterio?: string
@@ -295,6 +297,7 @@ export type Database = {
           atencao_percentual?: number
           dia_corte_medicao?: number
           dias_embarque?: number
+          dpo_contato?: string
           hh_dia?: number
           id?: string
           med_criterio?: string
@@ -722,18 +725,21 @@ export type Database = {
       }
       tecnicos: {
         Row: {
+          ativo: boolean
           funcao: string
           matricula: string
           nome: string
           updated_at: string
         }
         Insert: {
+          ativo?: boolean
           funcao?: string
           matricula: string
           nome: string
           updated_at?: string
         }
         Update: {
+          ativo?: boolean
           funcao?: string
           matricula?: string
           nome?: string
@@ -829,6 +835,10 @@ export type Database = {
       }
       anonimizar_tecnico_lgpd: {
         Args: { p_matricula: string }
+        Returns: Json
+      }
+      executar_retencao_lgpd: {
+        Args: { p_anos_operacional?: number; p_meses_logs_ip?: number }
         Returns: Json
       }
       delete_tecnico_atomic: {

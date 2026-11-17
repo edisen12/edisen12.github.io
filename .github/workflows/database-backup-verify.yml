@@ -1,0 +1,82 @@
+name: Backup Verification & Disaster Recovery Drill
+
+on:
+  schedule:
+    # Todo domingo às 03:00 UTC (00:00 BRT)
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/backup-and-verify-restore.sh'
+      - '.github/workflows/database-backup-verify.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-script-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validar sintaxe POSIX/Bash do script de DR
+        run: bash -n scripts/backup-and-verify-restore.sh
+
+  verify-backup-restore:
+    needs: validate-script-syntax
+    if: ${{ secrets.SOURCE_DATABASE_URL != '' }}
+    runs-on: ubuntu-latest
+    services:
+      verify-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: verify_ephemeral_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Instalar cliente PostgreSQL 17
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Preparar roles e stubs compatíveis no banco temporário de verificação
+        env:
+          PGPASSWORD: verify_ephemeral_password
+        run: |
+          psql "postgres://postgres:verify_ephemeral_password@127.0.0.1:5432/template1" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+          END $$;
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS 'SELECT NULL::uuid';
+          CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS 'SELECT ''service_role''::text';
+          SQL
+
+      - name: Executar backup e prova automatizada de restauração ("Backup que Volta")
+        env:
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
+          VERIFY_ADMIN_URL: postgres://postgres:verify_ephemeral_password@127.0.0.1:5432/postgres
+          BACKUP_DIR: ${{ runner.temp }}/hhoffshore-backups
+          PG_SCHEMA: public
+        run: bash ./scripts/backup-and-verify-restore.sh

@@ -26,7 +26,9 @@ import {
   UserX,
   UserPlus,
   FileJson,
-  Shield
+  Shield,
+  Clock,
+  Save
 } from 'lucide-react';
 import { useApp } from '../state/AppContext';
 import { useToast } from '../components/ToastContext';
@@ -39,11 +41,16 @@ import {
   ToggleActiveModal,
   DeleteUserModal
 } from '../modals/AdminAccountModals';
-import { fetchSystemAuditLogs } from '../../services/data.service';
-import { ROLES_LABEL } from '../../config/constants';
+import {
+  fetchSystemAuditLogs,
+  anonimizarTecnicoLgpd,
+  executarRetencaoLgpd,
+  saveConfiguracoes
+} from '../../services/data.service';
+import { DEFAULT_CONFIG, ROLES_LABEL } from '../../config/constants';
 import type { SystemAuditLog, UserProfile, SystemRole } from '../../domain/types';
 
-type AdminMainTab = 'audit' | 'users';
+type AdminMainTab = 'audit' | 'users' | 'lgpd';
 type CategoryFilter = 'all' | 'usuarios' | 'seguranca' | 'configuracoes' | 'cadastros' | 'operacional';
 
 export const AdminAuditView: React.FC = () => {
@@ -76,6 +83,26 @@ export const AdminAuditView: React.FC = () => {
   const [resetPwUser, setResetPwUser] = useState<UserProfile | null>(null);
   const [toggleActiveUser, setToggleActiveUser] = useState<UserProfile | null>(null);
   const [deleteTargetUser, setDeleteTargetUser] = useState<UserProfile | null>(null);
+
+  // Estados de Privacidade & Governança LGPD
+  const [dpoContatoInput, setDpoContatoInput] = useState<string>(dataset?.config?.dpo_contato || '');
+  const [savingDpo, setSavingDpo] = useState<boolean>(false);
+  const [anonMatInput, setAnonMatInput] = useState<string>('');
+  const [anonConfirmOpen, setAnonConfirmOpen] = useState<boolean>(false);
+  const [anonLoading, setAnonLoading] = useState<boolean>(false);
+  const [retAnosInput, setRetAnosInput] = useState<number>(5);
+  const [retMesesIpInput, setRetMesesIpInput] = useState<number>(12);
+  const [retLoading, setRetLoading] = useState<boolean>(false);
+  const [retLastResult, setRetLastResult] = useState<{
+    tecnicos_anonimizados: number;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+    ips_expurgados: number;
+  } | null>(null);
+
+  useEffect(() => {
+    setDpoContatoInput(dataset?.config?.dpo_contato || '');
+  }, [dataset?.config?.dpo_contato]);
 
   // Carregamento de Logs
   const loadLogs = useCallback(async () => {
@@ -167,6 +194,81 @@ export const AdminAuditView: React.FC = () => {
     });
   }, [allProfilesList, roleFilter, userSearch]);
 
+  // Lista de técnicos elegíveis para seleção na aba LGPD
+  const tecnicosDisponiveis = useMemo(() => {
+    return Object.values(dataset?.tecnicos || {})
+      .filter(t => t && t.matricula && !t.nome.startsWith('Técnico Anonimizado'))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [dataset?.tecnicos]);
+
+  // Handlers de Privacidade & Retenção LGPD
+  const handleSaveDpoContato = async () => {
+    setSavingDpo(true);
+    try {
+      const baseConfig = dataset?.config || DEFAULT_CONFIG;
+      await saveConfiguracoes(
+        {
+          ...baseConfig,
+          dpo_contato: dpoContatoInput.trim()
+        },
+        [],
+        dataset?.emailsResumo || []
+      );
+      await refreshData();
+      showToast('Canal de contato do Encarregado (DPO) atualizado com sucesso!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao salvar canal de contato DPO.', 'error');
+    } finally {
+      setSavingDpo(false);
+    }
+  };
+
+  const handleConfirmAnonimizacao = async () => {
+    const mat = anonMatInput.trim();
+    if (!mat) return;
+    setAnonLoading(true);
+    try {
+      const res = await anonimizarTecnicoLgpd(mat);
+      setAnonConfirmOpen(false);
+      setAnonMatInput('');
+      await refreshData();
+      await loadLogs();
+      showToast(
+        `Titular mat. ${mat} anonimizado via LGPD (${res.operacoes_anonimizadas} operações e ${res.justificativas_higienizadas} justificativas higienizadas).`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao executar anonimização LGPD.', 'error');
+    } finally {
+      setAnonLoading(false);
+    }
+  };
+
+  const handleExecutarRetencaoLgpd = async () => {
+    setRetLoading(true);
+    try {
+      const anos = Math.max(5, Math.trunc(Number(retAnosInput) || 5));
+      const mesesIp = Math.max(12, Math.trunc(Number(retMesesIpInput) || 12));
+      const res = await executarRetencaoLgpd(anos, mesesIp);
+      setRetLastResult({
+        tecnicos_anonimizados: res.tecnicos_anonimizados,
+        operacoes_anonimizadas: res.operacoes_anonimizadas,
+        justificativas_higienizadas: res.justificativas_higienizadas,
+        ips_expurgados: res.ips_expurgados
+      });
+      await refreshData();
+      await loadLogs();
+      showToast(
+        `Rotina de retenção LGPD concluída: ${res.tecnicos_anonimizados} técnico(s), ${res.justificativas_higienizadas} justificativa(s) e ${res.ips_expurgados} IP(s) expurgado(s).`,
+        'success'
+      );
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao executar rotina de retenção LGPD.', 'error');
+    } finally {
+      setRetLoading(false);
+    }
+  };
+
   // Opções do SegmentedControl Principal
   const tabOptions: Array<SegmentedOption<AdminMainTab>> = [
     {
@@ -180,6 +282,11 @@ export const AdminAuditView: React.FC = () => {
       label: 'Gestão Global de Administradores & Acessos',
       count: allProfilesList.length,
       icon: <Users size={16} />
+    },
+    {
+      value: 'lgpd',
+      label: 'Privacidade & LGPD',
+      icon: <ShieldCheck size={16} />
     }
   ];
 
@@ -746,6 +853,220 @@ export const AdminAuditView: React.FC = () => {
             </table>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ABA 3: GOVERNANÇA DE PRIVACIDADE, ANONIMIZAÇÃO & RETENÇÃO LGPD */}
+      {/* ========================================================================= */}
+      {activeTab === 'lgpd' && (
+        <div className="stack" style={{ gap: '16px' }}>
+          <div className="note note-blue" style={{ margin: 0 }}>
+            <strong>Governança Ativa LGPD (Lei nº 13.709/2018):</strong> Controle operacional restrito a Administradores para configuração do Encarregado (DPO — Art. 41), atendimento ao direito de anonimização do titular (Art. 18, VI) e expurgo periódico conforme tabela de temporalidade (Art. 15 e 16).
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+              gap: '16px',
+              alignItems: 'stretch'
+            }}
+          >
+            {/* Card 1: Canal do Encarregado (DPO) */}
+            <div className="card stack" style={{ gap: '12px', justifyContent: 'space-between' }}>
+              <div className="stack" style={{ gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Mail size={18} color="var(--blue)" />
+                  <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Canal do Encarregado (DPO · Art. 41)</h3>
+                </div>
+                <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
+                  Exibido no Aviso de Privacidade apenas para usuários autenticados, sem expor endereços pessoais no código-fonte público ou na tela de login.
+                </p>
+                <div>
+                  <label
+                    htmlFor="lgpd-dpo-input"
+                    style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}
+                  >
+                    E-mail funcional ou canal de Compliance
+                  </label>
+                  <input
+                    id="lgpd-dpo-input"
+                    type="text"
+                    value={dpoContatoInput}
+                    onChange={e => setDpoContatoInput(e.target.value)}
+                    placeholder="Ex.: dpo@empresa.com.br ou Canal de Ética/Compliance"
+                    disabled={savingDpo}
+                    style={{ width: '100%', padding: '8px 12px' }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handleSaveDpoContato}
+                  disabled={savingDpo}
+                >
+                  <Save size={15} />
+                  {savingDpo ? 'Salvando...' : 'Salvar canal DPO'}
+                </button>
+              </div>
+            </div>
+
+            {/* Card 2: Anonimização Individual de Titular (Art. 18 VI) */}
+            <div className="card stack" style={{ gap: '12px', justifyContent: 'space-between' }}>
+              <div className="stack" style={{ gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <UserX size={18} color="var(--warn)" />
+                  <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Anonimização de Titular (Art. 18, VI)</h3>
+                </div>
+                <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
+                  Remove permanentemente nome pessoal, credencial de terceiros e textos livres em justificativas do colaborador, preservando os quantitativos de HH e USOFF para auditoria contratual e fiscal.
+                </p>
+                <div>
+                  <label
+                    htmlFor="lgpd-anon-matricula"
+                    style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}
+                  >
+                    Colaborador / Matrícula
+                  </label>
+                  <select
+                    id="lgpd-anon-matricula"
+                    value={anonMatInput}
+                    onChange={e => setAnonMatInput(e.target.value)}
+                    disabled={anonLoading}
+                    style={{ width: '100%', padding: '8px 10px' }}
+                  >
+                    <option value="">Selecione um técnico para anonimizar...</option>
+                    {tecnicosDisponiveis.map(t => (
+                      <option key={t.matricula} value={t.matricula}>
+                        {t.nome} — Mat. {t.matricula} ({t.funcao})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn btn-warn btn-sm"
+                  onClick={() => setAnonConfirmOpen(true)}
+                  disabled={!anonMatInput.trim() || anonLoading}
+                >
+                  <ShieldAlert size={15} />
+                  Anonimizar Titular (LGPD)
+                </button>
+              </div>
+            </div>
+
+            {/* Card 3: Motor de Retenção e Expurgo de IPs (Art. 15 e 16) */}
+            <div className="card stack" style={{ gap: '12px', justifyContent: 'space-between' }}>
+              <div className="stack" style={{ gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Clock size={18} color="var(--blue)" />
+                  <h3 style={{ margin: 0, fontSize: '1.05rem' }}>Rotina de Retenção & Expurgo (Art. 15–16)</h3>
+                </div>
+                <p className="sub" style={{ margin: 0, fontSize: '0.84rem' }}>
+                  Higieniza descrições antigas, anonimiza técnicos desligados fora do prazo de guarda e remove endereços IP da trilha WORM acima da janela definida, sem alterar eventos ou medições.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label
+                      htmlFor="lgpd-ret-anos"
+                      style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}
+                    >
+                      Retenção operacional (anos)
+                    </label>
+                    <input
+                      id="lgpd-ret-anos"
+                      type="number"
+                      min={5}
+                      max={30}
+                      value={retAnosInput}
+                      onChange={e => setRetAnosInput(Math.max(5, Number(e.target.value) || 5))}
+                      disabled={retLoading}
+                      style={{ width: '100%', padding: '7px 10px' }}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="lgpd-ret-meses-ip"
+                      style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}
+                    >
+                      Retenção de IP em logs (meses)
+                    </label>
+                    <input
+                      id="lgpd-ret-meses-ip"
+                      type="number"
+                      min={12}
+                      max={60}
+                      value={retMesesIpInput}
+                      onChange={e => setRetMesesIpInput(Math.max(12, Number(e.target.value) || 12))}
+                      disabled={retLoading}
+                      style={{ width: '100%', padding: '7px 10px' }}
+                    />
+                  </div>
+                </div>
+                {retLastResult && (
+                  <div className="pill pill-ok" style={{ width: 'fit-content', fontSize: '0.78rem' }}>
+                    Última execução: {retLastResult.tecnicos_anonimizados} técnico(s), {retLastResult.justificativas_higienizadas} justificativa(s), {retLastResult.ips_expurgados} IP(s) expurgados
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handleExecutarRetencaoLgpd}
+                  disabled={retLoading}
+                >
+                  <RefreshCw size={15} />
+                  {retLoading ? 'Executando...' : 'Executar Rotina de Retenção'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação Irreversível de Anonimização LGPD */}
+      {anonConfirmOpen && (
+        <Modal
+          open={anonConfirmOpen}
+          onClose={() => !anonLoading && setAnonConfirmOpen(false)}
+          title="Confirmar Anonimização Irreversível (LGPD Art. 18, VI)"
+          icon={<AlertTriangle size={18} color="var(--warn)" />}
+          maxWidth="520px"
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setAnonConfirmOpen(false)}
+                disabled={anonLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-warn btn-sm"
+                onClick={handleConfirmAnonimizacao}
+                disabled={anonLoading}
+              >
+                {anonLoading ? 'Processando...' : 'Confirmar Anonimização'}
+              </button>
+            </div>
+          }
+        >
+          <div className="stack" style={{ gap: '10px', fontSize: '0.88rem' }}>
+            <p style={{ margin: 0 }}>
+              Você está prestes a anonimizar o registro vinculado à matrícula <b>{anonMatInput}</b>.
+            </p>
+            <div className="note note-warn" style={{ margin: 0 }}>
+              Esta operação substitui o nome por <b>"Técnico Anonimizado (LGPD)"</b>, inativa o cadastro, remove qualquer identificador residual e apaga descrições textuais de justificativas, mantendo apenas totais numéricos contratuais (HH/USOFF). A ação não pode ser desfeita.
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* ========================================================================= */}

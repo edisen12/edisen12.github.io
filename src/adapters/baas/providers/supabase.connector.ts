@@ -495,6 +495,7 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
       us_pe_padrao: cfg.us_pe_padrao,
       us_ex_padrao: cfg.us_ex_padrao,
       slogan: cfg.slogan,
+      dpo_contato: cfg.dpo_contato ?? '',
       regionais_extras: cfg.regionais_extras,
       updated_at: new Date().toISOString()
     });
@@ -734,6 +735,37 @@ export const supabaseBaaSConnector: BaaSConnectorPort = {
 
   async resetCarteiraEmbarquesRPC(): Promise<{ deleted_operacoes: number; deleted_embarques: number }> {
     const { data, error } = await supabase.rpc('reset_carteira_embarques');
+    if (error) throw error;
+    return data as any;
+  },
+
+  async anonimizarTecnicoLgpdRPC(matricula: string): Promise<{
+    ok: boolean;
+    matricula: string;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+  }> {
+    const { data, error } = await supabase.rpc('anonimizar_tecnico_lgpd', {
+      p_matricula: matricula
+    });
+    if (error) throw error;
+    return data as any;
+  },
+
+  async executarRetencaoLgpdRPC(
+    anosOperacional: number = 5,
+    mesesLogsIp: number = 12
+  ): Promise<{
+    ok: boolean;
+    tecnicos_anonimizados: number;
+    operacoes_anonimizadas: number;
+    justificativas_higienizadas: number;
+    ips_expurgados: number;
+  }> {
+    const { data, error } = await supabase.rpc('executar_retencao_lgpd', {
+      p_anos_operacional: anosOperacional,
+      p_meses_logs_ip: mesesLogsIp
+    });
     if (error) throw error;
     return data as any;
   },

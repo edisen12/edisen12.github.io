@@ -64,6 +64,7 @@ function formatSenhaTrocada(isoString: string | null | undefined): string {
 
 export function UserSettingsView() {
   const {
+    dataset,
     userProfile,
     userOnboarding,
     pessoaScope,
@@ -1549,7 +1550,11 @@ export function UserSettingsView() {
       )}
 
       {privacyModalOpen && (
-        <PrivacyNoticeModal open={privacyModalOpen} onClose={() => setPrivacyModalOpen(false)} />
+        <PrivacyNoticeModal
+          open={privacyModalOpen}
+          onClose={() => setPrivacyModalOpen(false)}
+          dpoContato={dataset?.config?.dpo_contato}
+        />
       )}
     </div>
   );

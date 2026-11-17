@@ -3,7 +3,7 @@
 // PWA Estático Seguro — Zero PII / Zero Interceptação de Dados Contratuais ou Autenticação
 // ============================================================================
 
-const CACHE_NAME = 'hhoff-static-v2';
+const CACHE_NAME = 'hhoff-static-v3';
 
 // Assets estáticos públicos essenciais para pré-cache na instalação
 const PRECACHE_ASSETS = [
@@ -59,13 +59,10 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // 2. Proibição absoluta de interceptar URLs externas de dados/APIs/Supabase
+  // 2. Proibição absoluta de interceptar URLs externas (sem CDN externo; zero transmissão de IP)
   const isSameOrigin = url.origin === self.location.origin;
-  const isGoogleFonts =
-    url.origin === 'https://fonts.googleapis.com' ||
-    url.origin === 'https://fonts.gstatic.com';
 
-  if (!isSameOrigin && !isGoogleFonts) {
+  if (!isSameOrigin) {
     // Supabase (*.supabase.co), APIs remotas ou qualquer serviço externo: bypass total
     return;
   }
@@ -148,9 +145,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 7. Demais assets estáticos (ícones, manifesto, fontes) — Stale-While-Revalidate
+  // 7. Demais assets estáticos locais (ícones, manifesto, fontes) — Stale-While-Revalidate
   const isStaticResource =
-    isGoogleFonts ||
     pathname.endsWith('.webmanifest') ||
     pathname.endsWith('.png') ||
     pathname.endsWith('.svg') ||

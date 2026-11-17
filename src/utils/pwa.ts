@@ -177,9 +177,28 @@ export function initPwa(): void {
       window.location.hostname === '127.0.0.1')
   ) {
     const registerSw = () => {
+      let hadController = Boolean(navigator.serviceWorker.controller);
+      let isRefreshingForSwUpdate = false;
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !isRefreshingForSwUpdate) {
+          isRefreshingForSwUpdate = true;
+          window.location.reload();
+        }
+        hadController = true;
+      });
+
       navigator.serviceWorker
-        .register('./sw.js')
+        .register('./sw.js', { updateViaCache: 'none' })
         .then((registration) => {
+          void registration.update().catch(() => {});
+
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              void registration.update().catch(() => {});
+            }
+          });
+
           // Monitora atualizações em segundo plano
           registration.addEventListener('updatefound', () => {
             const installing = registration.installing;
@@ -189,7 +208,7 @@ export function initPwa(): void {
                   installing.state === 'installed' &&
                   navigator.serviceWorker.controller
                 ) {
-                  // Nova versão estática disponível silenciosamente
+                  // Nova versão estática instalada; skipWaiting dispara controllerchange para recarregar
                 }
               });
             }

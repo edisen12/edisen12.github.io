@@ -710,6 +710,8 @@ describe('Views Operacionais (VisaoGeralView, PainelDiaView, EmbarqueAtualView, 
       const { unmount: unmountAdminDia } = renderWithToast(<PainelDiaView />);
       expect(screen.queryByRole('button', { name: 'Justificar' })).toBeNull();
       expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+      expect(screen.queryByText(/Favor justificar\./i)).toBeNull();
+      expect(screen.getByText(/Aguardando justificativa dos responsáveis operacionais\./i)).not.toBeNull();
       expect(screen.getByRole('button', { name: 'E-mail' })).not.toBeNull();
       unmountAdminDia();
     });

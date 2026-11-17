@@ -3,7 +3,7 @@
 // PWA Estático Seguro — Zero PII / Zero Interceptação de Dados Contratuais ou Autenticação
 // ============================================================================
 
-const CACHE_NAME = 'hhoff-static-v3';
+const CACHE_NAME = 'hhoff-static-v4';
 
 // Assets estáticos públicos essenciais para pré-cache na instalação
 const PRECACHE_ASSETS = [
@@ -94,11 +94,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 5. Navegação HTML (requisição do documento principal) — Network-First
-  // Garante que o usuário sempre receba a versão mais recente e só usa cache offline se a rede falhar
+  // 5. Navegação HTML (requisição do documento principal) — Network-First com revalidação
+  // Garante que o usuário sempre receba a versão mais recente (furando cache HTTP do CDN) e só usa cache offline se a rede falhar
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-cache' })
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();

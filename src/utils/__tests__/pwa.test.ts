@@ -395,7 +395,7 @@ describe('3. Segurança e Bypass Estrito do Service Worker (public/sw.js)', () =
     const assetResp = await assetDispatch.respondWith.mock.calls[0][0];
     expect(assetResp.status).toBe(200);
 
-    // Navegação de documento -> Network-First
+    // Navegação de documento -> Network-First com cache: 'no-cache'
     const navDispatch = sw.dispatchFetch({
       url: 'https://edisen12.github.io/',
       method: 'GET',
@@ -404,6 +404,10 @@ describe('3. Segurança e Bypass Estrito do Service Worker (public/sw.js)', () =
     expect(navDispatch.respondWith).toHaveBeenCalledTimes(1);
     const navResp = await navDispatch.respondWith.mock.calls[0][0];
     expect(navResp.status).toBe(200);
+    expect(sw.mockFetch).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'https://edisen12.github.io/' }),
+      { cache: 'no-cache' }
+    );
 
     // Ciclo activate remove caches obsoletos mantendo apenas CACHE_NAME atual
     sw.cacheStore.set('hhoff-static-v1-legado', new Map());

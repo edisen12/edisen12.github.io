@@ -529,7 +529,9 @@ export function PainelDiaView() {
           <b>
             {plural(pend.length, 'técnico não executou', 'técnicos não executaram')} as horas disponíveis em {formatBr(D)}.
           </b>{' '}
-          Favor justificar.
+          {canJustify
+            ? 'Favor justificar.'
+            : 'Aguardando justificativa dos responsáveis operacionais.'}
           {semCount > 0 && (
             <>
               {' '}

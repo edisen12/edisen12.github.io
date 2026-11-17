@@ -1,6 +1,6 @@
 # Handoff — HH Offshore · Infotec Brasil
 
-> Última atualização: 2026-11-17 09:42 (BRT) · Branch `main` (base `2a6fbba`) · Migrations `023`–`034` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Hierarquia operacional de cobrança, bloqueio de justificativas por `admin` e correção de parse YAML nos workflows `lgpd-retention-monthly.yml` / `database-backup-verify.yml` concluídos ✅ · 37 arquivos / 666 testes aprovados ✅
+> Última atualização: 2026-11-17 11:06 (BRT) · Branch `main` (base `be39933`) · Migrations `023`–`034` aplicadas em produção (`fwdvrkfootvublicetim`) ✅ · Hierarquia operacional de cobrança, bloqueio de justificativas por `admin`, correção YAML dos workflows e auto-atualização SW PWA (`sw.js v4` + `no-cache`) concluídos ✅ · 37 arquivos / 666 testes aprovados ✅
 
 ## 1. Resumo Executivo
 
@@ -219,6 +219,7 @@
     - *UI (`JustificativasView.tsx`, `PainelDiaView.tsx`, `VisaoGeralView.tsx`, `FichaTecnicoDrawer.tsx`, `JustificativaModal.tsx`, `EmailComposerModal.tsx`, `StickyFilterBar.tsx`, `ScopeBanner.tsx`):* `controlador` sem aba de cobrança nem botões `Cobrar`/`E-mail`; `preposto` vê e cobra somente `controlador`es subordinados (com filtro opcional em `StickyFilterBar` e feedback no `ScopeBanner`); `gestor` cobra `preposto`s e `controlador`es; `admin` cobra todos os papéis operacionais sem visualizar botões `Justificar`/`Editar` nem conseguir submeter `JustificativaModal`.
     - *Testes Adicionados/Atualizados:* `calculations.test.ts` (50), `communications.test.ts` (12), `impersonation.test.ts` (5), `rls-policies.test.ts`, `lgpd-compliance.test.ts` (12), `ModalsAndDrawer.test.tsx` e `OperationalViews.test.tsx`.
     - *Correção de Workflows GitHub Actions (`.github/workflows/{lgpd-retention-monthly,database-backup-verify}.yml`):* removido `secrets.*` de `jobs.<id>.if` (inválido no parser YAML do Actions, que gerava `startup_failure` a cada `push`); `lgpd-retention-monthly.yml` passou a validar `SUPABASE_SERVICE_ROLE_KEY` via `env:` no step e `database-backup-verify.yml` passou a expor booleano `'true'`/`'false'` via `GITHUB_OUTPUT` em `validate-script-syntax` antes de condicionar `verify-backup-restore`.
+    - *Atualização Imediata de Cache PWA & Texto `admin` (`public/sw.js` `v4`, `src/utils/pwa.ts`, `src/ui/views/PainelDiaView.tsx`):* bump do cache estático para `hhoff-static-v4` com `{ cache: 'no-cache' }` na navegação HTML, registro `./sw.js` com `updateViaCache: 'none'` + `controllerchange` auto-reload único (eliminando retenção de bundle antigo pelo cache de 10 min do GitHub Pages) e troca de `"Favor justificar."` por `"Aguardando justificativa dos responsáveis operacionais."` para `admin` em `PainelDiaView.tsx`.
 
   - **Resultados de Qualidade:**
     - `npm --prefix server run typecheck` + `npm run typecheck`: **0 erros**.
